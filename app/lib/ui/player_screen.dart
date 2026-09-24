@@ -28,9 +28,10 @@ import 'thread_progress.dart';
 
 /// docs/KONZEPT.md "Screens": "1. Start ist der Player: Cover, Titel,
 /// Kapitel, Restzeit, der Faden als Buchfortschritt (nicht ziehbar), großer
-/// Button." Also owns night mode (docs/KONZEPT.md "Nachtmodus") and the
-/// sleep timer (signals/sleep_timer.dart), since both are stated in terms
-/// of "the player screen", not a separate route.
+/// Button." Also owns the sleep timer (signals/sleep_timer.dart) and the
+/// night view's player layout (docs/KONZEPT.md "Nachtmodus": black, no
+/// cover, title and chapter dimmed; switched by the display brightness,
+/// [nightModeProvider], decision E54).
 class PlayerScreen extends ConsumerStatefulWidget {
   const PlayerScreen({super.key});
 
@@ -52,7 +53,6 @@ class PlayerScreen extends ConsumerStatefulWidget {
 }
 
 class _PlayerScreenState extends ConsumerState<PlayerScreen> {
-  late final ScreenLockController _lock;
   late final SleepTimerController _sleepTimer;
   late final FadenAudioHandler _handler;
   final List<StreamSubscription<Object?>> _subs = [];
@@ -75,7 +75,6 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
   @override
   void initState() {
     super.initState();
-    _lock = ScreenLockController();
     final handler = _handler = ref.read(audioHandlerProvider);
     _sleepTimer = SleepTimerController(
       // docs/ARCHITEKTUR.md section 9: "SLEEP_HINT entsteht beim Ablauf des
@@ -87,18 +86,6 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
       // chapter actually playing, at the current speed.
       isPlaying: () => handler.playing,
       chapterRemaining: () => handler.chapterRemaining(),
-    );
-    _subs.add(
-      _lock.lockedStream.listen((locked) {
-        // The 1 s hold worked: a light tick, since the screen may be dark.
-        if (!locked) unawaited(HapticFeedback.lightImpact());
-        if (mounted) setState(() {});
-      }),
-    );
-    _subs.add(
-      _sleepTimer.stateStream.listen((_) {
-        if (mounted) setState(() {});
-      }),
     );
     _subs.add(handler.undoHints.listen(_showUndoHint));
     _subs.add(handler.chapterAdvanced.listen((_) => _sleepTimer.onChapterAdvanced()));
@@ -167,16 +154,14 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
     for (final sub in _subs) {
       unawaited(sub.cancel());
     }
-    _lock.dispose();
     _sleepTimer.dispose();
     _chrome?.dispose();
     super.dispose();
   }
 
   /// The device-time night window right now (docs/ARCHITEKTUR.md section 9's
-  /// "im Nachtfenster" for a media/system pause) -- distinct from [_isNight]
-  /// below, which also counts a running sleep timer as "night mode" for the
-  /// UI's own dark styling.
+  /// "im Nachtfenster" for a media/system pause, SLEEP_HINT). It no longer
+  /// switches the night view, which follows the display brightness (E54).
   ///
   /// Reads the window from [nightWindowProvider] on every call, so a change
   /// in the settings screen applies at once (the player stays mounted below
@@ -193,19 +178,11 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
     );
   }
 
-  bool get _isNight =>
-      isNightModeActive(inNightWindow: _inNightWindowNow, sleepTimerRunning: _sleepTimer.state.running);
-
   /// docs/ARCHITEKTUR.md section 9: "AWAKE entsteht bei Berührung des
-  /// Player-Screens". Fired on every touch, regardless of lock state
-  /// (rate-limited to at most 1 per 10s inside audio/handler.dart's
-  /// `awake()`, so this is cheap to call unconditionally).
-  void _onInteraction() {
-    _lock.onInteraction();
-    unawaited(_handler.awake());
-  }
-
-  bool get _locked => _isNight && _lock.locked;
+  /// Player-Screens". Fired on every touch (rate-limited to at most 1 per
+  /// 10s inside audio/handler.dart's `awake()`, so this is cheap to call
+  /// unconditionally).
+  void _onInteraction() => unawaited(_handler.awake());
 
   /// Pushed on top (not replacing the player), so the player -- and its
   /// sleep timer -- stays alive below the library and the mini player can
@@ -216,18 +193,13 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
 
   void _openDetails() {
     final chrome = _chrome;
-    if (chrome == null || _locked) return;
+    if (chrome == null) return;
     unawaited(
       showDetailsSheet(
         context,
         chrome: chrome,
         sleepTimer: _sleepTimer,
-        hooks: DetailsSheetHooks(
-          onInteraction: _onInteraction,
-          onUnlockHoldStart: _lock.startUnlockHold,
-          onUnlockHoldEnd: _lock.cancelUnlockHold,
-          onOpenLibrary: _openLibrary,
-        ),
+        hooks: DetailsSheetHooks(onInteraction: _onInteraction, onOpenLibrary: _openLibrary),
       ),
     );
   }
@@ -296,9 +268,8 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
     if (held != null) _showUndoHint(held);
   }
 
-  /// Hands the current look to open sheets and, for the rest of the app,
-  /// to [nightModeProvider] (E46) -- after the frame, since both rebuild
-  /// widgets outside this one.
+  /// Hands the current look to open sheets (E46) -- after the frame,
+  /// since they rebuild widgets outside this one.
   void _publish(PlayerChrome chrome) {
     final notifier = _chrome;
     if (notifier == null) {
@@ -308,33 +279,26 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
         if (mounted) notifier.value = chrome;
       });
     }
-    if (ref.read(nightModeProvider) != chrome.night) {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted) ref.read(nightModeProvider.notifier).set(chrome.night);
-      });
-    }
   }
 
   @override
   Widget build(BuildContext context) {
     final session = ref.watch(playerSessionProvider);
-    // Rebuild when the night window setting loads or changes.
+    // Keeps the night window loaded for the SLEEP_HINT hook
+    // ([_inNightWindowNow]); it does not affect the look (E54).
     ref.watch(nightWindowProvider);
-    final night = _isNight;
-    // Decision E28: Nachtmodus always gets the night look; otherwise the
-    // "Erscheinungsbild" setting decides. Only [night] drives the
-    // Nachtmodus *behaviour* below (cover hidden, ring button, lock) --
-    // "Dunkel" shares the night colours, not that behaviour.
+    final night = ref.watch(nightModeProvider);
+    // Decision E28: the night view always gets the night look; otherwise
+    // the "Erscheinungsbild" setting decides. Only [night] drives the night
+    // layout below (cover hidden, title and chapter dimmed, ring button) --
+    // "Dunkel" shares the night colours, not that layout.
     final tokens = resolveFadenTokens(
       appearance: ref.watch(appearanceProvider),
       platformBrightness: MediaQuery.platformBrightnessOf(context),
       nightMode: night,
     );
     final theme = fadenThemeFor(tokens);
-    // docs/KONZEPT.md lists the 10 s button lock under "Nachtmodus" only;
-    // the lock controller itself runs all the time, so it is gated here.
-    final locked = night && _lock.locked;
-    _publish(PlayerChrome(theme: theme, night: night, locked: locked));
+    _publish(PlayerChrome(theme: theme, night: night));
 
     if (!session.isOpen || session.manifest == null || session.bookState == null) {
       // Opening the book: an empty screen in the right colour, no spinner
@@ -375,9 +339,6 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
                 child: PlayerBody(
                   tokens: tokens,
                   night: night,
-                  locked: locked,
-                  onUnlockHoldStart: _lock.startUnlockHold,
-                  onUnlockHoldEnd: _lock.cancelUnlockHold,
                   // KONZEPT.md "Nachtmodus": only headphone buttons extend the
                   // sleep timer in its last minute; screen buttons act normally.
                   onMainButton: () {
@@ -415,9 +376,6 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
 class PlayerBody extends ConsumerWidget {
   final FadenTokens tokens;
   final bool night;
-  final bool locked;
-  final VoidCallback onUnlockHoldStart;
-  final VoidCallback onUnlockHoldEnd;
   final VoidCallback onMainButton;
   final void Function(int deltaSeconds) onSeek;
   final VoidCallback onResumeFromStop;
@@ -428,9 +386,6 @@ class PlayerBody extends ConsumerWidget {
     super.key,
     required this.tokens,
     required this.night,
-    required this.locked,
-    required this.onUnlockHoldStart,
-    required this.onUnlockHoldEnd,
     required this.onMainButton,
     required this.onSeek,
     required this.onResumeFromStop,
@@ -452,18 +407,12 @@ class PlayerBody extends ConsumerWidget {
 
     return GestureDetector(
       behavior: HitTestBehavior.opaque,
-      onLongPressStart: locked ? (_) => onUnlockHoldStart() : null,
-      onLongPressEnd: locked ? (_) => onUnlockHoldEnd() : null,
-      onLongPressCancel: locked ? onUnlockHoldEnd : null,
       // Up: details. Down: the library (the player slides away, E49).
-      // Neither while the night lock is on.
-      onVerticalDragEnd: locked
-          ? null
-          : (details) {
-              final velocity = details.primaryVelocity ?? 0;
-              if (velocity < -200) onOpenDetails();
-              if (velocity > 200) onOpenLibrary();
-            },
+      onVerticalDragEnd: (details) {
+        final velocity = details.primaryVelocity ?? 0;
+        if (velocity < -200) onOpenDetails();
+        if (velocity > 200) onOpenLibrary();
+      },
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 24),
         child: LayoutBuilder(
@@ -471,9 +420,16 @@ class PlayerBody extends ConsumerWidget {
             final coverMax = math.min(constraints.maxWidth, constraints.maxHeight * 0.38);
             return Column(
               children: [
-                if (night)
-                  const Spacer()
-                else
+                if (night) ...[
+                  const Spacer(),
+                  _NightBookInfo(
+                    session: session,
+                    manifest: manifest,
+                    handler: handler,
+                    initial: initial,
+                    tokens: tokens,
+                  ),
+                ] else
                   Expanded(
                     child: _BookInfo(
                       session: session,
@@ -500,7 +456,7 @@ class PlayerBody extends ConsumerWidget {
                           label: AppStrings.seekBackAction,
                           tokens: tokens,
                           night: night,
-                          onPressed: locked ? null : () => onSeek(-30),
+                          onPressed: () => onSeek(-30),
                         ),
                         const SizedBox(width: 24),
                         PlayerMainButton(
@@ -509,7 +465,7 @@ class PlayerBody extends ConsumerWidget {
                           playing: status.playing,
                           buffering: status.buffering,
                           sleepSuspected: bookState.sleepSuspected,
-                          onPressed: locked ? null : onMainButton,
+                          onPressed: onMainButton,
                         ),
                         const SizedBox(width: 24),
                         _SeekButton(
@@ -517,7 +473,7 @@ class PlayerBody extends ConsumerWidget {
                           label: AppStrings.seekForwardAction,
                           tokens: tokens,
                           night: night,
-                          onPressed: locked ? null : () => onSeek(30),
+                          onPressed: () => onSeek(30),
                         ),
                       ],
                     );
@@ -533,7 +489,7 @@ class PlayerBody extends ConsumerWidget {
                     style: TextStyle(fontSize: FadenTypeSizes.body, color: tokens.tinte),
                   ),
                   TextButton(
-                    onPressed: locked ? null : onResumeFromStop,
+                    onPressed: onResumeFromStop,
                     style: TextButton.styleFrom(
                       foregroundColor: tokens.faden,
                       textStyle: const TextStyle(fontSize: FadenTypeSizes.caption),
@@ -541,17 +497,8 @@ class PlayerBody extends ConsumerWidget {
                     child: Text(AppStrings.resumeFromStop),
                   ),
                 ],
-                if (locked)
-                  Padding(
-                    padding: const EdgeInsets.only(top: 8),
-                    child: Text(
-                      AppStrings.lockedHint,
-                      textAlign: TextAlign.center,
-                      style: TextStyle(color: tokens.tinteLeise, fontSize: FadenTypeSizes.caption),
-                    ),
-                  ),
                 if (night) const Spacer() else const SizedBox(height: 8),
-                _DetailsHandle(tokens: tokens, onTap: locked ? null : onOpenDetails),
+                _DetailsHandle(tokens: tokens, onTap: onOpenDetails),
               ],
             );
           },
@@ -635,6 +582,50 @@ class _BookInfo extends StatelessWidget {
           handler: handler,
           initial: initial,
           text: (pos) => AppStrings.remainingTime(formatRemaining(remainingMsAt(manifest, pos))),
+          style: TextStyle(fontSize: FadenTypeSizes.caption, color: tokens.tinteLeise),
+        ),
+      ],
+    );
+  }
+}
+
+/// The night view's only book info (docs/KONZEPT.md "Nachtmodus", E54):
+/// title and current chapter, small and in `tinte-leise`, no cover, no
+/// author, no remaining time.
+class _NightBookInfo extends StatelessWidget {
+  final PlayerSessionController session;
+  final Manifest manifest;
+  final FadenAudioHandler handler;
+  final Position initial;
+  final FadenTokens tokens;
+
+  const _NightBookInfo({
+    required this.session,
+    required this.manifest,
+    required this.handler,
+    required this.initial,
+    required this.tokens,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      children: [
+        Text(
+          session.bookTitle ?? '',
+          textAlign: TextAlign.center,
+          maxLines: 2,
+          overflow: TextOverflow.ellipsis,
+          style: TextStyle(fontSize: FadenTypeSizes.body, color: tokens.tinteLeise, height: 1.2),
+        ),
+        const SizedBox(height: 4),
+        PositionText(
+          handler: handler,
+          initial: initial,
+          text: (pos) {
+            final idx = manifest.indexOf(pos.fileHash);
+            return idx < 0 ? '' : manifest.files[idx].displayTitle(AppStrings.chapterLabel(idx + 1));
+          },
           style: TextStyle(fontSize: FadenTypeSizes.caption, color: tokens.tinteLeise),
         ),
       ],
@@ -850,7 +841,7 @@ class _SeekButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // No tooltip: its long press would compete with the 1 s unlock hold.
+    // No tooltip: the icon's semantic label names the button.
     return SizedBox.square(
       dimension: fadenMinTapTarget,
       child: IconButton(
@@ -864,7 +855,7 @@ class _SeekButton extends StatelessWidget {
 /// A visible grip at the bottom: swipe up or tap for the details sheet.
 class _DetailsHandle extends StatelessWidget {
   final FadenTokens tokens;
-  final VoidCallback? onTap;
+  final VoidCallback onTap;
 
   const _DetailsHandle({required this.tokens, required this.onTap});
 
@@ -872,7 +863,7 @@ class _DetailsHandle extends StatelessWidget {
   Widget build(BuildContext context) {
     return Semantics(
       button: true,
-      enabled: onTap != null,
+      enabled: true,
       label: AppStrings.detailsOpen,
       child: GestureDetector(
         behavior: HitTestBehavior.opaque,
@@ -885,7 +876,7 @@ class _DetailsHandle extends StatelessWidget {
               width: 36,
               height: 5,
               decoration: BoxDecoration(
-                color: onTap == null ? tokens.tinteLeiseFaden.withValues(alpha: 0.2) : tokens.tinteLeiseFaden,
+                color: tokens.tinteLeiseFaden,
                 borderRadius: BorderRadius.circular(3),
               ),
             ),

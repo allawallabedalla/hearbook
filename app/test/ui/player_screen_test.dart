@@ -2,8 +2,11 @@
 // - no layout overflow on an iPhone SE (375x667) and an iPhone 15 Pro Max
 //   (430x932) at text scale 1.0 and 1.35, with and without "Faden
 //   aufnehmen", with a long title (decision E44);
-// - the details sheet takes the player's night colours in Nachtmodus and
-//   cannot be opened, or used, while the night lock is on (E46);
+// - the night view follows the display brightness (E54), not the night
+//   window or the sleep timer; it shows title and chapter dimmed, no cover,
+//   and has no button lock -- the player and the details sheet stay usable;
+// - the details sheet takes the player's night colours in the night view
+//   (E46);
 // - buffering and playback errors from the handler's status (E39);
 // - German speed labels and the minute-level remaining time.
 
@@ -30,6 +33,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'fake_audio_handler.dart';
+import 'fake_screen_brightness.dart';
 
 final _manifest = Manifest(manifestId: 'm1', files: [
   for (var i = 0; i < 24; i++)
@@ -62,12 +66,14 @@ void main() {
   late AppDatabase db;
   late FakeAudioHandler handler;
   late PlayerSessionController session;
+  late FakeScreenBrightness brightness;
 
   Future<void> pumpPlayer(
     WidgetTester tester, {
     Size size = _proMax,
     double textScale = 1.0,
     bool night = false,
+    bool nightWindow = false,
     bool sleepSuspected = false,
     String title = 'Der Zauberberg',
     String? author = 'Thomas Mann',
@@ -76,8 +82,8 @@ void main() {
       db = AppDatabase.memory();
       final journal = Journal(db);
       final store = SettingsStore(db);
-      if (night) {
-        // start == end: always night (signals/night.dart).
+      if (nightWindow) {
+        // start == end: always in the night window (signals/night.dart).
         await store.setNightStartMin(0);
         await store.setNightEndMin(0);
       } else {
@@ -105,9 +111,15 @@ void main() {
         : const FakeViewPadding(top: 59 * dpr, bottom: 34 * dpr);
     addTearDown(tester.view.reset);
 
+    // The night view follows the display brightness (E54).
+    brightness = FakeScreenBrightness(night ? 0.1 : 0.8);
+    addTearDown(brightness.close);
+
     await tester.pumpWidget(
       ProviderScope(
         overrides: [
+          screenBrightnessSourceProvider.overrideWithValue(brightness),
+          initialNightModeProvider.overrideWithValue(night),
           appDatabaseProvider.overrideWithValue(db),
           audioHandlerProvider.overrideWithValue(handler),
           playerSessionProvider.overrideWith((ref) => session),
@@ -177,8 +189,10 @@ void main() {
       await pumpPlayer(tester, size: _se, textScale: 1.35, night: true, sleepSuspected: true);
       expect(tester.takeException(), isNull);
       expect(find.byType(AppBar), findsNothing);
-      expect(find.text('Der Zauberberg'), findsNothing, reason: 'Nachtmodus: only thread and buttons');
+      expect(find.byType(CoverMonogram), findsNothing, reason: 'night view: no cover');
+      expectOnScreen(tester, find.text('Der Zauberberg'), _se);
       expectOnScreen(tester, find.byType(PlayerMainButton), _se);
+      expectOnScreen(tester, find.text(AppStrings.resumeFromStop), _se);
       await tearDownPlayer(tester);
     });
   });
@@ -294,6 +308,122 @@ void main() {
     });
   });
 
+  group('night view (display brightness, E54)', () {
+    Color scaffoldColor(WidgetTester tester) =>
+        tester.widget<Scaffold>(find.byType(Scaffold).first).backgroundColor!;
+
+    Future<void> setBrightness(WidgetTester tester, double value) async {
+      brightness.emit(value);
+      await tester.pump();
+      await tester.pump();
+    }
+
+    testWidgets('turns on below 30 % and off only above 35 %', (tester) async {
+      await pumpPlayer(tester);
+      expect(find.byType(AppBar), findsOneWidget);
+      expect(find.byType(CoverMonogram), findsOneWidget);
+      expect(scaffoldColor(tester), FadenTokens.day.grund);
+
+      await setBrightness(tester, 0.2);
+      expect(find.byType(AppBar), findsNothing);
+      expect(find.byType(CoverMonogram), findsNothing);
+      expect(scaffoldColor(tester), FadenTokens.night.grund);
+
+      await setBrightness(tester, 0.33);
+      expect(scaffoldColor(tester), FadenTokens.night.grund, reason: 'no flicker between 30 and 35 %');
+
+      await setBrightness(tester, 0.4);
+      expect(find.byType(AppBar), findsOneWidget);
+      expect(find.byType(CoverMonogram), findsOneWidget);
+      expect(scaffoldColor(tester), FadenTokens.day.grund);
+
+      await setBrightness(tester, 0.32);
+      expect(scaffoldColor(tester), FadenTokens.day.grund, reason: 'no flicker between 30 and 35 %');
+      await tearDownPlayer(tester);
+    });
+
+    testWidgets('the night window and a running sleep timer no longer switch it on', (tester) async {
+      await pumpPlayer(tester, nightWindow: true);
+      expect(scaffoldColor(tester), FadenTokens.day.grund);
+      expect(find.byType(CoverMonogram), findsOneWidget);
+      handler.fakePlaying = true;
+      await tester.tap(find.bySemanticsLabel(AppStrings.detailsOpen));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text(AppStrings.sleepTimerMinutes(15)));
+      await tester.pump();
+      await tester.pump();
+      expect(tester.widget<Material>(find.byKey(detailsSheetSurfaceKey)).color, FadenTokens.day.grund);
+      expect(scaffoldColor(tester), FadenTokens.day.grund);
+      handler.fakePlaying = false;
+      await tearDownPlayer(tester);
+    });
+
+    testWidgets('the night window still drives SLEEP_HINT, whatever the brightness', (tester) async {
+      await pumpPlayer(tester, nightWindow: true);
+      expect(handler.isInNightWindow?.call(), isTrue, reason: 'bright screen, but in the window');
+      await tearDownPlayer(tester);
+
+      await pumpPlayer(tester, night: true);
+      expect(handler.isInNightWindow?.call(), isFalse, reason: 'dark screen, but outside the window');
+      await tearDownPlayer(tester);
+    });
+
+    testWidgets('shows title and chapter small and dimmed, no cover', (tester) async {
+      await pumpPlayer(tester, night: true);
+      expect(find.byType(CoverMonogram), findsNothing);
+      expect(find.byType(BookCover), findsNothing);
+      expect(find.text('Thomas Mann'), findsNothing);
+      for (final text in ['Der Zauberberg', 'Kapitel 2: Ein Titel']) {
+        final widget = tester.widget<Text>(find.text(text));
+        expect(widget.style?.color, FadenTokens.night.tinteLeise, reason: text);
+        expect(widget.style?.fontSize, inInclusiveRange(FadenTypeSizes.caption, FadenTypeSizes.body), reason: text);
+        expect(widget.maxLines, inInclusiveRange(1, 2), reason: text);
+      }
+      final thread = tester.getTopLeft(find.byType(PlayerThread)).dy;
+      expect(tester.getBottomLeft(find.text('Kapitel 2: Ein Titel')).dy, lessThanOrEqualTo(thread),
+          reason: 'title and chapter sit above the thread');
+      await tearDownPlayer(tester);
+    });
+
+    testWidgets('has no button lock: player and details sheet stay usable after 10+ s', (tester) async {
+      await pumpPlayer(tester, night: true);
+      await tester.pump(const Duration(seconds: 15));
+      expect(find.textContaining('Gesperrt'), findsNothing);
+
+      await tester.tap(find.byType(PlayerMainButton));
+      await tester.pump();
+      expect(handler.calls.last, (action: 'play', source: EventSource.ui));
+      await tester.tap(find.bySemanticsLabel(AppStrings.seekBackAction));
+      await tester.pump();
+      await tester.tap(find.bySemanticsLabel(AppStrings.seekForwardAction));
+      await tester.pump();
+      expect(handler.seeks, ['by:-30', 'by:30']);
+
+      await tester.tap(find.bySemanticsLabel(AppStrings.detailsOpen));
+      await tester.pumpAndSettle();
+      expect(find.byType(DetailsSheetContent), findsOneWidget);
+      await tester.pump(const Duration(seconds: 15));
+      expect(find.textContaining('Gesperrt'), findsNothing);
+      final gesture = await tester.startGesture(tester.getCenter(find.byType(Slider)));
+      await tester.pump();
+      await gesture.moveBy(const Offset(20, 0));
+      await tester.pump();
+      await gesture.up();
+      await tester.pump();
+      expect(handler.seeks.last, startsWith('to:'));
+      await tearDownPlayer(tester);
+    });
+
+    testWidgets('a swipe up opens the details sheet', (tester) async {
+      await pumpPlayer(tester, night: true);
+      await tester.pump(const Duration(seconds: 15));
+      await tester.fling(find.byType(PlayerBody), const Offset(0, -300), 1500);
+      await tester.pumpAndSettle();
+      expect(find.byType(DetailsSheetContent), findsOneWidget);
+      await tearDownPlayer(tester);
+    });
+  });
+
   group('details sheet', () {
     Future<void> openSheet(WidgetTester tester) async {
       await tester.tap(find.bySemanticsLabel(AppStrings.detailsOpen));
@@ -316,31 +446,6 @@ void main() {
       await pumpPlayer(tester);
       await openSheet(tester);
       expect(tester.widget<Material>(find.byKey(detailsSheetSurfaceKey)).color, FadenTokens.day.grund);
-      await tearDownPlayer(tester);
-    });
-
-    testWidgets('cannot be opened while the night lock is on', (tester) async {
-      await pumpPlayer(tester, night: true);
-      await tester.pump(const Duration(seconds: 11));
-      expect(find.text(AppStrings.lockedHint), findsOneWidget);
-      await tester.tap(find.bySemanticsLabel(AppStrings.detailsOpen));
-      await tester.pumpAndSettle();
-      await tester.fling(find.byType(PlayerBody), const Offset(0, -300), 1500);
-      await tester.pumpAndSettle();
-      expect(find.byType(DetailsSheetContent), findsNothing);
-      await tearDownPlayer(tester);
-    });
-
-    testWidgets('its scrubber does nothing once the lock engages', (tester) async {
-      await pumpPlayer(tester, night: true);
-      await openSheet(tester);
-      await tester.pump(const Duration(seconds: 11));
-      await tester.pump();
-      await tester.pump();
-      expect(find.text(AppStrings.lockedHint), findsNWidgets(2), reason: 'player and sheet');
-      await tester.tap(find.byType(Slider), warnIfMissed: false);
-      await tester.pump();
-      expect(handler.seeks, isEmpty);
       await tearDownPlayer(tester);
     });
 

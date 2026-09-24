@@ -5,6 +5,10 @@ import UIKit
 @objc class AppDelegate: FlutterAppDelegate, FlutterImplicitEngineDelegate {
   /// Kept alive for the app's lifetime (lib/data/storage.dart).
   private var storageChannel: FlutterMethodChannel?
+  /// Kept alive for the app's lifetime (lib/signals/screen_brightness.dart).
+  private var brightnessChannel: FlutterMethodChannel?
+  private var brightnessEvents: FlutterEventChannel?
+  private let brightnessStream = BrightnessStreamHandler()
 
   override func application(
     _ application: UIApplication,
@@ -15,6 +19,8 @@ import UIKit
 
   func didInitializeImplicitFlutterEngine(_ engineBridge: FlutterImplicitEngineBridge) {
     GeneratedPluginRegistrant.register(with: engineBridge.pluginRegistry)
+
+    registerBrightnessChannels(engineBridge)
 
     // Downloaded audio can be gigabytes and is re-downloadable from the
     // server, so it must not go into the iCloud backup (decision E35).
@@ -45,5 +51,99 @@ import UIKit
       }
     }
     storageChannel = channel
+  }
+
+  /// The display brightness switches the night view (decision E54). Only
+  /// read, never set: `UIScreen.main.brightness` is the value the user
+  /// chose in Control Center or auto-brightness picked.
+  private func registerBrightnessChannels(_ engineBridge: FlutterImplicitEngineBridge) {
+    guard let registrar = engineBridge.pluginRegistry.registrar(forPlugin: "FadenBrightness") else {
+      return
+    }
+    let channel = FlutterMethodChannel(
+      name: "de.faden.app/brightness",
+      binaryMessenger: registrar.messenger()
+    )
+    channel.setMethodCallHandler { call, result in
+      guard call.method == "get" else {
+        result(FlutterMethodNotImplemented)
+        return
+      }
+      result(Double(UIScreen.main.brightness))
+    }
+    brightnessChannel = channel
+
+    let events = FlutterEventChannel(
+      name: "de.faden.app/brightness/changes",
+      binaryMessenger: registrar.messenger()
+    )
+    events.setStreamHandler(brightnessStream)
+    brightnessEvents = events
+  }
+}
+
+/// Sends `UIScreen.main.brightness` (0...1) while Dart listens: once on
+/// listen, on every `brightnessDidChangeNotification`, when the app becomes
+/// active again, and every 5 s while it is active -- the notification is
+/// not documented to fire for auto-brightness, so the poll catches a screen
+/// that dims itself in a dark bedroom.
+final class BrightnessStreamHandler: NSObject, FlutterStreamHandler {
+  private var sink: FlutterEventSink?
+  private var lastSent: CGFloat?
+  private var pollTimer: Timer?
+  private var observers: [NSObjectProtocol] = []
+
+  func onListen(withArguments arguments: Any?, eventSink events: @escaping FlutterEventSink) -> FlutterError? {
+    sink = events
+    let center = NotificationCenter.default
+    observers = [
+      center.addObserver(forName: UIScreen.brightnessDidChangeNotification, object: nil, queue: .main) {
+        [weak self] _ in self?.send()
+      },
+      center.addObserver(forName: UIApplication.didBecomeActiveNotification, object: nil, queue: .main) {
+        [weak self] _ in
+        self?.send()
+        self?.startPolling()
+      },
+      center.addObserver(forName: UIApplication.willResignActiveNotification, object: nil, queue: .main) {
+        [weak self] _ in self?.stopPolling()
+      },
+    ]
+    send(force: true)
+    if UIApplication.shared.applicationState == .active {
+      startPolling()
+    }
+    return nil
+  }
+
+  func onCancel(withArguments arguments: Any?) -> FlutterError? {
+    observers.forEach { NotificationCenter.default.removeObserver($0) }
+    observers = []
+    stopPolling()
+    sink = nil
+    lastSent = nil
+    return nil
+  }
+
+  private func startPolling() {
+    guard pollTimer == nil else { return }
+    pollTimer = Timer.scheduledTimer(withTimeInterval: 5, repeats: true) { [weak self] _ in
+      self?.send()
+    }
+  }
+
+  private func stopPolling() {
+    pollTimer?.invalidate()
+    pollTimer = nil
+  }
+
+  private func send(force: Bool = false) {
+    guard let sink = sink else { return }
+    let value = UIScreen.main.brightness
+    if !force, let last = lastSent, abs(last - value) < 0.005 {
+      return
+    }
+    lastSent = value
+    sink(Double(value))
   }
 }

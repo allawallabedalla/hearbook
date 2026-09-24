@@ -56,7 +56,6 @@ class AppStrings {
     'chapterLabel': 'Kapitel {n}',
     'chapterOfTotal': 'Kapitel {n} von {total}',
     'remainingTime': 'noch {time}',
-    'lockedHint': 'Gesperrt. Halten zum Entsperren.',
     'playAction': 'Wiedergabe starten',
     'pauseAction': 'Pause',
     'seekBackAction': '30 Sekunden zurück',
@@ -64,7 +63,7 @@ class AppStrings {
     'confirmManifestSuccess': 'Reihenfolge übernommen.',
     'settingsServerSection': 'Server',
     'settingsNightWindowTitle': 'Nachtfenster',
-    'settingsNightWindowExplanation': 'In dieser Zeit ist der Player dunkel und ohne Cover, die Tasten auf dem Bildschirm sperren sich nach 10 Sekunden. Läuft das Hörbuch darin länger als 3 Minuten, ohne dass du etwas tippst oder drückst, bietet Faden danach „Faden aufnehmen“ an.',
+    'settingsNightWindowExplanation': 'In dieser Zeit rechnet Faden damit, dass du einschläfst: Läuft das Hörbuch länger als 3 Minuten, ohne dass du etwas tippst oder drückst, bietet Faden danach „Faden aufnehmen“ an.',
     'settingsNightWindowStartPicker': 'Nacht beginnt um',
     'settingsNightWindowEndPicker': 'Nacht endet um',
     'timePickerConfirm': 'Übernehmen',
@@ -73,7 +72,7 @@ class AppStrings {
     'settingsAppearanceSystem': 'Wie iPhone',
     'settingsAppearanceLight': 'Hell',
     'settingsAppearanceDark': 'Dunkel',
-    'settingsAppearanceNightNote': 'Im Nachtfenster und mit Sleep-Timer ist Faden immer dunkel.',
+    'settingsAppearanceNightNote': 'Steht die Bildschirmhelligkeit unter 30 %, ist Faden immer dunkel und der Player zeigt kein Cover.',
     'miniPlayerOpen': 'Player öffnen',
     'remotePositionAdopted': 'Position vom anderen Gerät übernommen',
     'connectionOk': 'Verbindung steht.',
@@ -182,7 +181,6 @@ class AppStrings {
   static String get detailsSleepTimer => _of('detailsSleepTimer');
   static String get sleepTimerOff => _of('sleepTimerOff');
   static String get sleepTimerChapterEnd => _of('sleepTimerChapterEnd');
-  static String get lockedHint => _of('lockedHint');
   static String get playAction => _of('playAction');
   static String get pauseAction => _of('pauseAction');
   static String get seekBackAction => _of('seekBackAction');

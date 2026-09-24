@@ -1,4 +1,3 @@
-import 'package:fake_async/fake_async.dart';
 import 'package:faden/signals/night.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -51,80 +50,39 @@ void main() {
     });
   });
 
-  test('isNightModeActive: window or running sleep timer', () {
-    expect(isNightModeActive(inNightWindow: true, sleepTimerRunning: false), isTrue);
-    expect(isNightModeActive(inNightWindow: false, sleepTimerRunning: true), isTrue);
-    expect(isNightModeActive(inNightWindow: false, sleepTimerRunning: false), isFalse);
-  });
-
-  group('ScreenLockController', () {
-    test('locks after the idle timeout with no interaction', () {
-      fakeAsync((async) {
-        final controller = ScreenLockController(
-          idleTimeout: const Duration(seconds: 10),
-          holdToUnlock: const Duration(seconds: 1),
-        );
-        expect(controller.locked, isFalse);
-        async.elapse(const Duration(seconds: 10));
-        expect(controller.locked, isTrue);
-        controller.dispose();
-      });
+  group('nextNightView (display brightness, hysteresis)', () {
+    test('turns on below 30 %', () {
+      expect(nextNightView(current: false, brightness: 0.29), isTrue);
+      expect(nextNightView(current: false, brightness: 0.0), isTrue);
     });
 
-    test('interaction before the timeout postpones the lock', () {
-      fakeAsync((async) {
-        final controller = ScreenLockController(
-          idleTimeout: const Duration(seconds: 10),
-          holdToUnlock: const Duration(seconds: 1),
-        );
-        async.elapse(const Duration(seconds: 8));
-        controller.onInteraction();
-        async.elapse(const Duration(seconds: 8));
-        expect(controller.locked, isFalse); // 16s total, but reset at 8s
-        async.elapse(const Duration(seconds: 2));
-        expect(controller.locked, isTrue);
-        controller.dispose();
-      });
+    test('does not turn on at exactly 30 % or in the band up to 35 %', () {
+      expect(nextNightView(current: false, brightness: 0.30), isFalse);
+      expect(nextNightView(current: false, brightness: 0.33), isFalse);
+      expect(nextNightView(current: false, brightness: 0.35), isFalse);
     });
 
-    test('a full 1s hold unlocks', () {
-      fakeAsync((async) {
-        final controller = ScreenLockController();
-        async.elapse(const Duration(seconds: 10));
-        expect(controller.locked, isTrue);
-        controller.startUnlockHold();
-        async.elapse(const Duration(seconds: 1));
-        expect(controller.locked, isFalse);
-        controller.dispose();
-      });
+    test('once on, stays on up to 35 % and turns off only above', () {
+      expect(nextNightView(current: true, brightness: 0.30), isTrue);
+      expect(nextNightView(current: true, brightness: 0.35), isTrue);
+      expect(nextNightView(current: true, brightness: 0.351), isFalse);
+      expect(nextNightView(current: true, brightness: 1.0), isFalse);
     });
 
-    test('releasing before 1s does not unlock', () {
-      fakeAsync((async) {
-        final controller = ScreenLockController();
-        async.elapse(const Duration(seconds: 10));
-        expect(controller.locked, isTrue);
-        controller.startUnlockHold();
-        async.elapse(const Duration(milliseconds: 600));
-        controller.cancelUnlockHold();
-        async.elapse(const Duration(seconds: 1));
-        expect(controller.locked, isTrue);
-        controller.dispose();
-      });
+    test('a brightness wobbling around 30 % does not flicker', () {
+      var on = false;
+      final seen = <bool>[];
+      for (final b in [0.40, 0.29, 0.31, 0.29, 0.32, 0.34, 0.31, 0.36, 0.31, 0.33]) {
+        on = nextNightView(current: on, brightness: b);
+        seen.add(on);
+      }
+      expect(seen, [false, true, true, true, true, true, true, false, false, false]);
     });
 
-    test('lockedStream emits on lock and unlock', () {
-      fakeAsync((async) {
-        final controller = ScreenLockController();
-        final events = <bool>[];
-        controller.lockedStream.listen(events.add);
-        async.elapse(const Duration(seconds: 10));
-        controller.startUnlockHold();
-        async.elapse(const Duration(seconds: 1));
-        async.flushMicrotasks();
-        expect(events, [true, false]);
-        controller.dispose();
-      });
+    test('no brightness means off', () {
+      expect(nextNightView(current: true, brightness: null), isFalse);
+      expect(nextNightView(current: false, brightness: null), isFalse);
+      expect(nextNightView(current: true, brightness: double.nan), isFalse);
     });
   });
 }

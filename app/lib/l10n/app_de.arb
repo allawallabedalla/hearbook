@@ -84,7 +84,6 @@
   "remainingTime": "noch {time}",
   "@remainingTime": { "placeholders": { "time": {} } },
 
-  "lockedHint": "Gesperrt. Halten zum Entsperren.",
   "playAction": "Wiedergabe starten",
   "pauseAction": "Pause",
   "seekBackAction": "30 Sekunden zurück",
@@ -96,8 +95,8 @@
   "settingsNightWindowTitle": "Nachtfenster",
   "@settingsNightWindowTitle": { "description": "Abschnittstitel in den Einstellungen." },
 
-  "settingsNightWindowExplanation": "In dieser Zeit ist der Player dunkel und ohne Cover, die Tasten auf dem Bildschirm sperren sich nach 10 Sekunden. Läuft das Hörbuch darin länger als 3 Minuten, ohne dass du etwas tippst oder drückst, bietet Faden danach „Faden aufnehmen“ an.",
-  "@settingsNightWindowExplanation": { "description": "Erklärung des Nachtfensters (KONZEPT.md Nachtmodus, ARCHITEKTUR.md Abschnitt 7 Regel 5)." },
+  "settingsNightWindowExplanation": "In dieser Zeit rechnet Faden damit, dass du einschläfst: Läuft das Hörbuch länger als 3 Minuten, ohne dass du etwas tippst oder drückst, bietet Faden danach „Faden aufnehmen“ an.",
+  "@settingsNightWindowExplanation": { "description": "Erklärung des Nachtfensters: Schlafverdacht (ARCHITEKTUR.md Abschnitt 7 Regel 5, Abschnitt 9); die dunkle Nachtansicht folgt der Bildschirmhelligkeit (E54)." },
 
   "settingsNightWindowStartPicker": "Nacht beginnt um",
   "@settingsNightWindowStartPicker": { "description": "Titel der Uhrzeitauswahl für den Beginn." },
@@ -123,8 +122,8 @@
   "settingsAppearanceDark": "Dunkel",
   "@settingsAppearanceDark": { "description": "Erscheinungsbild immer dunkel (Nacht-Farben, ohne Nachtmodus-Verhalten)." },
 
-  "settingsAppearanceNightNote": "Im Nachtfenster und mit Sleep-Timer ist Faden immer dunkel.",
-  "@settingsAppearanceNightNote": { "description": "Hinweis unter dem Erscheinungsbild: Nachtmodus hat Vorrang." },
+  "settingsAppearanceNightNote": "Steht die Bildschirmhelligkeit unter 30 %, ist Faden immer dunkel und der Player zeigt kein Cover.",
+  "@settingsAppearanceNightNote": { "description": "Hinweis unter dem Erscheinungsbild: die Nachtansicht (Helligkeit unter 30 %, E54) hat Vorrang." },
 
   "miniPlayerOpen": "Player öffnen",
   "@miniPlayerOpen": { "description": "Bedienhilfen-Beschriftung des Mini-Players (E29)." },

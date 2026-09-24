@@ -20,7 +20,7 @@ Wer beim Hören einschläft, verliert den Punkt. Das Hörbuch läuft weiter, am 
 
 1. Bibliothek aus dem Hörbuch-Ordner des Servers, ganze Bücher offline laden.
 2. Player ohne Scrubber im Hauptscreen, lückenlose Kapitelwechsel.
-3. Nachtmodus mit Sleep-Timer und Tastensperre.
+3. Nachtmodus bei gedimmtem Bildschirm, Sleep-Timer.
 4. „Faden aufnehmen“ nach vermutetem Einschlafen.
 5. Verlauf: jeder große Sprung mit einem Tipp rückgängig.
 
@@ -51,9 +51,9 @@ Regeln:
 
 ## Nachtmodus
 
-- Aktiv im Nachtfenster oder bei laufendem Sleep-Timer.
-- Echtes Schwarz, Cover ausgeblendet, nur Faden und Button. Details, Bibliothek und Einstellungen sind dann ebenfalls dunkel.
-- Nach 10 s ohne Berührung sind die Bildschirmtasten gesperrt; entsperren durch 1 s Halten. Kopfhörertasten funktionieren immer.
+- Aktiv, solange die Bildschirmhelligkeit unter 30 % steht; aus erst wieder über 35 %, damit die Ansicht an der Schwelle nicht flackert. Nachtfenster und Sleep-Timer schalten die Ansicht nicht um; das Nachtfenster zählt nur für „Faden aufnehmen“.
+- Echtes Schwarz, Cover ausgeblendet. Buchtitel und aktuelles Kapitel klein und gedimmt in `tinte-leise`, darunter Faden, Hauptbutton und ±30 s. Details, Bibliothek und Einstellungen sind dann ebenfalls dunkel.
+- Keine Tastensperre: Alle Bildschirmtasten und die Details bleiben bedienbar. Jede Berührung zählt als Wach-Beleg.
 - Sleep-Timer: 15, 30, 45, 60 Min oder Kapitelende. Die letzten 30 s werden leiser. In der letzten Minute verlängert jede Kopfhörertaste den Timer um die gewählte Dauer, statt zu pausieren, und zählt als Wach-Beleg.
 
 ## Design

@@ -4,8 +4,8 @@ import '../data/settings_store.dart' show Appearance;
 
 /// Design tokens, docs/KONZEPT.md "Design" table. Day and night are the
 /// only two palettes. Which one a screen uses is decided by
-/// [resolveFadenTokens]: Nachtmodus (signals/night.dart: night window or a
-/// running sleep timer) always gets [night]; otherwise the "Erscheinungsbild"
+/// [resolveFadenTokens]: the night view (display brightness below 30 %,
+/// decision E54) always gets [night]; otherwise the "Erscheinungsbild"
 /// setting picks [day] ("Hell"), [night] ("Dunkel") or follows the phone
 /// ("Wie iPhone") -- decision E28 in docs/ARCHITEKTUR.md section 13.
 ///
@@ -95,11 +95,12 @@ class FadenTokens extends ThemeExtension<FadenTokens> {
       (other == null || t < 0.5) ? this : other;
 }
 
-/// The token set for a screen (decision E28): Nachtmodus ([nightMode])
-/// overrides everything; otherwise [appearance] decides, with
+/// The token set for a screen (decision E28): the night view ([nightMode],
+/// E54) overrides everything; otherwise [appearance] decides, with
 /// [Appearance.system] following [platformBrightness]. "Dunkel" reuses the
-/// night tokens, but only the look -- the Nachtmodus *behaviour* (cover
-/// hidden, button lock) stays tied to [nightMode] in ui/player_screen.dart.
+/// night tokens, but only the look -- the night layout (cover hidden,
+/// title and chapter dimmed) stays tied to [nightMode] in
+/// ui/player_screen.dart.
 FadenTokens resolveFadenTokens({
   required Appearance appearance,
   required Brightness platformBrightness,

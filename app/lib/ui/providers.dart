@@ -24,6 +24,8 @@ import '../domain/manifest.dart';
 import '../domain/position.dart';
 import '../domain/resolver.dart';
 import '../domain/sleep_onset.dart';
+import '../signals/night.dart';
+import '../signals/screen_brightness.dart';
 
 export '../data/library.dart' show BookSummary, ManifestCandidate, BookDetail;
 
@@ -234,9 +236,10 @@ class NightWindow {
 }
 
 /// The night window from the settings store, shared by the settings screen
-/// (which changes it) and the player (which reads it for Nachtmodus and
-/// the handler's SLEEP_HINT hook), so a change applies right away. The
-/// setters write the store first, then update the state.
+/// (which changes it) and the player (which reads it for the handler's
+/// SLEEP_HINT hook), so a change applies right away. It no longer switches
+/// the night view (decision E54). The setters write the store first, then
+/// update the state.
 class NightWindowController extends AsyncNotifier<NightWindow> {
   @override
   Future<NightWindow> build() async {
@@ -284,24 +287,33 @@ class SleepTimerDefaultController extends AsyncNotifier<int> {
 final sleepTimerDefaultProvider =
     AsyncNotifierProvider<SleepTimerDefaultController, int>(SleepTimerDefaultController.new);
 
-/// Whether Nachtmodus is on as main.dart saw it before the first frame
-/// (night window from the settings store vs. the device clock), so the
-/// start screen is already black at night instead of flashing the day
-/// colours (decision E47).
+/// Where the display brightness comes from (decision E54). main.dart
+/// passes the iOS channel; null elsewhere (Android, tests), which keeps the
+/// night view off.
+final screenBrightnessSourceProvider = Provider<ScreenBrightnessSource?>((ref) => null);
+
+/// Whether the night view is on as main.dart saw it before the first frame
+/// (display brightness below 30 %), so the start screen is already black
+/// instead of flashing the day colours (decision E47, E54).
 final initialNightModeProvider = Provider<bool>((ref) => false);
 
-/// Nachtmodus as the player screen last computed it (night window or a
-/// running sleep timer, signals/night.dart). The player owns the sleep
-/// timer, so it publishes the result here after each build; the app root
-/// (main.dart) then gives every screen -- library, settings, sheets,
-/// dialogs -- the night colours too (decision E46). The *behaviour* (cover
-/// hidden, button lock) stays in the player.
+/// The night view (docs/KONZEPT.md "Nachtmodus", decision E54): on while
+/// the display brightness is below 30 %, off above 35 %
+/// (signals/night.dart [nextNightView]). The app root (main.dart) gives
+/// every screen -- player, library, settings, sheets, dialogs -- the night
+/// colours then (E46); the player also hides the cover. The night window
+/// no longer switches it; it only feeds sleep suspicion and SLEEP_HINT.
 class NightModeController extends Notifier<bool> {
   @override
-  bool build() => ref.watch(initialNightModeProvider);
-
-  void set(bool night) {
-    if (state != night) state = night;
+  bool build() {
+    final source = ref.watch(screenBrightnessSourceProvider);
+    if (source == null) return false;
+    final sub = source.changes().listen(
+      (brightness) => state = nextNightView(current: state, brightness: brightness),
+      onError: (Object _) => state = false,
+    );
+    ref.onDispose(sub.cancel);
+    return ref.watch(initialNightModeProvider);
   }
 }
 

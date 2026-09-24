@@ -14,37 +14,30 @@ import 'format.dart';
 import 'providers.dart';
 import 'theme.dart';
 
-/// How the player looks and behaves right now, handed to the sheets it
-/// opens (decision E46). A sheet is its own route, built above the
-/// player's `Theme`; without this it came up in the day colours at night.
+/// How the player looks right now, handed to the sheets it opens
+/// (decision E46). A sheet is its own route, built above the player's
+/// `Theme`; without this it came up in the day colours at night.
 @immutable
 class PlayerChrome {
   final ThemeData theme;
   final bool night;
 
-  /// Nachtmodus screen lock (docs/KONZEPT.md "Nachtmodus"): while true the
-  /// sheet's controls do nothing until the 1 s unlock hold.
-  final bool locked;
-
-  const PlayerChrome({required this.theme, required this.night, required this.locked});
+  const PlayerChrome({required this.theme, required this.night});
 
   FadenTokens get tokens => theme.extension<FadenTokens>() ?? FadenTokens.day;
 
   @override
-  bool operator ==(Object other) =>
-      other is PlayerChrome && other.theme == theme && other.night == night && other.locked == locked;
+  bool operator ==(Object other) => other is PlayerChrome && other.theme == theme && other.night == night;
 
   @override
-  int get hashCode => Object.hash(theme, night, locked);
+  int get hashCode => Object.hash(theme, night);
 }
 
 /// Callbacks from the sheet back into the player screen.
 class DetailsSheetHooks {
-  /// Any touch in the sheet counts like a touch on the player: it keeps
-  /// the night lock from engaging and is an awake-proof.
+  /// Any touch in the sheet counts like a touch on the player: an
+  /// awake-proof (AWAKE, docs/ARCHITEKTUR.md section 9).
   final VoidCallback onInteraction;
-  final VoidCallback onUnlockHoldStart;
-  final VoidCallback onUnlockHoldEnd;
 
   /// The night player has no app bar, so the sheet is its way to the
   /// library.
@@ -52,8 +45,6 @@ class DetailsSheetHooks {
 
   const DetailsSheetHooks({
     this.onInteraction = _noop,
-    this.onUnlockHoldStart = _noop,
-    this.onUnlockHoldEnd = _noop,
     this.onOpenLibrary,
   });
 
@@ -65,8 +56,8 @@ const detailsSheetSurfaceKey = ValueKey('details-sheet-surface');
 
 /// docs/KONZEPT.md "Screens": "2. Details (nach oben wischen): Kapitel,
 /// Zeitleiste mit Scrubber, Tempo, Sleep-Timer, Verlauf." Themed from
-/// [chrome] for as long as it is open, so it turns dark the moment
-/// Nachtmodus starts (e.g. by starting the sleep timer in it).
+/// [chrome] for as long as it is open, so it turns dark the moment the
+/// night view starts (the display is dimmed below 30 %, E54).
 Future<void> showDetailsSheet(
   BuildContext context, {
   required ValueListenable<PlayerChrome> chrome,
@@ -100,8 +91,8 @@ Future<void> showDetailsSheet(
   );
 }
 
-/// Background, theme, lock overlay and touch forwarding shared by the
-/// details sheet and the chapter list.
+/// Background, theme and touch forwarding shared by the details sheet and
+/// the chapter list.
 class _SheetFrame extends StatelessWidget {
   final ValueListenable<PlayerChrome> chrome;
   final DetailsSheetHooks hooks;
@@ -116,35 +107,6 @@ class _SheetFrame extends StatelessWidget {
       child: child,
       builder: (context, c, child) {
         final tokens = c.tokens;
-        Widget content = child!;
-        if (c.locked) {
-          content = Stack(
-            children: [
-              AbsorbPointer(child: content),
-              Positioned.fill(
-                child: GestureDetector(
-                  behavior: HitTestBehavior.opaque,
-                  onLongPressStart: (_) => hooks.onUnlockHoldStart(),
-                  onLongPressEnd: (_) => hooks.onUnlockHoldEnd(),
-                  onLongPressCancel: hooks.onUnlockHoldEnd,
-                  child: ColoredBox(
-                    color: tokens.grund.withValues(alpha: 0.7),
-                    child: Center(
-                      child: Padding(
-                        padding: const EdgeInsets.all(24),
-                        child: Text(
-                          AppStrings.lockedHint,
-                          textAlign: TextAlign.center,
-                          style: TextStyle(color: tokens.tinteLeise, fontSize: FadenTypeSizes.caption),
-                        ),
-                      ),
-                    ),
-                  ),
-                ),
-              ),
-            ],
-          );
-        }
         return Theme(
           data: c.theme,
           child: Listener(
@@ -159,7 +121,7 @@ class _SheetFrame extends StatelessWidget {
                 borderRadius: const BorderRadius.vertical(top: Radius.circular(16)),
                 side: BorderSide(color: tokens.linie, width: 0.5),
               ),
-              child: content,
+              child: child,
             ),
           ),
         );

@@ -18,6 +18,7 @@ import 'data/sleep_data_source.dart';
 import 'data/storage.dart';
 import 'l10n/strings.dart';
 import 'signals/night.dart';
+import 'signals/screen_brightness.dart';
 import 'ui/library_screen.dart';
 import 'ui/player_screen.dart';
 import 'ui/providers.dart';
@@ -39,15 +40,12 @@ Future<void> main() async {
   // Read before the first frame so it already has the chosen look (E28).
   final appearance = await settings.appearance();
   final serverConfig = ServerConfig(url: await settings.serverUrl(), token: await settings.serverToken());
-  // In the night window the first frame is already black (E47); a running
-  // sleep timer cannot exist yet at app start.
-  final now = DateTime.now();
-  final nightAtStart = isInNightWindow(
-    nowWallMs: now.millisecondsSinceEpoch,
-    tzMin: now.timeZoneOffset.inMinutes,
-    nightStartMin: await settings.nightStartMin(),
-    nightEndMin: await settings.nightEndMin(),
-  );
+  // The night view follows the display brightness (E54), read through a
+  // small channel in ios/Runner/AppDelegate.swift; no source elsewhere, so
+  // it stays off. Read before the first frame so a dark screen starts black
+  // (E47).
+  final brightnessSource = Platform.isIOS ? const PlatformScreenBrightness() : null;
+  final nightAtStart = nextNightView(current: false, brightness: await brightnessSource?.current());
 
   // Decision E35: downloads live in Application Support, excluded from the
   // iCloud backup; files from the old Documents location move over once,
@@ -102,6 +100,7 @@ Future<void> main() async {
         sleepDataSourceProvider.overrideWithValue(sleepDataSource),
         audioHandlerProvider.overrideWithValue(audioHandler),
         initialAppearanceProvider.overrideWithValue(appearance),
+        screenBrightnessSourceProvider.overrideWithValue(brightnessSource),
         initialNightModeProvider.overrideWithValue(nightAtStart),
       ],
       child: const FadenApp(),
@@ -110,10 +109,10 @@ Future<void> main() async {
 }
 
 /// The app-wide theme follows the "Erscheinungsbild" setting and the
-/// phone's brightness (decision E28, [resolveFadenTokens]), and Nachtmodus
-/// as the player publishes it (E46), so library, settings, sheets and
-/// dialogs are dark at night too. The Nachtmodus *behaviour* stays in the
-/// player (ui/player_screen.dart).
+/// phone's light/dark setting (decision E28, [resolveFadenTokens]), and the
+/// night view (display brightness below 30 %, E54, [nightModeProvider]),
+/// so library, settings, sheets and dialogs are dark at night too (E46).
+/// Hiding the cover stays in the player (ui/player_screen.dart).
 ///
 /// Also the home of the app-level sync triggers of docs/ARCHITEKTUR.md
 /// section 6 that are not tied to playback (E31): app start (via opening
