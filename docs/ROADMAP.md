@@ -39,10 +39,10 @@ Hinweis: Faden-Suche gegen 20.000 simulierte Hörer (alle 5 Eigenschaften aus Ab
 
 ## M2 – Server: Events und Sync (≈ 60 Min)
 
-- [ ] `POST` und `GET /api/v1/events` nach Abschnitt 6: idempotent, Cursor, Paging
-- [ ] Schema-Validierung; `skew_flag` bei `hlc.pt` > Serverzeit + 10 Min, geloggt
-- [ ] Tests: Duplikate, Reihenfolge, Paging über 1.000 Events; 100.000 Events als `slow`-Test
-- [ ] `server/scripts/backup.sh` nach Abschnitt 12
+- [x] `POST` und `GET /api/v1/events` nach Abschnitt 6: idempotent, Cursor, Paging
+- [x] Schema-Validierung; `skew_flag` bei `hlc.pt` > Serverzeit + 10 Min, geloggt
+- [x] Tests: Duplikate, Reihenfolge, Paging über 1.000 Events; 100.000 Events als `slow`-Test
+- [x] `server/scripts/backup.sh` nach Abschnitt 12
 
 ```text
 /plan Setze Meilenstein M2 aus docs/ROADMAP.md um. Spezifikation: docs/ARCHITEKTUR.md Abschnitte 5, 6 und 12. Am Ende Abnahme-Punkte abhaken und committen.
