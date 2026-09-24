@@ -1,122 +1,143 @@
-import 'package:flutter/material.dart';
+import 'dart:io';
 
-void main() {
-  runApp(const MyApp());
+import 'package:audio_service/audio_service.dart';
+import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:path_provider/path_provider.dart';
+
+import 'audio/handler.dart';
+import 'data/api.dart';
+import 'data/db.dart';
+import 'data/downloads.dart';
+import 'data/journal.dart';
+import 'data/settings_store.dart';
+import 'data/sync.dart';
+import 'domain/manifest.dart';
+import 'l10n/strings.dart';
+import 'ui/library_screen.dart';
+import 'ui/player_screen.dart';
+import 'ui/providers.dart';
+import 'ui/theme.dart';
+
+Future<void> main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+
+  final appDir = await getApplicationDocumentsDirectory();
+  final db = AppDatabase.open(File('${appDir.path}/faden.db'));
+  final journal = Journal(db);
+  final settings = SettingsStore(db);
+  final deviceId = await settings.deviceId();
+
+  final serverUrl = await settings.serverUrl();
+  final serverToken = await settings.serverToken();
+  final api = (serverUrl != null && serverUrl.isNotEmpty && serverToken != null)
+      ? ApiClient.create(baseUrl: serverUrl, token: serverToken)
+      : null;
+  final downloads =
+      api == null ? null : DownloadManager(api: api, targetDir: downloadsDirFor(appDir));
+  final syncClient = api == null ? null : SyncClient(db: db, journal: journal, api: api);
+
+  final audioHandler = await AudioService.init(
+    builder: () => FadenAudioHandler(journal: journal, deviceId: deviceId, syncClient: syncClient),
+    config: const AudioServiceConfig(
+      androidNotificationChannelId: 'de.faden.app.channel.audio',
+      androidNotificationChannelName: 'Faden Wiedergabe',
+      androidNotificationOngoing: true,
+    ),
+  );
+
+  runApp(
+    ProviderScope(
+      overrides: [
+        appDatabaseProvider.overrideWithValue(db),
+        journalProvider.overrideWithValue(journal),
+        settingsStoreProvider.overrideWithValue(settings),
+        deviceIdProvider.overrideWithValue(deviceId),
+        apiClientProvider.overrideWithValue(api),
+        downloadManagerProvider.overrideWithValue(downloads),
+        syncClientProvider.overrideWithValue(syncClient),
+        audioHandlerProvider.overrideWithValue(audioHandler),
+      ],
+      child: const FadenApp(),
+    ),
+  );
 }
 
-class MyApp extends StatelessWidget {
-  const MyApp({super.key});
+class FadenApp extends StatelessWidget {
+  const FadenApp({super.key});
 
-  // This widget is the root of your application.
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'Flutter Demo',
-      theme: ThemeData(
-        // This is the theme of your application.
-        //
-        // TRY THIS: Try running your application with "flutter run". You'll see
-        // the application has a purple toolbar. Then, without quitting the app,
-        // try changing the seedColor in the colorScheme below to Colors.green
-        // and then invoke "hot reload" (save your changes or press the "hot
-        // reload" button in a Flutter-supported IDE, or press "r" if you used
-        // the command line to start the app).
-        //
-        // Notice that the counter didn't reset back to zero; the application
-        // state is not lost during the reload. To reset the state, use hot
-        // restart instead.
-        //
-        // This works for code too, not just values: Most code changes can be
-        // tested with just a hot reload.
-        colorScheme: .fromSeed(seedColor: Colors.deepPurple),
-      ),
-      home: const MyHomePage(title: 'Flutter Demo Home Page'),
+      title: AppStrings.appTitle,
+      debugShowCheckedModeBanner: false,
+      theme: buildFadenTheme(FadenTokens.day),
+      darkTheme: buildFadenTheme(FadenTokens.night),
+      home: const _StartupScreen(),
     );
   }
 }
 
-class MyHomePage extends StatefulWidget {
-  const MyHomePage({super.key, required this.title});
-
-  // This widget is the home page of your application. It is stateful, meaning
-  // that it has a State object (defined below) that contains fields that affect
-  // how it looks.
-
-  // This class is the configuration for the state. It holds the values (in this
-  // case the title) provided by the parent (in this case the App widget) and
-  // used by the build method of the State. Fields in a Widget subclass are
-  // always marked "final".
-
-  final String title;
+/// docs/ARCHITEKTUR.md section 11: "App-Start: Resolver ausführen, Player
+/// an der Position pausiert vorbereiten." If a book was open before
+/// (settings_store.dart's `lastOpenedBookId`), reopen it directly in the
+/// player; otherwise land on the library so the user can pick one.
+class _StartupScreen extends ConsumerStatefulWidget {
+  const _StartupScreen();
 
   @override
-  State<MyHomePage> createState() => _MyHomePageState();
+  ConsumerState<_StartupScreen> createState() => _StartupScreenState();
 }
 
-class _MyHomePageState extends State<MyHomePage> {
-  int _counter = 0;
+class _StartupScreenState extends ConsumerState<_StartupScreen> {
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) => _bootstrap());
+  }
 
-  void _incrementCounter() {
-    setState(() {
-      // This call to setState tells the Flutter framework that something has
-      // changed in this State, which causes it to rerun the build method below
-      // so that the display can reflect the updated values. If we changed
-      // _counter without calling setState(), then the build method would not be
-      // called again, and so nothing would appear to happen.
-      _counter++;
-    });
+  Future<void> _bootstrap() async {
+    final api = ref.read(apiClientProvider);
+    final settings = ref.read(settingsStoreProvider);
+    final lastBookId = await settings.lastOpenedBookId();
+
+    if (api != null && lastBookId != null) {
+      try {
+        final detail = await api.bookDetail(lastBookId);
+        final activeJson = detail['active_manifest'] as Map<String, dynamic>?;
+        if (activeJson != null) {
+          final manifest = Manifest.fromJson(activeJson);
+          final title = detail['title'] as String? ?? '';
+          final serverUrl = await settings.serverUrl() ?? '';
+          final token = await settings.serverToken() ?? '';
+          await ref.read(playerSessionProvider).openBook(
+                bookId: lastBookId,
+                bookTitle: title,
+                manifest: manifest,
+                downloads: ref.read(downloadManagerProvider),
+                serverBaseUrl: serverUrl,
+                serverToken: token,
+              );
+          if (!mounted) return;
+          Navigator.of(context)
+              .pushReplacement(MaterialPageRoute(builder: (_) => const PlayerScreen()));
+          return;
+        }
+      } catch (_) {
+        // Falls through to the library -- matches KONZEPT.md's offline
+        // behaviour: a reachability problem never blocks the app.
+      }
+    }
+    if (!mounted) return;
+    Navigator.of(context).pushReplacement(MaterialPageRoute(builder: (_) => const LibraryScreen()));
   }
 
   @override
   Widget build(BuildContext context) {
-    // This method is rerun every time setState is called, for instance as done
-    // by the _incrementCounter method above.
-    //
-    // The Flutter framework has been optimized to make rerunning build methods
-    // fast, so that you can just rebuild anything that needs updating rather
-    // than having to individually change instances of widgets.
+    final tokens = FadenTokens.day;
     return Scaffold(
-      appBar: AppBar(
-        // TRY THIS: Try changing the color here to a specific color (to
-        // Colors.amber, perhaps?) and trigger a hot reload to see the AppBar
-        // change color while the other colors stay the same.
-        backgroundColor: Theme.of(context).colorScheme.inversePrimary,
-        // Here we take the value from the MyHomePage object that was created by
-        // the App.build method, and use it to set our appbar title.
-        title: Text(widget.title),
-      ),
-      body: Center(
-        // Center is a layout widget. It takes a single child and positions it
-        // in the middle of the parent.
-        child: Column(
-          // Column is also a layout widget. It takes a list of children and
-          // arranges them vertically. By default, it sizes itself to fit its
-          // children horizontally, and tries to be as tall as its parent.
-          //
-          // Column has various properties to control how it sizes itself and
-          // how it positions its children. Here we use mainAxisAlignment to
-          // center the children vertically; the main axis here is the vertical
-          // axis because Columns are vertical (the cross axis would be
-          // horizontal).
-          //
-          // TRY THIS: Invoke "debug painting" (choose the "Toggle Debug Paint"
-          // action in the IDE, or press "p" in the console), to see the
-          // wireframe for each widget.
-          mainAxisAlignment: .center,
-          children: [
-            const Text('You have pushed the button this many times:'),
-            Text(
-              '$_counter',
-              style: Theme.of(context).textTheme.headlineMedium,
-            ),
-          ],
-        ),
-      ),
-      floatingActionButton: FloatingActionButton(
-        onPressed: _incrementCounter,
-        tooltip: 'Increment',
-        child: const Icon(Icons.add),
-      ),
+      backgroundColor: tokens.grund,
+      body: const Center(child: CircularProgressIndicator()),
     );
   }
 }
