@@ -51,7 +51,20 @@ class SyncState extends Table {
   Set<Column> get primaryKey => {id};
 }
 
-@DriftDatabase(tables: [EventRows, SyncState])
+/// Local app settings: server connection, device id, night window and
+/// other small values that must survive a restart. Deliberately a plain
+/// key/value table (mirrors the server's own `settings` table, section 2)
+/// rather than one column per setting, so adding a setting never needs a
+/// schema migration. See data/settings_store.dart for the typed wrapper.
+class KeyValueSettings extends Table {
+  TextColumn get key => text()();
+  TextColumn get value => text()();
+
+  @override
+  Set<Column> get primaryKey => {key};
+}
+
+@DriftDatabase(tables: [EventRows, SyncState, KeyValueSettings])
 class AppDatabase extends _$AppDatabase {
   AppDatabase(super.executor);
 
@@ -64,5 +77,15 @@ class AppDatabase extends _$AppDatabase {
   AppDatabase.memory() : super(NativeDatabase.memory());
 
   @override
-  int get schemaVersion => 1;
+  int get schemaVersion => 2;
+
+  @override
+  MigrationStrategy get migration => MigrationStrategy(
+        onCreate: (m) => m.createAll(),
+        onUpgrade: (m, from, to) async {
+          if (from < 2) {
+            await m.createTable(keyValueSettings);
+          }
+        },
+      );
 }
