@@ -26,10 +26,6 @@
 	<string>$(FLUTTER_BUILD_NUMBER)</string>
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
-	<!-- M6 (docs/ARCHITEKTUR.md section 9): required by the `health`
-	     package's HealthKit integration; this app only ever reads the
-	     "Schlafbeginn" sample, never writes anything, but HealthKit
-	     requires both keys to be present regardless. -->
 	<key>NSHealthShareUsageDescription</key>
 	<string>Faden liest lokal deinen Schlafbeginn, um die Faden-Suche zu verkürzen. Diese Daten verlassen nie dein Gerät.</string>
 	<key>NSHealthUpdateUsageDescription</key>
@@ -59,8 +55,6 @@
 	<array>
 		<string>audio</string>
 	</array>
-	<!-- The self-hosted server is plain HTTP on a LAN/VPN IP, and just_audio's header
-	     proxy (bearer token) needs it too; see decision E27 in docs/ARCHITEKTUR.md. -->
 	<key>NSAppTransportSecurity</key>
 	<dict>
 		<key>NSAllowsArbitraryLoads</key>
