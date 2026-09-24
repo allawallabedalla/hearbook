@@ -38,6 +38,15 @@ class BookState {
   final bool finished;
   final bool needsConfirmation;
 
+  /// The winning session's own id (section 7 rule 2's `winningSessionId`),
+  /// i.e. the session [position]/[lastAwake]/[stop] all come from. Not part
+  /// of section 7's own `BookState` field list -- added in M6 (see decision
+  /// E21 in docs/ARCHITEKTUR.md section 13) because section 9's
+  /// health-data adjustment needs to read exactly this session's own
+  /// HEARTBEAT events, and this was already computed here, just not
+  /// exposed.
+  final String sessionId;
+
   const BookState({
     required this.position,
     required this.globalMs,
@@ -47,6 +56,7 @@ class BookState {
     required this.history,
     required this.finished,
     required this.needsConfirmation,
+    required this.sessionId,
   });
 }
 
@@ -195,5 +205,6 @@ BookState resolve(
     history: history,
     finished: finished,
     needsConfirmation: needsConfirmation,
+    sessionId: winningSessionId,
   );
 }
