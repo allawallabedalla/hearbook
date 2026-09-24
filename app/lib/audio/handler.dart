@@ -15,6 +15,29 @@ import '../l10n/strings.dart';
 import '../signals/awake.dart';
 import 'undo_hint.dart';
 
+/// What the lock screen / Control Center shows for one chapter file: the
+/// book as the big title, author and chapter position underneath.
+MediaItem lockScreenItem({
+  required String fileHash,
+  required int chapter,
+  required int chapterCount,
+  required int durationMs,
+  required String bookTitle,
+  String? author,
+  Uri? artUri,
+}) {
+  final chapterText = AppStrings.chapterOfTotal(chapter, chapterCount);
+  final hasAuthor = author != null && author.trim().isNotEmpty;
+  return MediaItem(
+    id: fileHash,
+    title: bookTitle,
+    artist: hasAuthor ? '${author.trim()} · $chapterText' : chapterText,
+    album: bookTitle,
+    duration: Duration(milliseconds: durationMs),
+    artUri: artUri,
+  );
+}
+
 /// The audio_service integration (docs/ARCHITEKTUR.md section 11:
 /// "handler.dart (audio_service)"): background playback, lock-screen
 /// controls and media-button handling, built around a just_audio
@@ -133,6 +156,8 @@ class FadenAudioHandler extends BaseAudioHandler {
     required String bookTitle,
     required List<ja.IndexedAudioSource> sources,
     required Position initialPosition,
+    String? author,
+    Uri? artUri,
   }) async {
     await _completionSub?.cancel();
     _bookId = bookId;
@@ -163,11 +188,14 @@ class FadenAudioHandler extends BaseAudioHandler {
 
     queue.add([
       for (final file in manifest.files)
-        MediaItem(
-          id: file.fileHash,
-          title: AppStrings.chapterLabel(file.idx + 1),
-          album: bookTitle,
-          duration: Duration(milliseconds: file.durationMs),
+        lockScreenItem(
+          fileHash: file.fileHash,
+          chapter: file.idx + 1,
+          chapterCount: manifest.files.length,
+          durationMs: file.durationMs,
+          bookTitle: bookTitle,
+          author: author,
+          artUri: artUri,
         ),
     ]);
     mediaItem.add(queue.value[initialIndex]);
