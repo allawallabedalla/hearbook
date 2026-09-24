@@ -1,0 +1,262 @@
+// Tests ui/faden_search_controller.dart against fake dependencies (playTone/
+// playProbe/stopProbe/onProbeAnswered/onResumeAt/onAborted are all injected
+// functions), driven with fake_async so the answer-window timing
+// (docs/ARCHITEKTUR.md section 8: probe_len + answer_window = 7s) is exact
+// and instant to run. domain/faden_search.dart's own bisection logic is
+// already covered by test/domain/faden_search_*.dart -- this file is about
+// the *orchestration* around it: progress reporting, PROBE/RESUME wiring,
+// abort, and "Früher".
+
+import 'package:fake_async/fake_async.dart';
+import 'package:faden/domain/faden_search.dart' as fs;
+import 'package:faden/ui/faden_search_controller.dart';
+import 'package:flutter_test/flutter_test.dart';
+
+class _Recorder {
+  int toneCount = 0;
+  final List<int> probesPlayed = [];
+  int stopCount = 0;
+  final List<({int p, bool known})> probeAnswers = [];
+  final List<int> resumeCalls = [];
+  int abortCalls = 0;
+
+  /// Which probe positions the simulated listener "knows" -- knows p iff
+  /// p <= knowsUpTo (mirrors the property tests' "kennt p genau dann, wenn
+  /// p <= S" listener model, docs/ARCHITEKTUR.md section 8).
+  int knowsUpTo = 0;
+
+  FadenSearchController build({required int lo, required int hi, List<int> pausen = const []}) {
+    return FadenSearchController(
+      lo: lo,
+      hi: hi,
+      pausen: pausen,
+      playTone: () async {
+        toneCount++;
+      },
+      playProbe: (p) async {
+        probesPlayed.add(p);
+      },
+      stopProbe: () async {
+        stopCount++;
+      },
+      onProbeAnswered: (p, known) async {
+        probeAnswers.add((p: p, known: known));
+      },
+      onResumeAt: (start) async {
+        resumeCalls.add(start);
+      },
+      onAborted: (lastAwake) async {
+        abortCalls++;
+        resumeCalls.add(lastAwake);
+      },
+    );
+  }
+}
+
+void main() {
+  group('FadenSearchController', () {
+    test('a window already <= target resolves immediately with no probes', () {
+      fakeAsync((async) {
+        final rec = _Recorder();
+        final controller = rec.build(lo: 0, hi: fs.target); // exactly at target
+        controller.start();
+        async.flushMicrotasks();
+        expect(rec.toneCount, 0);
+        expect(rec.probesPlayed, isEmpty);
+        expect(rec.resumeCalls, [0]); // max(lo - preroll, 0) = max(0 - 2000, 0) = 0
+        controller.dispose();
+      });
+    });
+
+    test('no answer ever given: search exhausts and resumes at lo - preroll', () {
+      fakeAsync((async) {
+        final rec = _Recorder();
+        final lo = 5 * 60000, hi = 45 * 60000; // 40 min window, well over target
+        final controller = rec.build(lo: lo, hi: hi);
+        controller.start();
+        async.elapse(const Duration(minutes: 10)); // plenty of time for every probe+timeout
+        expect(rec.probeAnswers.every((a) => a.known == false), isTrue);
+        expect(rec.probeAnswers, isNotEmpty);
+        expect(rec.resumeCalls, [lo - fs.preroll]);
+        controller.dispose();
+      });
+    });
+
+    test('reports progress with an increasing probe number, capped at maxProbes', () {
+      fakeAsync((async) {
+        final rec = _Recorder();
+        final controller = rec.build(lo: 0, hi: 40 * 60000);
+        final probeNumbers = <int>[];
+        controller.progress.listen((p) => probeNumbers.add(p.probeNr));
+        controller.start();
+        async.elapse(const Duration(minutes: 10));
+        expect(probeNumbers.first, 0); // initial state before probe 1
+        expect(probeNumbers.skip(1).toList(), List.generate(fs.maxProbes, (i) => i + 1));
+        controller.dispose();
+      });
+    });
+
+    test('an answer inside the probe itself resolves immediately (no timeout wait)', () {
+      fakeAsync((async) {
+        final rec = _Recorder();
+        final controller = rec.build(lo: 0, hi: 40 * 60000);
+        controller.start();
+        async.flushMicrotasks(); // let the tone + first playProbe call start
+        controller.submitAnswer();
+        async.elapse(const Duration(seconds: 1));
+        expect(rec.probeAnswers.first.known, isTrue);
+        controller.dispose();
+      });
+    });
+
+    test('a probe with no answer within probe_len + answer_window counts as unknown', () {
+      fakeAsync((async) {
+        final rec = _Recorder();
+        final controller = rec.build(lo: 0, hi: 40 * 60000);
+        controller.start();
+        async.elapse(const Duration(milliseconds: fs.probeLen + fs.answerWindow - 1));
+        expect(rec.probeAnswers, isEmpty); // not yet timed out
+        async.elapse(const Duration(milliseconds: 1));
+        expect(rec.probeAnswers.single.known, isFalse);
+        controller.dispose();
+      });
+    });
+
+    test('every probe writes exactly one PROBE event via onProbeAnswered', () {
+      fakeAsync((async) {
+        final rec = _Recorder();
+        final controller = rec.build(lo: 0, hi: 40 * 60000);
+        controller.start();
+        async.elapse(const Duration(minutes: 10));
+        expect(rec.probeAnswers.length, rec.probesPlayed.length);
+        controller.dispose();
+      });
+    });
+
+    test('the final result is reported exactly once via onResumeAt (RESUME)', () {
+      fakeAsync((async) {
+        final rec = _Recorder()..knowsUpTo = 5 * 60000;
+        final controller = rec.build(lo: 0, hi: 40 * 60000);
+        controller.start();
+        // Drive the whole run by always answering "known" when the last
+        // probe position is <= knowsUpTo, right when it starts.
+        async.flushMicrotasks();
+        while (rec.resumeCalls.isEmpty) {
+          async.flushMicrotasks();
+          if (rec.probesPlayed.isNotEmpty && rec.probeAnswers.length < rec.probesPlayed.length) {
+            final p = rec.probesPlayed.last;
+            if (p <= rec.knowsUpTo) controller.submitAnswer();
+          }
+          async.elapse(const Duration(milliseconds: 1));
+        }
+        expect(rec.resumeCalls, hasLength(1));
+        controller.dispose();
+      });
+    });
+
+    group('abort', () {
+      test('aborting mid-answer-window resumes at last_awake (lo), not the ladder', () {
+        fakeAsync((async) {
+          final rec = _Recorder();
+          final lo = 3 * 60000;
+          final controller = rec.build(lo: lo, hi: 40 * 60000);
+          controller.start();
+          async.elapse(const Duration(seconds: 1)); // inside the first probe's answer window
+          controller.abort();
+          async.flushMicrotasks();
+          expect(rec.abortCalls, 1);
+          expect(rec.resumeCalls, [lo]); // exactly last_awake, no preroll subtracted
+          expect(rec.stopCount, greaterThanOrEqualTo(1));
+          controller.dispose();
+        });
+      });
+
+      test('aborting stops the search -- no further probes are played', () {
+        fakeAsync((async) {
+          final rec = _Recorder();
+          final controller = rec.build(lo: 0, hi: 40 * 60000);
+          controller.start();
+          async.elapse(const Duration(seconds: 1));
+          controller.abort();
+          async.flushMicrotasks();
+          final countAtAbort = rec.probesPlayed.length;
+          async.elapse(const Duration(minutes: 5));
+          expect(rec.probesPlayed.length, countAtAbort);
+        });
+      });
+
+      test('abort is idempotent', () {
+        fakeAsync((async) {
+          final rec = _Recorder();
+          final controller = rec.build(lo: 0, hi: 40 * 60000);
+          controller.start();
+          async.elapse(const Duration(seconds: 1));
+          controller.abort();
+          controller.abort();
+          async.flushMicrotasks();
+          expect(rec.abortCalls, 1);
+          controller.dispose();
+        });
+      });
+    });
+
+    group('earlier ("Früher")', () {
+      test('steps back through the ladder one entry at a time via onResumeAt', () {
+        fakeAsync((async) {
+          // knowsUpTo is chosen so the first ("Fehlalarm-Test") probe is
+          // answered "no" (it sits close to hi) but several later,
+          // successively closer bisection probes are answered "yes" --
+          // otherwise a "yes" on probe 1 ends the search immediately with
+          // a 2-entry ladder (domain/faden_search.dart's early return).
+          final rec = _Recorder()..knowsUpTo = 2000000;
+          final controller = rec.build(lo: 0, hi: 40 * 60000);
+          controller.start();
+          while (rec.resumeCalls.isEmpty) {
+            async.flushMicrotasks();
+            if (rec.probesPlayed.isNotEmpty && rec.probeAnswers.length < rec.probesPlayed.length) {
+              final p = rec.probesPlayed.last;
+              if (p <= rec.knowsUpTo) controller.submitAnswer();
+            }
+            async.elapse(const Duration(milliseconds: 1));
+          }
+          rec.resumeCalls.clear();
+          expect(controller.canGoEarlier, isTrue,
+              reason: 'test setup should have produced a multi-entry ladder');
+
+          final seen = <int>[];
+          while (controller.canGoEarlier) {
+            final before = rec.resumeCalls.length;
+            controller.earlier();
+            async.flushMicrotasks();
+            expect(rec.resumeCalls.length, before + 1); // exactly one more RESUME per step
+            seen.add(rec.resumeCalls.last);
+          }
+          expect(seen.toSet().length, seen.length); // every ladder step is a distinct position
+
+          // Once at the ladder's first entry, further taps are a no-op.
+          final countAtStart = rec.resumeCalls.length;
+          controller.earlier();
+          async.flushMicrotasks();
+          expect(rec.resumeCalls.length, countAtStart);
+          controller.dispose();
+        });
+      });
+
+      test('canGoEarlier is false at the ladder\'s first entry, and earlier() is then a no-op', () {
+        fakeAsync((async) {
+          final rec = _Recorder();
+          // A window already <= target never plays a probe, so the ladder
+          // is just [lo] -- nothing to step back to.
+          final controller = rec.build(lo: 0, hi: fs.target);
+          controller.start();
+          async.flushMicrotasks();
+          expect(controller.canGoEarlier, isFalse);
+          controller.earlier();
+          async.flushMicrotasks();
+          expect(rec.resumeCalls, hasLength(1)); // only the original result
+          controller.dispose();
+        });
+      });
+    });
+  });
+}
