@@ -1,11 +1,17 @@
 import 'package:flutter/material.dart';
 
-/// Design tokens, docs/KONZEPT.md "Design" table. Day and night are two
-/// fixed palettes chosen by the app's own night-mode logic
-/// (signals/night.dart: night window or a running sleep timer), never by
-/// the OS "dark mode" setting -- KONZEPT.md ties night mode to the sleep
-/// use case, not to system theme.
-class FadenTokens {
+import '../data/settings_store.dart' show Appearance;
+
+/// Design tokens, docs/KONZEPT.md "Design" table. Day and night are the
+/// only two palettes. Which one a screen uses is decided by
+/// [resolveFadenTokens]: Nachtmodus (signals/night.dart: night window or a
+/// running sleep timer) always gets [night]; otherwise the "Erscheinungsbild"
+/// setting picks [day] ("Hell"), [night] ("Dunkel") or follows the phone
+/// ("Wie iPhone") -- decision E28 in docs/ARCHITEKTUR.md section 13.
+///
+/// Also a [ThemeExtension], so widgets below a Faden theme read the
+/// current set with [FadenTokens.of] instead of hard-coding one.
+class FadenTokens extends ThemeExtension<FadenTokens> {
   final Color grund; // background
   final Color tinte; // text
   final Color tinteLeise; // secondary text
@@ -39,6 +45,54 @@ class FadenTokens {
   /// Rest of the thread (KONZEPT.md "Faden": "Rest in tinte-leise mit 40 %
   /// Deckkraft").
   Color get tinteLeiseFaden => tinteLeise.withValues(alpha: 0.4);
+
+  /// The token set of the surrounding theme (see [buildFadenTheme]); day
+  /// if none is set, e.g. in a bare test widget.
+  static FadenTokens of(BuildContext context) =>
+      Theme.of(context).extension<FadenTokens>() ?? day;
+
+  @override
+  FadenTokens copyWith({
+    Color? grund,
+    Color? tinte,
+    Color? tinteLeise,
+    Color? faden,
+    Color? knoten,
+  }) =>
+      FadenTokens(
+        grund: grund ?? this.grund,
+        tinte: tinte ?? this.tinte,
+        tinteLeise: tinteLeise ?? this.tinteLeise,
+        faden: faden ?? this.faden,
+        knoten: knoten ?? this.knoten,
+      );
+
+  /// No colour blending: KONZEPT.md "Bewegung" allows no decorative
+  /// animation, so a theme change switches the token set outright.
+  @override
+  FadenTokens lerp(covariant FadenTokens? other, double t) =>
+      (other == null || t < 0.5) ? this : other;
+}
+
+/// The token set for a screen (decision E28): Nachtmodus ([nightMode])
+/// overrides everything; otherwise [appearance] decides, with
+/// [Appearance.system] following [platformBrightness]. "Dunkel" reuses the
+/// night tokens, but only the look -- the Nachtmodus *behaviour* (cover
+/// hidden, button lock) stays tied to [nightMode] in ui/player_screen.dart.
+FadenTokens resolveFadenTokens({
+  required Appearance appearance,
+  required Brightness platformBrightness,
+  required bool nightMode,
+}) {
+  if (nightMode) return FadenTokens.night;
+  switch (appearance) {
+    case Appearance.light:
+      return FadenTokens.day;
+    case Appearance.dark:
+      return FadenTokens.night;
+    case Appearance.system:
+      return platformBrightness == Brightness.dark ? FadenTokens.night : FadenTokens.day;
+  }
 }
 
 /// Font family bundled in pubspec.yaml (assets/fonts, OFL license in
@@ -97,5 +151,6 @@ ThemeData buildFadenTheme(FadenTokens tokens) {
     // app-specific flourish; page transitions are the platform default,
     // which already respects the OS reduce-motion setting.
     visualDensity: VisualDensity.standard,
+    extensions: [tokens],
   );
 }

@@ -1,5 +1,6 @@
 // Tests data/settings_store.dart's M6 addition, the health-data opt-in
-// (docs/ARCHITEKTUR.md section 9 / KONZEPT.md "Schlafdaten erlauben").
+// (docs/ARCHITEKTUR.md section 9 / KONZEPT.md "Schlafdaten erlauben"),
+// plus the appearance (decision E28) and the night window.
 // Safety-relevant: the whole M6 feature is gated behind this being true,
 // so an unset key must read back as false, not as some other default.
 
@@ -28,5 +29,25 @@ void main() {
 
     await settings.setHealthDataOptIn(false);
     expect(await settings.healthDataOptIn(), isFalse);
+  });
+
+  test('appearance defaults to "Wie iPhone" (system) when never set', () async {
+    expect(await settings.appearance(), Appearance.system);
+  });
+
+  test('appearance round-trips every value', () async {
+    for (final appearance in Appearance.values) {
+      await settings.setAppearance(appearance);
+      expect(await settings.appearance(), appearance);
+    }
+  });
+
+  test('night window defaults to 20:00-06:00 and round-trips', () async {
+    expect(await settings.nightStartMin(), 20 * 60);
+    expect(await settings.nightEndMin(), 6 * 60);
+    await settings.setNightStartMin(22 * 60 + 15);
+    await settings.setNightEndMin(5 * 60 + 45);
+    expect(await settings.nightStartMin(), 22 * 60 + 15);
+    expect(await settings.nightEndMin(), 5 * 60 + 45);
   });
 }

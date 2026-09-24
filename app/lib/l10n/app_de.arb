@@ -66,8 +66,6 @@
   "settingsTitle": "Einstellungen",
   "settingsServerUrl": "Server-Adresse",
   "settingsServerToken": "Zugangs-Token",
-  "settingsNightWindowStart": "Nachtfenster Beginn",
-  "settingsNightWindowEnd": "Nachtfenster Ende",
   "settingsSave": "Speichern",
   "settingsSaved": "Gespeichert. Neu starten, damit es wirkt.",
 
@@ -101,5 +99,62 @@
   "pauseAction": "Pause",
   "seekBackAction": "30 Sekunden zurück",
   "seekForwardAction": "30 Sekunden vor",
-  "confirmManifestSuccess": "Reihenfolge übernommen."
+  "confirmManifestSuccess": "Reihenfolge übernommen.",
+
+  "settingsServerSection": "Server",
+  "@settingsServerSection": { "description": "Abschnittstitel in den Einstellungen: Server-Adresse und Token." },
+
+  "settingsNightWindowTitle": "Nachtfenster",
+  "@settingsNightWindowTitle": { "description": "Abschnittstitel in den Einstellungen." },
+
+  "settingsNightWindowSummary": "Jede Nacht von {start} bis {end}",
+  "@settingsNightWindowSummary": { "description": "Zusammenfassung des Nachtfensters, immer sichtbar. Zeiten als HH:MM." },
+
+  "settingsNightWindowExplanation": "In dieser Zeit ist der Player dunkel und ohne Cover, die Tasten auf dem Bildschirm sperren sich nach 10 Sekunden. Läuft das Hörbuch darin länger als 3 Minuten, ohne dass du etwas tippst oder drückst, bietet Faden danach „Faden aufnehmen“ an.",
+  "@settingsNightWindowExplanation": { "description": "Erklärung des Nachtfensters (KONZEPT.md Nachtmodus, ARCHITEKTUR.md Abschnitt 7 Regel 5)." },
+
+  "settingsNightWindowStartsAt": "Beginnt um {time}",
+  "@settingsNightWindowStartsAt": { "description": "Zeile, die die Uhrzeitauswahl für den Beginn öffnet." },
+
+  "settingsNightWindowEndsAt": "Endet um {time}",
+  "@settingsNightWindowEndsAt": { "description": "Zeile, die die Uhrzeitauswahl für das Ende öffnet." },
+
+  "settingsNightWindowStartPicker": "Nacht beginnt um",
+  "@settingsNightWindowStartPicker": { "description": "Titel der Uhrzeitauswahl für den Beginn." },
+
+  "settingsNightWindowEndPicker": "Nacht endet um",
+  "@settingsNightWindowEndPicker": { "description": "Titel der Uhrzeitauswahl für das Ende." },
+
+  "timePickerConfirm": "Übernehmen",
+  "@timePickerConfirm": { "description": "Bestätigen in der Uhrzeitauswahl." },
+
+  "timePickerCancel": "Abbrechen",
+  "@timePickerCancel": { "description": "Abbrechen in der Uhrzeitauswahl." },
+
+  "timePickerHour": "Stunde",
+  "@timePickerHour": { "description": "Feldbeschriftung der Uhrzeiteingabe." },
+
+  "timePickerMinute": "Minute",
+  "@timePickerMinute": { "description": "Feldbeschriftung der Uhrzeiteingabe." },
+
+  "timePickerInvalid": "Keine gültige Uhrzeit",
+  "@timePickerInvalid": { "description": "Fehlertext der Uhrzeiteingabe." },
+
+  "settingsAppearanceTitle": "Erscheinungsbild",
+  "@settingsAppearanceTitle": { "description": "Abschnittstitel in den Einstellungen (E28)." },
+
+  "settingsAppearanceSystem": "Wie iPhone",
+  "@settingsAppearanceSystem": { "description": "Erscheinungsbild folgt der Systemeinstellung hell/dunkel (Standard)." },
+
+  "settingsAppearanceLight": "Hell",
+  "@settingsAppearanceLight": { "description": "Erscheinungsbild immer hell (Tag-Farben)." },
+
+  "settingsAppearanceDark": "Dunkel",
+  "@settingsAppearanceDark": { "description": "Erscheinungsbild immer dunkel (Nacht-Farben, ohne Nachtmodus-Verhalten)." },
+
+  "settingsAppearanceNightNote": "Im Nachtfenster und mit Sleep-Timer ist der Player immer dunkel.",
+  "@settingsAppearanceNightNote": { "description": "Hinweis unter dem Erscheinungsbild: Nachtmodus hat Vorrang." },
+
+  "miniPlayerOpen": "Player öffnen",
+  "@miniPlayerOpen": { "description": "Bedienhilfen-Beschriftung des Mini-Players (E29)." }
 }

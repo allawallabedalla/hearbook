@@ -49,6 +49,80 @@ final coverProvider = FutureProvider.family<Uint8List?, String>((ref, bookId) as
   return bytes is Uint8List ? bytes : Uint8List.fromList(bytes);
 });
 
+/// "Erscheinungsbild" as read once in main.dart before `runApp`, so the
+/// very first frame already has the right look. Defaults to
+/// [Appearance.system] for tests that do not override it.
+final initialAppearanceProvider = Provider<Appearance>((ref) => Appearance.system);
+
+/// The live "Erscheinungsbild" setting (decision E28). [set] writes to the
+/// settings store first and only then changes the state, so what the
+/// screen shows is always what is stored.
+class AppearanceController extends Notifier<Appearance> {
+  @override
+  Appearance build() => ref.watch(initialAppearanceProvider);
+
+  Future<void> set(Appearance appearance) async {
+    await ref.read(settingsStoreProvider).setAppearance(appearance);
+    if (!ref.mounted) return;
+    state = appearance;
+  }
+}
+
+final appearanceProvider =
+    NotifierProvider<AppearanceController, Appearance>(AppearanceController.new);
+
+/// The night window in minutes since local midnight (docs/KONZEPT.md
+/// "Faden aufnehmen": default 20 to 6 o'clock). It may cross midnight.
+class NightWindow {
+  final int startMin;
+  final int endMin;
+
+  const NightWindow({required this.startMin, required this.endMin});
+
+  static const defaults = NightWindow(startMin: 20 * 60, endMin: 6 * 60);
+
+  @override
+  bool operator ==(Object other) =>
+      other is NightWindow && other.startMin == startMin && other.endMin == endMin;
+
+  @override
+  int get hashCode => Object.hash(startMin, endMin);
+}
+
+/// The night window from the settings store, shared by the settings screen
+/// (which changes it) and the player (which reads it for Nachtmodus and
+/// the handler's SLEEP_HINT hook), so a change applies right away. The
+/// setters write the store first, then update the state.
+class NightWindowController extends AsyncNotifier<NightWindow> {
+  @override
+  Future<NightWindow> build() async {
+    final settings = ref.watch(settingsStoreProvider);
+    return NightWindow(
+      startMin: await settings.nightStartMin(),
+      endMin: await settings.nightEndMin(),
+    );
+  }
+
+  Future<void> setStart(int minutes) async {
+    final current = await future;
+    await ref.read(settingsStoreProvider).setNightStartMin(minutes);
+    if (!ref.mounted) return;
+    final latest = state.value ?? current;
+    state = AsyncData(NightWindow(startMin: minutes, endMin: latest.endMin));
+  }
+
+  Future<void> setEnd(int minutes) async {
+    final current = await future;
+    await ref.read(settingsStoreProvider).setNightEndMin(minutes);
+    if (!ref.mounted) return;
+    final latest = state.value ?? current;
+    state = AsyncData(NightWindow(startMin: latest.startMin, endMin: minutes));
+  }
+}
+
+final nightWindowProvider =
+    AsyncNotifierProvider<NightWindowController, NightWindow>(NightWindowController.new);
+
 /// M6 (docs/ARCHITEKTUR.md section 9): null on a platform without a
 /// [SleepDataSource] implementation wired up (there is none yet besides
 /// [HealthPluginSleepDataSource], but this stays overridable/nullable the

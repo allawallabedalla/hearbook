@@ -25,6 +25,17 @@ import 'thread_progress.dart';
 class PlayerScreen extends ConsumerStatefulWidget {
   const PlayerScreen({super.key});
 
+  /// Name of the player's route, so [showPlayerScreen] can find it on the
+  /// navigator stack.
+  static const routeName = '/player';
+
+  /// The one route the player is ever shown in. Always use this (not a
+  /// bare `MaterialPageRoute`) so [showPlayerScreen] recognises it.
+  static Route<void> route() => MaterialPageRoute<void>(
+        settings: const RouteSettings(name: routeName),
+        builder: (_) => const PlayerScreen(),
+      );
+
   @override
   ConsumerState<PlayerScreen> createState() => _PlayerScreenState();
 }
@@ -40,8 +51,6 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
   /// would likely time out before the listener is back here.
   bool _fadenOpen = false;
   UndoHint? _heldUndoHint;
-  int _nightStartMin = 20 * 60;
-  int _nightEndMin = 6 * 60;
 
   @override
   void initState() {
@@ -65,18 +74,6 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
     // so no re-wiring is needed as `_sleepTimer`/the night window change.
     handler.onLastMinuteExtend = () => _sleepTimer.extendIfInLastMinute();
     handler.isInNightWindow = () => _inNightWindowNow;
-    _loadNightWindow();
-  }
-
-  Future<void> _loadNightWindow() async {
-    final settings = ref.read(settingsStoreProvider);
-    final start = await settings.nightStartMin();
-    final end = await settings.nightEndMin();
-    if (!mounted) return;
-    setState(() {
-      _nightStartMin = start;
-      _nightEndMin = end;
-    });
   }
 
   void _showUndoHint(UndoHint hint) {
@@ -118,13 +115,19 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
   /// "im Nachtfenster" for a media/system pause) -- distinct from [_isNight]
   /// below, which also counts a running sleep timer as "night mode" for the
   /// UI's own dark styling.
+  ///
+  /// Reads the window from [nightWindowProvider] on every call, so a change
+  /// in the settings screen applies at once (the player stays mounted below
+  /// the library and settings, see [showPlayerScreen]). Until the setting
+  /// has loaded, the default 20:00-06:00 applies, as before.
   bool get _inNightWindowNow {
+    final window = ref.read(nightWindowProvider).value ?? NightWindow.defaults;
     final now = DateTime.now();
     return isInNightWindow(
       nowWallMs: now.millisecondsSinceEpoch,
       tzMin: now.timeZoneOffset.inMinutes,
-      nightStartMin: _nightStartMin,
-      nightEndMin: _nightEndMin,
+      nightStartMin: window.startMin,
+      nightEndMin: window.endMin,
     );
   }
 
@@ -212,8 +215,22 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
   @override
   Widget build(BuildContext context) {
     final session = ref.watch(playerSessionProvider);
-    final tokens = _isNight ? FadenTokens.night : FadenTokens.day;
+    // Rebuild when the night window setting loads or changes.
+    ref.watch(nightWindowProvider);
+    final night = _isNight;
+    // Decision E28: Nachtmodus always gets the night look; otherwise the
+    // "Erscheinungsbild" setting decides. Only [night] drives the
+    // Nachtmodus *behaviour* below (cover hidden, ring button, lock) --
+    // "Dunkel" shares the night colours, not that behaviour.
+    final tokens = resolveFadenTokens(
+      appearance: ref.watch(appearanceProvider),
+      platformBrightness: MediaQuery.platformBrightnessOf(context),
+      nightMode: night,
+    );
     final theme = buildFadenTheme(tokens);
+    // docs/KONZEPT.md lists the 10 s button lock under "Nachtmodus" only;
+    // the lock controller itself runs all the time, so it is gated here.
+    final locked = night && _lock.locked;
 
     if (!session.isOpen || session.manifest == null || session.bookState == null) {
       return Theme(
@@ -230,22 +247,26 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
         onPanDown: (_) => _onInteraction(),
         child: Scaffold(
           backgroundColor: tokens.grund,
-          appBar: _isNight
+          appBar: night
               ? null
               : AppBar(
                   backgroundColor: tokens.grund,
                   elevation: 0,
                   leading: IconButton(
                     icon: Icon(Icons.library_music_outlined, color: tokens.tinte),
+                    // Pushed on top (not replacing the player), so the
+                    // player -- and its sleep timer -- stays alive below the
+                    // library and the mini player can return to it
+                    // (decision E29).
                     onPressed: () => Navigator.of(context)
-                        .pushReplacement(MaterialPageRoute(builder: (_) => const LibraryScreen())),
+                        .push(MaterialPageRoute<void>(builder: (_) => const LibraryScreen())),
                   ),
                 ),
           body: SafeArea(
             child: _Body(
               tokens: tokens,
-              night: _isNight,
-              locked: _lock.locked,
+              night: night,
+              locked: locked,
               sleepTimer: _sleepTimer,
               onUnlockHoldStart: _lock.startUnlockHold,
               onUnlockHoldEnd: _lock.cancelUnlockHold,
@@ -355,7 +376,7 @@ class _Body extends ConsumerWidget {
                   Padding(
                     padding: const EdgeInsets.only(top: 4),
                     child: Text(
-                      AppStrings.remainingTime(_formatDuration(remainingMs)),
+                      AppStrings.remainingTime(formatPlaybackDuration(remainingMs)),
                       style: TextStyle(fontSize: FadenTypeSizes.caption, color: tokens.tinteLeise),
                     ),
                   ),
@@ -554,7 +575,22 @@ class _Cover extends ConsumerWidget {
   }
 }
 
-String _formatDuration(int ms) {
+/// Brings the player back to the front (decision E29): pops every route
+/// above [PlayerScreen.route] if it is on the stack; otherwise (the app
+/// started on the library because no book was open yet) replaces the whole
+/// stack with it, so there is only ever one player and it is the root
+/// route (docs/KONZEPT.md "Start ist der Player").
+void showPlayerScreen(NavigatorState navigator) {
+  var found = false;
+  navigator.popUntil((route) {
+    if (route.settings.name == PlayerScreen.routeName) found = true;
+    return found || route.isFirst;
+  });
+  if (!found) navigator.pushAndRemoveUntil(PlayerScreen.route(), (_) => false);
+}
+
+/// "12:34" or "3:04:05" for a remaining play time in milliseconds.
+String formatPlaybackDuration(int ms) {
   final totalSeconds = ms ~/ 1000;
   final hours = totalSeconds ~/ 3600;
   final minutes = (totalSeconds % 3600) ~/ 60;

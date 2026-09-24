@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../l10n/strings.dart';
+import 'mini_player.dart';
 import 'player_screen.dart';
 import 'providers.dart';
 import 'settings_screen.dart';
@@ -10,7 +11,8 @@ import 'theme.dart';
 /// docs/KONZEPT.md "Screens": "4. Bibliothek: Liste der Bücher mit Status:
 /// geladen, neu, Reihenfolge prüfen." Reached from the player via a small
 /// icon (docs/KONZEPT.md "Start ist der Player": "Die Bibliothek erreichst
-/// du über ein kleines Symbol.").
+/// du über ein kleines Symbol."). Shows the mini player at the bottom
+/// while a book is open (decision E29).
 class LibraryScreen extends ConsumerStatefulWidget {
   const LibraryScreen({super.key});
 
@@ -30,8 +32,9 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen> {
   @override
   Widget build(BuildContext context) {
     final controller = ref.watch(libraryControllerProvider);
-    final tokens = FadenTokens.day;
+    final tokens = FadenTokens.of(context);
     return Scaffold(
+      bottomNavigationBar: const MiniPlayer(),
       appBar: AppBar(
         title: Text(AppStrings.libraryTitle),
         actions: [
@@ -105,7 +108,7 @@ class _BookRow extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final controller = ref.watch(libraryControllerProvider);
-    final tokens = FadenTokens.day;
+    final tokens = FadenTokens.of(context);
     final downloaded = controller.downloadedByBook[book.bookId] ?? false;
     final progress = controller.downloadProgressByBook[book.bookId];
 
@@ -162,7 +165,9 @@ class _BookRow extends ConsumerWidget {
           api: api,
         );
     if (!context.mounted) return;
-    Navigator.of(context).push(MaterialPageRoute(builder: (_) => const PlayerScreen()));
+    // Back to the one root player instead of stacking a new one on top
+    // (decision E29).
+    showPlayerScreen(Navigator.of(context));
   }
 
   Future<void> _showReviewDialog(

@@ -37,7 +37,7 @@ class DetailsSheetContent extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final session = ref.watch(playerSessionProvider);
-    final tokens = FadenTokens.day;
+    final tokens = FadenTokens.of(context);
     final manifest = session.manifest;
     final bookState = session.bookState;
     if (manifest == null || bookState == null) return const SizedBox.shrink();

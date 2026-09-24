@@ -47,7 +47,7 @@ Regeln:
 2. **Details (nach oben wischen):** Kapitel, Zeitleiste mit Scrubber, Tempo, Sleep-Timer, Verlauf.
 3. **Faden-Modus:** Vollbild, dunkel, siehe oben.
 4. **Bibliothek:** Liste der Bücher mit Status: geladen, neu, Reihenfolge prüfen.
-5. **Einstellungen:** Server, Nachtfenster, Schlafdaten erlauben, Belegung der Kopfhörertasten.
+5. **Einstellungen:** Server, Nachtfenster, Erscheinungsbild (Wie iPhone, Hell, Dunkel), Schlafdaten erlauben, Belegung der Kopfhörertasten.
 
 ## Nachtmodus
 

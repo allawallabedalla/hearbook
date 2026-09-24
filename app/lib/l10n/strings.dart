@@ -44,8 +44,6 @@ class AppStrings {
     'settingsTitle': 'Einstellungen',
     'settingsServerUrl': 'Server-Adresse',
     'settingsServerToken': 'Zugangs-Token',
-    'settingsNightWindowStart': 'Nachtfenster Beginn',
-    'settingsNightWindowEnd': 'Nachtfenster Ende',
     'settingsSave': 'Speichern',
     'settingsSaved': 'Gespeichert. Neu starten, damit es wirkt.',
     'settingsHealthDataOptIn': 'Schlafdaten erlauben',
@@ -67,6 +65,27 @@ class AppStrings {
     'seekBackAction': '30 Sekunden zurück',
     'seekForwardAction': '30 Sekunden vor',
     'confirmManifestSuccess': 'Reihenfolge übernommen.',
+    'settingsServerSection': 'Server',
+    'settingsNightWindowTitle': 'Nachtfenster',
+    'settingsNightWindowSummary': 'Jede Nacht von {start} bis {end}',
+    'settingsNightWindowExplanation':
+        'In dieser Zeit ist der Player dunkel und ohne Cover, die Tasten auf dem Bildschirm sperren sich nach 10 Sekunden. Läuft das Hörbuch darin länger als 3 Minuten, ohne dass du etwas tippst oder drückst, bietet Faden danach „Faden aufnehmen“ an.',
+    'settingsNightWindowStartsAt': 'Beginnt um {time}',
+    'settingsNightWindowEndsAt': 'Endet um {time}',
+    'settingsNightWindowStartPicker': 'Nacht beginnt um',
+    'settingsNightWindowEndPicker': 'Nacht endet um',
+    'timePickerConfirm': 'Übernehmen',
+    'timePickerCancel': 'Abbrechen',
+    'timePickerHour': 'Stunde',
+    'timePickerMinute': 'Minute',
+    'timePickerInvalid': 'Keine gültige Uhrzeit',
+    'settingsAppearanceTitle': 'Erscheinungsbild',
+    'settingsAppearanceSystem': 'Wie iPhone',
+    'settingsAppearanceLight': 'Hell',
+    'settingsAppearanceDark': 'Dunkel',
+    'settingsAppearanceNightNote':
+        'Im Nachtfenster und mit Sleep-Timer ist der Player immer dunkel.',
+    'miniPlayerOpen': 'Player öffnen',
   };
 
   static String _of(String key) {
@@ -106,8 +125,6 @@ class AppStrings {
   static String get settingsTitle => _of('settingsTitle');
   static String get settingsServerUrl => _of('settingsServerUrl');
   static String get settingsServerToken => _of('settingsServerToken');
-  static String get settingsNightWindowStart => _of('settingsNightWindowStart');
-  static String get settingsNightWindowEnd => _of('settingsNightWindowEnd');
   static String get settingsSave => _of('settingsSave');
   static String get settingsSaved => _of('settingsSaved');
   static String get settingsHealthDataOptIn => _of('settingsHealthDataOptIn');
@@ -124,6 +141,22 @@ class AppStrings {
   static String get seekBackAction => _of('seekBackAction');
   static String get seekForwardAction => _of('seekForwardAction');
   static String get confirmManifestSuccess => _of('confirmManifestSuccess');
+  static String get settingsServerSection => _of('settingsServerSection');
+  static String get settingsNightWindowTitle => _of('settingsNightWindowTitle');
+  static String get settingsNightWindowExplanation => _of('settingsNightWindowExplanation');
+  static String get settingsNightWindowStartPicker => _of('settingsNightWindowStartPicker');
+  static String get settingsNightWindowEndPicker => _of('settingsNightWindowEndPicker');
+  static String get timePickerConfirm => _of('timePickerConfirm');
+  static String get timePickerCancel => _of('timePickerCancel');
+  static String get timePickerHour => _of('timePickerHour');
+  static String get timePickerMinute => _of('timePickerMinute');
+  static String get timePickerInvalid => _of('timePickerInvalid');
+  static String get settingsAppearanceTitle => _of('settingsAppearanceTitle');
+  static String get settingsAppearanceSystem => _of('settingsAppearanceSystem');
+  static String get settingsAppearanceLight => _of('settingsAppearanceLight');
+  static String get settingsAppearanceDark => _of('settingsAppearanceDark');
+  static String get settingsAppearanceNightNote => _of('settingsAppearanceNightNote');
+  static String get miniPlayerOpen => _of('miniPlayerOpen');
 
   /// KONZEPT.md Texte-Tabelle: "Zurück zu Kapitel 7, 23:41". [chapter] is
   /// an already-formatted [chapterLabel] and [time] an mm:ss string.
@@ -142,4 +175,13 @@ class AppStrings {
       _of('chapterOfTotal').replaceAll('{n}', '$n').replaceAll('{total}', '$total');
 
   static String remainingTime(String time) => _of('remainingTime').replaceAll('{time}', time);
+
+  static String settingsNightWindowSummary(String start, String end) =>
+      _of('settingsNightWindowSummary').replaceAll('{start}', start).replaceAll('{end}', end);
+
+  static String settingsNightWindowStartsAt(String time) =>
+      _of('settingsNightWindowStartsAt').replaceAll('{time}', time);
+
+  static String settingsNightWindowEndsAt(String time) =>
+      _of('settingsNightWindowEndsAt').replaceAll('{time}', time);
 }

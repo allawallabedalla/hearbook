@@ -29,6 +29,8 @@ Future<void> main() async {
   final journal = Journal(db);
   final settings = SettingsStore(db);
   final deviceId = await settings.deviceId();
+  // Read before the first frame so it already has the chosen look (E28).
+  final appearance = await settings.appearance();
 
   final serverUrl = await settings.serverUrl();
   final serverToken = await settings.serverToken();
@@ -68,22 +70,34 @@ Future<void> main() async {
         syncClientProvider.overrideWithValue(syncClient),
         sleepDataSourceProvider.overrideWithValue(sleepDataSource),
         audioHandlerProvider.overrideWithValue(audioHandler),
+        initialAppearanceProvider.overrideWithValue(appearance),
       ],
       child: const FadenApp(),
     ),
   );
 }
 
-class FadenApp extends StatelessWidget {
+/// The app-wide theme follows the "Erscheinungsbild" setting and the
+/// phone's brightness (decision E28, [resolveFadenTokens]). Nachtmodus is
+/// not applied here: it belongs to the player screen, which sets its own
+/// theme on top (ui/player_screen.dart).
+class FadenApp extends ConsumerWidget {
   const FadenApp({super.key});
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
+    final tokens = resolveFadenTokens(
+      appearance: ref.watch(appearanceProvider),
+      platformBrightness: MediaQuery.platformBrightnessOf(context),
+      nightMode: false,
+    );
     return MaterialApp(
       title: AppStrings.appTitle,
       debugShowCheckedModeBanner: false,
-      theme: buildFadenTheme(FadenTokens.day),
-      darkTheme: buildFadenTheme(FadenTokens.night),
+      theme: buildFadenTheme(tokens),
+      // KONZEPT.md "Bewegung": no decorative animation, so a change of
+      // look switches at once instead of cross-fading.
+      themeAnimationDuration: Duration.zero,
       home: const _StartupScreen(),
     );
   }
@@ -131,8 +145,7 @@ class _StartupScreenState extends ConsumerState<_StartupScreen> {
                 api: api,
               );
           if (!mounted) return;
-          Navigator.of(context)
-              .pushReplacement(MaterialPageRoute(builder: (_) => const PlayerScreen()));
+          Navigator.of(context).pushReplacement(PlayerScreen.route());
           return;
         }
       } catch (_) {
@@ -146,7 +159,7 @@ class _StartupScreenState extends ConsumerState<_StartupScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final tokens = FadenTokens.day;
+    final tokens = FadenTokens.of(context);
     return Scaffold(
       backgroundColor: tokens.grund,
       body: const Center(child: CircularProgressIndicator()),

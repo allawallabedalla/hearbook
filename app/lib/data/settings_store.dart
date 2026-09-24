@@ -15,11 +15,18 @@ class SettingsKeys {
   static const sleepTimerDefaultMin = 'sleep_timer_default_min';
   static const lastOpenedBookId = 'last_opened_book_id';
   static const healthDataOptIn = 'health_data_opt_in';
+  static const appearance = 'appearance';
 }
+
+/// The "Erscheinungsbild" setting (decision E28 in docs/ARCHITEKTUR.md
+/// section 13): which token set the app uses outside Nachtmodus.
+/// [system] follows the phone's light/dark setting. Stored by [name], so
+/// the order of the values here never matters for existing data.
+enum Appearance { system, light, dark }
 
 /// Typed wrapper around [KeyValueSettings]: server connection, device id
 /// and the small settings docs/KONZEPT.md's "Einstellungen" screen exposes
-/// (server, night window, health-data opt-in). Headphone-button mapping
+/// (server, night window, health-data opt-in, appearance). Headphone-button mapping
 /// beyond the fixed +/-30s of section 9 is out of scope (M7).
 class SettingsStore {
   final AppDatabase db;
@@ -104,4 +111,17 @@ class SettingsStore {
 
   Future<void> setHealthDataOptIn(bool optIn) =>
       _set(SettingsKeys.healthDataOptIn, optIn.toString());
+
+  /// "Erscheinungsbild" (decision E28). An unset or unknown value means
+  /// [Appearance.system], the default.
+  Future<Appearance> appearance() async {
+    final v = await _get(SettingsKeys.appearance);
+    for (final a in Appearance.values) {
+      if (a.name == v) return a;
+    }
+    return Appearance.system;
+  }
+
+  Future<void> setAppearance(Appearance appearance) =>
+      _set(SettingsKeys.appearance, appearance.name);
 }
