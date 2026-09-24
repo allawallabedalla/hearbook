@@ -45,6 +45,23 @@ class Journal {
     return rows.map(_toEvent).toList();
   }
 
+  /// The most advanced `Hlc` this device has locally logged, across every
+  /// book (the clock is per-device, not per-book, docs/ARCHITEKTUR.md
+  /// section 5). `Hlc(pt: 0, c: 0)` if this device has never logged an
+  /// event, in which case `tick(nowMs)` naturally produces `nowMs`.
+  Future<Hlc> latestHlc(String deviceId) async {
+    final rows = await (db.select(db.eventRows)
+          ..where((t) => t.deviceId.equals(deviceId))
+          ..orderBy([
+            (t) => OrderingTerm.desc(t.hlcPt),
+            (t) => OrderingTerm.desc(t.hlcC),
+          ])
+          ..limit(1))
+        .get();
+    if (rows.isEmpty) return const Hlc(pt: 0, c: 0);
+    return Hlc(pt: rows.first.hlcPt, c: rows.first.hlcC);
+  }
+
   /// Rows not yet marked `synced`, oldest first -- what the sync client
   /// (data/sync.dart) still needs to push.
   Future<List<Event>> unsyncedEvents({int limit = 500}) async {
