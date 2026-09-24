@@ -41,12 +41,12 @@ Hinweis: Faden-Suche gegen 20.000 simulierte Hörer (alle 5 Eigenschaften aus Ab
 
 Ziel: Bibliotheksordner auf dem NAS per Klick wählen statt `docker-compose.yml`/`.env` von Hand zu editieren. Nicht im ursprünglichen KONZEPT/ARCHITEKTUR, siehe `docs/ARCHITEKTUR.md` Abschnitt 13 Entscheidung E12.
 
-- [ ] `settings`-Tabelle (Abschnitt 2); `FADEN_LIBRARY` wird als weiter gefasster, nur lesender Wurzel-Mount dokumentiert
-- [ ] `GET /api/v1/setup/browse?path=`, `GET`/`POST /api/v1/setup/library` (Abschnitt 10); Pfad-Traversal serverseitig auf die Wurzel begrenzt (kein `..`, kein Verlassen von `FADEN_LIBRARY`); Bearer-Auth wie alle anderen Endpunkte
-- [ ] Scanner/Rescan nutzt `FADEN_LIBRARY` + `settings.library_path` als effektiven Bibliothekspfad statt `FADEN_LIBRARY` allein
-- [ ] `server/static/setup.html`: eine Datei, Vanilla JS, Stil wie `prototype/faden.html`; Token einmalig eingeben, Ordner anklicken, bestätigen; danach sofortiger Rescan
-- [ ] Tests: Pfad-Traversal-Schutz, Auswahl wird persistiert und vom Scanner verwendet, 401 ohne Token
-- [ ] `docker-compose.yml`/README-Hinweis aktualisiert: `FADEN_LIBRARY` kann jetzt bewusst weiter gemountet werden als die eigentliche Bibliothek
+- [x] `settings`-Tabelle (Abschnitt 2); `FADEN_LIBRARY` wird als weiter gefasster, nur lesender Wurzel-Mount dokumentiert
+- [x] `GET /api/v1/setup/browse?path=`, `GET`/`POST /api/v1/setup/library` (Abschnitt 10); Pfad-Traversal serverseitig auf die Wurzel begrenzt (kein `..`, kein Verlassen von `FADEN_LIBRARY`); Bearer-Auth wie alle anderen Endpunkte
+- [x] Scanner/Rescan nutzt `FADEN_LIBRARY` + `settings.library_path` als effektiven Bibliothekspfad statt `FADEN_LIBRARY` allein
+- [x] `server/static/setup.html`: eine Datei, Vanilla JS, Stil wie `prototype/faden.html`; Token einmalig eingeben, Ordner anklicken, bestätigen; danach sofortiger Rescan
+- [x] Tests: Pfad-Traversal-Schutz, Auswahl wird persistiert und vom Scanner verwendet, 401 ohne Token
+- [x] `docker-compose.yml`/README-Hinweis aktualisiert: `FADEN_LIBRARY` kann jetzt bewusst weiter gemountet werden als die eigentliche Bibliothek
 
 ```text
 /plan Setze Meilenstein M1b aus docs/ROADMAP.md um. Spezifikation: docs/ARCHITEKTUR.md Abschnitte 2, 10, 12 und 13 (E12). Baut auf dem bestehenden server/ aus M1/M2 auf. Am Ende Abnahme-Punkte abhaken und committen.
