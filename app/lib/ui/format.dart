@@ -1,0 +1,74 @@
+import '../l10n/strings.dart';
+
+/// Pure display formatters shared by the player, the mini player, the
+/// details sheet, the library and the settings. No widgets, so they are
+/// unit-tested directly (test/ui/format_test.dart).
+
+/// Remaining listening time at minute level (decision E44): "3 Std. 45 Min.",
+/// "2 Std.", "12 Min.". Rounds up, so the last seconds of a book still read
+/// "1 Min." instead of "0 Min.". With [coarse] (library rows), an hour or
+/// more shows whole hours only: "5 Std.".
+String formatRemaining(int ms, {bool coarse = false}) {
+  if (ms <= 0) return AppStrings.durationMinutes(0);
+  const minuteMs = 60 * 1000;
+  const hourMs = 60 * minuteMs;
+  if (coarse && ms >= hourMs) {
+    return AppStrings.durationHours((ms / hourMs).round());
+  }
+  final minutes = (ms + minuteMs - 1) ~/ minuteMs;
+  if (minutes < 60) return AppStrings.durationMinutes(minutes);
+  final h = minutes ~/ 60;
+  final m = minutes % 60;
+  return m == 0 ? AppStrings.durationHours(h) : AppStrings.durationHoursMinutes(h, m);
+}
+
+/// "12:34" or "3:04:05" for a play time in milliseconds (scrubber labels,
+/// chapter durations, the sleep-timer countdown).
+String formatClock(int ms) {
+  final totalSeconds = (ms < 0 ? 0 : ms) ~/ 1000;
+  final hours = totalSeconds ~/ 3600;
+  final minutes = (totalSeconds % 3600) ~/ 60;
+  final seconds = totalSeconds % 60;
+  final mm = minutes.toString().padLeft(hours > 0 ? 2 : 1, '0');
+  final ss = seconds.toString().padLeft(2, '0');
+  return hours > 0 ? '$hours:$mm:$ss' : '$mm:$ss';
+}
+
+/// German speed label: "1×", "1,25×", "0,75×", "1,5×".
+String formatSpeed(double speed) {
+  var text = speed.toStringAsFixed(2);
+  text = text.replaceFirst(RegExp(r'0+$'), '').replaceFirst(RegExp(r'\.$'), '');
+  return AppStrings.speedLabel(text.replaceAll('.', ','));
+}
+
+/// Storage size in decimal units, as iOS shows them: "340 MB", "1,2 GB".
+String formatBytes(int bytes) {
+  const mb = 1000 * 1000;
+  const gb = 1000 * mb;
+  if (bytes < gb) {
+    final value = bytes <= 0 ? 0 : (bytes / mb).round().clamp(1, 999);
+    return AppStrings.sizeMegabytes('$value');
+  }
+  final value = bytes / gb;
+  final text = value >= 100 ? value.round().toString() : value.toStringAsFixed(1).replaceAll('.', ',');
+  return AppStrings.sizeGigabytes(text);
+}
+
+/// Up to two initials for the no-cover monogram: "Der Zauberberg" -> "DZ",
+/// "Momo" -> "M". Empty for a title without letters or digits.
+String initialsFor(String title) {
+  final words = title
+      .split(RegExp(r'\s+'))
+      .map((w) => w.replaceAll(RegExp(r'[^\p{L}\p{N}]', unicode: true), ''))
+      .where((w) => w.isNotEmpty)
+      .toList();
+  if (words.isEmpty) return '';
+  final first = words.first.characters1;
+  if (words.length == 1) return first.toUpperCase();
+  return (first + words[1].characters1).toUpperCase();
+}
+
+extension on String {
+  /// The first user-visible character (a surrogate pair stays whole).
+  String get characters1 => String.fromCharCode(runes.first);
+}

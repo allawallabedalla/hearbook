@@ -5,6 +5,8 @@ import 'package:audio_service/audio_service.dart';
 import 'package:audio_session/audio_session.dart';
 import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:path_provider/path_provider.dart';
 
@@ -15,13 +17,17 @@ import 'data/settings_store.dart';
 import 'data/sleep_data_source.dart';
 import 'data/storage.dart';
 import 'l10n/strings.dart';
+import 'signals/night.dart';
 import 'ui/library_screen.dart';
 import 'ui/player_screen.dart';
 import 'ui/providers.dart';
+import 'ui/routes.dart';
 import 'ui/theme.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  // Portrait only (decision E50); Info.plist says the same for iOS.
+  await SystemChrome.setPreferredOrientations([DeviceOrientation.portraitUp]);
 
   // The journal stays where it always was: nothing may move or rewrite it.
   final documentsDir = await getApplicationDocumentsDirectory();
@@ -33,6 +39,15 @@ Future<void> main() async {
   // Read before the first frame so it already has the chosen look (E28).
   final appearance = await settings.appearance();
   final serverConfig = ServerConfig(url: await settings.serverUrl(), token: await settings.serverToken());
+  // In the night window the first frame is already black (E47); a running
+  // sleep timer cannot exist yet at app start.
+  final now = DateTime.now();
+  final nightAtStart = isInNightWindow(
+    nowWallMs: now.millisecondsSinceEpoch,
+    tzMin: now.timeZoneOffset.inMinutes,
+    nightStartMin: await settings.nightStartMin(),
+    nightEndMin: await settings.nightEndMin(),
+  );
 
   // Decision E35: downloads live in Application Support, excluded from the
   // iCloud backup; files from the old Documents location move over once,
@@ -87,6 +102,7 @@ Future<void> main() async {
         sleepDataSourceProvider.overrideWithValue(sleepDataSource),
         audioHandlerProvider.overrideWithValue(audioHandler),
         initialAppearanceProvider.overrideWithValue(appearance),
+        initialNightModeProvider.overrideWithValue(nightAtStart),
       ],
       child: const FadenApp(),
     ),
@@ -94,9 +110,10 @@ Future<void> main() async {
 }
 
 /// The app-wide theme follows the "Erscheinungsbild" setting and the
-/// phone's brightness (decision E28, [resolveFadenTokens]). Nachtmodus is
-/// not applied here: it belongs to the player screen, which sets its own
-/// theme on top (ui/player_screen.dart).
+/// phone's brightness (decision E28, [resolveFadenTokens]), and Nachtmodus
+/// as the player publishes it (E46), so library, settings, sheets and
+/// dialogs are dark at night too. The Nachtmodus *behaviour* stays in the
+/// player (ui/player_screen.dart).
 ///
 /// Also the home of the app-level sync triggers of docs/ARCHITEKTUR.md
 /// section 6 that are not tied to playback (E31): app start (via opening
@@ -158,12 +175,17 @@ class _FadenAppState extends ConsumerState<FadenApp> {
     final tokens = resolveFadenTokens(
       appearance: ref.watch(appearanceProvider),
       platformBrightness: MediaQuery.platformBrightnessOf(context),
-      nightMode: false,
+      nightMode: ref.watch(nightModeProvider),
     );
     return MaterialApp(
       title: AppStrings.appTitle,
       debugShowCheckedModeBanner: false,
-      theme: buildFadenTheme(tokens),
+      // German for Material's and Cupertino's own texts (back button,
+      // text selection menu, picker semantics).
+      locale: const Locale('de'),
+      supportedLocales: const [Locale('de')],
+      localizationsDelegates: GlobalMaterialLocalizations.delegates,
+      theme: fadenThemeFor(tokens),
       // KONZEPT.md "Bewegung": no decorative animation, so a change of
       // look switches at once instead of cross-fading.
       themeAnimationDuration: Duration.zero,
@@ -202,7 +224,7 @@ class _StartupScreenState extends ConsumerState<_StartupScreen> {
         final result = await ref.read(bookOpenerProvider).open(lastBookId);
         if (result != OpenBookResult.unavailable) {
           if (!mounted) return;
-          Navigator.of(context).pushReplacement(PlayerScreen.route());
+          Navigator.of(context).pushReplacement(PlayerScreen.route(instant: true));
           return;
         }
       } catch (_) {
@@ -211,15 +233,13 @@ class _StartupScreenState extends ConsumerState<_StartupScreen> {
       }
     }
     if (!mounted) return;
-    Navigator.of(context).pushReplacement(MaterialPageRoute(builder: (_) => const LibraryScreen()));
+    Navigator.of(context)
+        .pushReplacement(UnderPlayerRoute<void>(instant: true, builder: (_) => const LibraryScreen()));
   }
 
+  /// An empty screen in the background colour, no spinner (E47): opening
+  /// the last book takes a moment at most, and a spinner flashing by reads
+  /// as a glitch.
   @override
-  Widget build(BuildContext context) {
-    final tokens = FadenTokens.of(context);
-    return Scaffold(
-      backgroundColor: tokens.grund,
-      body: const Center(child: CircularProgressIndicator()),
-    );
-  }
+  Widget build(BuildContext context) => Scaffold(backgroundColor: FadenTokens.of(context).grund);
 }

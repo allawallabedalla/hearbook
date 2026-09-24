@@ -43,16 +43,16 @@ Regeln:
 
 ## Screens
 
-1. **Start ist der Player:** Cover, Titel, Kapitel, Restzeit, der Faden als Buchfortschritt (nicht ziehbar), großer Button. Die Bibliothek erreichst du über ein kleines Symbol.
-2. **Details (nach oben wischen):** Kapitel, Zeitleiste mit Scrubber, Tempo, Sleep-Timer, Verlauf.
+1. **Start ist der Player:** Cover, Titel, Autor, Kapitel, Restzeit in Minuten („noch 3 Std. 45 Min.“), der Faden als Buchfortschritt (nicht ziehbar), großer Button, unten ein Griff zu den Details. Die Bibliothek erreichst du über ein kleines Symbol oder durch Wischen nach unten.
+2. **Details (nach oben wischen oder Griff antippen):** Scrubber für das aktuelle Kapitel mit verstrichener und verbleibender Zeit, Tempo, Sleep-Timer, Verlauf, alle Kapitel mit Titel und Dauer, der Weg zur Bibliothek.
 3. **Faden-Modus:** Vollbild, dunkel, siehe oben.
-4. **Bibliothek:** Liste der Bücher mit Status: geladen, neu, Reihenfolge prüfen.
-5. **Einstellungen:** Server, Nachtfenster, Erscheinungsbild (Wie iPhone, Hell, Dunkel), Schlafdaten erlauben, Belegung der Kopfhörertasten.
+4. **Bibliothek:** oben „Weiterhören“ (zuletzt gehört), darunter alle Bücher mit Suche und Sortierung (zuletzt gehört, Titel, Autor). Je Buch Cover, Autor, Fortschritt als dünner Faden mit Restzeit oder „neu“/„gehört“, Download-Status (geladen, lädt mit Abbrechen, Fehler mit „Erneut versuchen“), „Reihenfolge prüfen“. Download löschen per Wischen oder langem Druck. Ohne Server zuerst „Server einrichten“.
+5. **Einstellungen:** Server mit „Verbindung prüfen“, Nachtfenster, Sleep-Timer-Standard, Erscheinungsbild (Wie iPhone, Hell, Dunkel), Speicher (geladene Bücher), Schlafdaten erlauben, Belegung der Kopfhörertasten.
 
 ## Nachtmodus
 
 - Aktiv im Nachtfenster oder bei laufendem Sleep-Timer.
-- Echtes Schwarz, Cover ausgeblendet, nur Faden und Button.
+- Echtes Schwarz, Cover ausgeblendet, nur Faden und Button. Details, Bibliothek und Einstellungen sind dann ebenfalls dunkel.
 - Nach 10 s ohne Berührung sind die Bildschirmtasten gesperrt; entsperren durch 1 s Halten. Kopfhörertasten funktionieren immer.
 - Sleep-Timer: 15, 30, 45, 60 Min oder Kapitelende. Die letzten 30 s werden leiser. In der letzten Minute verlängert jede Kopfhörertaste den Timer um die gewählte Dauer, statt zu pausieren, und zählt als Wach-Beleg.
 
@@ -67,6 +67,7 @@ Leitbild ist ein einzelner Faden. Er ersetzt den Scrubber als Fortschrittsanzeig
 | `tinte-leise` | `#5E6577` | `#7D7366` | Nebentext |
 | `faden` | `#3346A8` | `#E0A03A` | Faden, Hauptbutton |
 | `knoten` | `#1C2130` | `#F2C879` | aktuelle Position |
+| `fehler` | `#B3261E` | `#D9745A` | Fehler (Download, Wiedergabe) |
 
 Tagsüber indigo gefärbtes Garn auf kühlem Weiß. Nachts warmes Bernstein ohne Blauanteil, gedimmte Schrift, echtes Schwarz für OLED. Alle Text-Kombinationen erreichen mindestens 4,5:1 Kontrast.
 
@@ -74,8 +75,9 @@ Tagsüber indigo gefärbtes Garn auf kühlem Weiß. Nachts warmes Bernstein ohne
 - **Hauptbutton:** mindestens 88 dp. Tagsüber gefüllt in `faden` mit Symbol in `grund`; nachts nur ein Ring in `faden`, damit wenig Licht entsteht.
 - **Schrift:** eine Familie, Atkinson Hyperlegible Next (OFL, für Lesbarkeit entworfen; Fallback Atkinson Hyperlegible), im App-Bundle. Größen 28, 20, 17, 14 sp. Keine Großbuchstaben-Labels.
 - **Layout:** eine Spalte. Im Player zentriert, Listen linksbündig. Alle Tippziele mindestens 56 dp.
-- **Bewegung:** ein einziger bewusster Moment: Im Faden-Modus wird der Faden mit jeder Antwort kürzer (300 ms). Sonst keine Deko-Animationen; die System-Einstellung „Bewegung reduzieren“ gilt.
-- **Kein Cover vorhanden:** Titel in `tinte` auf `grund`, gesetzt in der Hausschrift.
+- **Bewegung:** ein einziger bewusster Moment: Im Faden-Modus wird der Faden mit jeder Antwort kürzer (300 ms). Sonst keine Deko-Animationen; nur der Player gleitet vom Mini-Player nach oben und beim Wischen nach unten weg. Die System-Einstellung „Bewegung reduzieren“ gilt für alles.
+- **Kein Cover vorhanden:** die Initialen des Titels in `faden` auf einer leisen Fläche, in der Hausschrift. Der Titel selbst steht direkt darunter.
+- **Bedienung wie auf dem iPhone:** keine Tinten-Welle beim Tippen, Schalter und Auswahl im iOS-Stil, Uhrzeit per Drehrad. Nur Hochformat.
 
 ## Texte
 
@@ -90,6 +92,9 @@ Tagsüber indigo gefärbtes Garn auf kühlem Weiß. Nachts warmes Bernstein ohne
 | Undo-Hinweis | Zurück zu Kapitel 7, 23:41 |
 | Bibliothek | Ordner geändert: Reihenfolge prüfen |
 | Offline | Keine Verbindung zum Server. Geladene Bücher spielen weiter. |
+| Offline, Bücher bekannt | Offline – geladene Bücher spielen weiter |
+| Restzeit | noch 3 Std. 45 Min. |
+| Wiedergabefehler | Kann nicht abspielen |
 
 ## Nicht im MVP
 

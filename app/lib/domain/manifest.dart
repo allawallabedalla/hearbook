@@ -10,11 +10,20 @@ class ManifestFile {
   /// when the file has none. Display only -- never a key (invariant 1).
   final String? title;
 
+  /// Disc and track number from the file's tags (`files.disc`/`files.track`),
+  /// if any. Display only (the "Reihenfolge prüfen" dialog shows them so
+  /// the listener can tell candidate orders apart) -- never a key
+  /// (invariant 1).
+  final int? disc;
+  final int? track;
+
   const ManifestFile({
     required this.idx,
     required this.fileHash,
     required this.durationMs,
     this.title,
+    this.disc,
+    this.track,
   });
 
   factory ManifestFile.fromJson(Map<String, dynamic> json) => ManifestFile(
@@ -22,6 +31,8 @@ class ManifestFile {
         fileHash: json['file_hash'] as String,
         durationMs: json['duration_ms'] as int,
         title: json['title'] as String?,
+        disc: json['disc'] as int?,
+        track: json['track'] as int?,
       );
 
   Map<String, dynamic> toJson() => {
@@ -29,6 +40,8 @@ class ManifestFile {
         'file_hash': fileHash,
         'duration_ms': durationMs,
         if (title != null) 'title': title,
+        if (disc != null) 'disc': disc,
+        if (track != null) 'track': track,
       };
 
   /// The title to show for this chapter: the file's own title when it has a

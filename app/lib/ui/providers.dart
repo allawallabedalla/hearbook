@@ -171,6 +171,28 @@ final coverProvider = FutureProvider.family<Uint8List?, String>((ref, bookId) as
   return bytes is Uint8List ? bytes : Uint8List.fromList(bytes);
 });
 
+/// Cover for a library row (decision E48): the saved copy first (no
+/// network per row on every scroll), otherwise fetched once and saved.
+/// Auto-disposed, so a long list does not keep every cover in memory.
+final libraryCoverProvider = FutureProvider.autoDispose.family<Uint8List?, String>((ref, bookId) async {
+  final api = ref.watch(apiClientProvider);
+  final dir = ref.watch(appSupportDirProvider);
+  if (dir != null && RegExp(r'^[A-Za-z0-9-]+$').hasMatch(bookId)) {
+    final file = File('${dir.path}/covers/$bookId');
+    if (await file.exists()) return file.readAsBytes();
+    final uri = await saveCoverForLockScreen(bookId, api, dir);
+    return uri == null ? null : await File.fromUri(uri).readAsBytes();
+  }
+  if (api == null) return null;
+  try {
+    final bytes = await api.cover(bookId);
+    if (bytes == null) return null;
+    return bytes is Uint8List ? bytes : Uint8List.fromList(bytes);
+  } catch (_) {
+    return null;
+  }
+});
+
 /// "Erscheinungsbild" as read once in main.dart before `runApp`, so the
 /// very first frame already has the right look. Defaults to
 /// [Appearance.system] for tests that do not override it.
@@ -261,6 +283,51 @@ class SleepTimerDefaultController extends AsyncNotifier<int> {
 
 final sleepTimerDefaultProvider =
     AsyncNotifierProvider<SleepTimerDefaultController, int>(SleepTimerDefaultController.new);
+
+/// Whether Nachtmodus is on as main.dart saw it before the first frame
+/// (night window from the settings store vs. the device clock), so the
+/// start screen is already black at night instead of flashing the day
+/// colours (decision E47).
+final initialNightModeProvider = Provider<bool>((ref) => false);
+
+/// Nachtmodus as the player screen last computed it (night window or a
+/// running sleep timer, signals/night.dart). The player owns the sleep
+/// timer, so it publishes the result here after each build; the app root
+/// (main.dart) then gives every screen -- library, settings, sheets,
+/// dialogs -- the night colours too (decision E46). The *behaviour* (cover
+/// hidden, button lock) stays in the player.
+class NightModeController extends Notifier<bool> {
+  @override
+  bool build() => ref.watch(initialNightModeProvider);
+
+  void set(bool night) {
+    if (state != night) state = night;
+  }
+}
+
+final nightModeProvider = NotifierProvider<NightModeController, bool>(NightModeController.new);
+
+/// Library order (decision E48). Kept for the app's lifetime, not stored.
+enum LibrarySort { recent, title, author }
+
+class LibrarySortController extends Notifier<LibrarySort> {
+  @override
+  LibrarySort build() => LibrarySort.recent;
+
+  void set(LibrarySort sort) => state = sort;
+}
+
+final librarySortProvider =
+    NotifierProvider<LibrarySortController, LibrarySort>(LibrarySortController.new);
+
+/// "Verbindung prüfen" in the settings (decision E37): checks an address
+/// and token as typed, without saving them. A provider so widget tests can
+/// answer without a network.
+typedef ConnectionChecker = Future<ConnectionCheck> Function(String url, String token);
+
+final connectionCheckerProvider = Provider<ConnectionChecker>(
+  (ref) => (url, token) => ApiClient.checkServer(baseUrl: url, token: token),
+);
 
 /// M6 (docs/ARCHITEKTUR.md section 9): null on a platform without a
 /// [SleepDataSource] implementation wired up (there is none yet besides
@@ -552,6 +619,10 @@ class PlayerSessionController extends ChangeNotifier {
 
   String? bookId;
   String? bookTitle;
+
+  /// The open book's author, if the server knows one (shown under the
+  /// title in the player and the mini player).
+  String? bookAuthor;
   Manifest? manifest;
   BookState? bookState;
   bool loading = false;
@@ -618,6 +689,7 @@ class PlayerSessionController extends ChangeNotifier {
     _notify();
     this.bookId = bookId;
     this.bookTitle = bookTitle;
+    bookAuthor = author;
     this.manifest = manifest;
     playlistSources = null;
     pauseIndex = {};

@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:just_audio/just_audio.dart' as ja;
 
@@ -11,6 +12,7 @@ import '../domain/manifest.dart';
 import '../l10n/strings.dart';
 import 'faden_search_controller.dart';
 import 'providers.dart';
+import 'routes.dart' show reduceMotion;
 import 'theme.dart';
 
 /// docs/KONZEPT.md "Faden-Modus": "Vollbild, dunkel, siehe oben [Faden
@@ -78,7 +80,10 @@ class _FadenScreenState extends ConsumerState<FadenScreen> {
     _probePlayer = widget.probePlayer ?? ProbePlayer();
     _probePlayer.open(widget.playlistSources);
 
-    _mediaAnswerSub = handler.fadenModeAnswers.listen((_) => _controller.submitAnswer());
+    _mediaAnswerSub = handler.fadenModeAnswers.listen((_) {
+      unawaited(HapticFeedback.selectionClick());
+      _controller.submitAnswer();
+    });
 
     _controller = FadenSearchController(
       lo: widget.lo,
@@ -146,6 +151,8 @@ class _FadenScreenState extends ConsumerState<FadenScreen> {
       _closeToPlayer();
       return;
     }
+    // "kenne ich" is felt, not only seen: the screen stays dark (E44).
+    unawaited(HapticFeedback.selectionClick());
     _controller.submitAnswer();
   }
 
@@ -215,11 +222,12 @@ class _FadenScreenState extends ConsumerState<FadenScreen> {
       ),
       const SizedBox(height: 40),
       // docs/KONZEPT.md "Bewegung": "im Faden-Modus wird der Faden mit
-      // jeder Antwort kürzer (300 ms)".
+      // jeder Antwort kürzer (300 ms)" -- unless the system asks for
+      // reduced motion.
       ClipRRect(
         borderRadius: BorderRadius.circular(2),
         child: AnimatedContainer(
-          duration: const Duration(milliseconds: 300),
+          duration: reduceMotion(context) ? Duration.zero : const Duration(milliseconds: 300),
           curve: Curves.easeOut,
           height: 3,
           width: (MediaQuery.of(context).size.width - 64) * fraction,

@@ -24,16 +24,10 @@
   "@fadenLadderEarlier": { "description": "Leiter-Button der Faden-Suche (M5)." },
 
   "fadenProbeCounter": "Probe {n} von höchstens {max}",
-  "@fadenProbeCounter": {
-    "description": "Probenzähler im Faden-Modus (KONZEPT.md: \"Probe 3 von höchstens 8\").",
-    "placeholders": { "n": {}, "max": {} }
-  },
+  "@fadenProbeCounter": { "description": "Probenzähler im Faden-Modus (KONZEPT.md: \"Probe 3 von höchstens 8\").", "placeholders": { "n": {}, "max": {} } },
 
   "undoHint": "Zurück zu {chapter}, {time}",
-  "@undoHint": {
-    "description": "Undo-Hinweis nach jedem Sprung über 2 Min (KONZEPT.md: \"Zurück zu Kapitel 7, 23:41\"). {chapter} ist bereits der fertig formatierte Kapitel-Text (chapterLabel), {time} eine mm:ss-Zeit.",
-    "placeholders": { "chapter": {}, "time": {} }
-  },
+  "@undoHint": { "description": "Undo-Hinweis nach jedem Sprung über 2 Min (KONZEPT.md: \"Zurück zu Kapitel 7, 23:41\"). {chapter} ist bereits der fertig formatierte Kapitel-Text (chapterLabel), {time} eine mm:ss-Zeit.", "placeholders": { "chapter": {}, "time": {} } },
 
   "undoAction": "Rückgängig",
   "@undoAction": { "description": "Aktion auf dem Undo-Hinweis." },
@@ -50,17 +44,15 @@
   "libraryStatusIncomplete": "unvollständig",
   "libraryStatusEmpty": "keine Dateien",
   "libraryDownloadAction": "Herunterladen",
-  "libraryOpenAction": "Öffnen",
   "libraryDownloading": "Lädt …",
   "libraryDownloadFailed": "Herunterladen fehlgeschlagen",
-  "libraryEmpty": "Keine Bücher gefunden.",
+  "libraryEmpty": "Noch keine Bücher.",
   "libraryRetry": "Erneut versuchen",
-
   "reviewDialogTitle": "Reihenfolge prüfen",
-  "reviewDialogBody": "Für dieses Buch gibt es mehr als eine mögliche Reihenfolge. Wähle die richtige.",
+  "reviewDialogBody": "Die Dateien dieses Buchs lassen sich verschieden ordnen. Wähle die Reihenfolge, die stimmt.",
   "reviewDialogConfirm": "Übernehmen",
   "reviewDialogCancel": "Abbrechen",
-  "reviewDialogOption": "Option {n}",
+  "reviewDialogOption": "Reihenfolge {n}",
   "@reviewDialogOption": { "placeholders": { "n": {} } },
 
   "settingsTitle": "Einstellungen",
@@ -68,21 +60,19 @@
   "settingsServerToken": "Zugangs-Token",
   "settingsSave": "Speichern",
   "settingsSaved": "Gespeichert.",
-
   "settingsHealthDataOptIn": "Schlafdaten erlauben",
   "@settingsHealthDataOptIn": { "description": "M6: Opt-in-Schalter, KONZEPT.md Screens-Liste (\"Schlafdaten erlauben\")." },
 
-  "settingsHealthDataOptInDescription": "Liest lokal den Schlafbeginn aus Health/Health Connect, um die Faden-Suche zu verkürzen. Verlässt nie dieses Gerät.",
-  "@settingsHealthDataOptInDescription": { "description": "Erklärtext unter dem Schalter, CLAUDE.md Invariante 7 in eigenen Worten." },
+  "settingsHealthDataOptInDescription": "Liest lokal den Schlafbeginn aus {source}, um die Faden-Suche zu verkürzen. Verlässt nie dieses Gerät.",
+  "@settingsHealthDataOptInDescription": { "description": "Erklärtext unter dem Schalter, CLAUDE.md Invariante 7 in eigenen Worten. {source} ist healthSourceIos oder healthSourceAndroid.", "placeholders": { "source": {} } },
 
   "detailsChapters": "Kapitel",
   "detailsHistory": "Verlauf",
   "detailsSpeed": "Tempo",
   "detailsSleepTimer": "Sleep-Timer",
-
   "sleepTimerOff": "Aus",
   "sleepTimerChapterEnd": "Kapitelende",
-  "sleepTimerMinutes": "{n} Min",
+  "sleepTimerMinutes": "{n} Min.",
   "@sleepTimerMinutes": { "placeholders": { "n": {} } },
 
   "chapterLabel": "Kapitel {n}",
@@ -100,24 +90,14 @@
   "seekBackAction": "30 Sekunden zurück",
   "seekForwardAction": "30 Sekunden vor",
   "confirmManifestSuccess": "Reihenfolge übernommen.",
-
   "settingsServerSection": "Server",
   "@settingsServerSection": { "description": "Abschnittstitel in den Einstellungen: Server-Adresse und Token." },
 
   "settingsNightWindowTitle": "Nachtfenster",
   "@settingsNightWindowTitle": { "description": "Abschnittstitel in den Einstellungen." },
 
-  "settingsNightWindowSummary": "Jede Nacht von {start} bis {end}",
-  "@settingsNightWindowSummary": { "description": "Zusammenfassung des Nachtfensters, immer sichtbar. Zeiten als HH:MM." },
-
   "settingsNightWindowExplanation": "In dieser Zeit ist der Player dunkel und ohne Cover, die Tasten auf dem Bildschirm sperren sich nach 10 Sekunden. Läuft das Hörbuch darin länger als 3 Minuten, ohne dass du etwas tippst oder drückst, bietet Faden danach „Faden aufnehmen“ an.",
   "@settingsNightWindowExplanation": { "description": "Erklärung des Nachtfensters (KONZEPT.md Nachtmodus, ARCHITEKTUR.md Abschnitt 7 Regel 5)." },
-
-  "settingsNightWindowStartsAt": "Beginnt um {time}",
-  "@settingsNightWindowStartsAt": { "description": "Zeile, die die Uhrzeitauswahl für den Beginn öffnet." },
-
-  "settingsNightWindowEndsAt": "Endet um {time}",
-  "@settingsNightWindowEndsAt": { "description": "Zeile, die die Uhrzeitauswahl für das Ende öffnet." },
 
   "settingsNightWindowStartPicker": "Nacht beginnt um",
   "@settingsNightWindowStartPicker": { "description": "Titel der Uhrzeitauswahl für den Beginn." },
@@ -131,15 +111,6 @@
   "timePickerCancel": "Abbrechen",
   "@timePickerCancel": { "description": "Abbrechen in der Uhrzeitauswahl." },
 
-  "timePickerHour": "Stunde",
-  "@timePickerHour": { "description": "Feldbeschriftung der Uhrzeiteingabe." },
-
-  "timePickerMinute": "Minute",
-  "@timePickerMinute": { "description": "Feldbeschriftung der Uhrzeiteingabe." },
-
-  "timePickerInvalid": "Keine gültige Uhrzeit",
-  "@timePickerInvalid": { "description": "Fehlertext der Uhrzeiteingabe." },
-
   "settingsAppearanceTitle": "Erscheinungsbild",
   "@settingsAppearanceTitle": { "description": "Abschnittstitel in den Einstellungen (E28)." },
 
@@ -152,7 +123,7 @@
   "settingsAppearanceDark": "Dunkel",
   "@settingsAppearanceDark": { "description": "Erscheinungsbild immer dunkel (Nacht-Farben, ohne Nachtmodus-Verhalten)." },
 
-  "settingsAppearanceNightNote": "Im Nachtfenster und mit Sleep-Timer ist der Player immer dunkel.",
+  "settingsAppearanceNightNote": "Im Nachtfenster und mit Sleep-Timer ist Faden immer dunkel.",
   "@settingsAppearanceNightNote": { "description": "Hinweis unter dem Erscheinungsbild: Nachtmodus hat Vorrang." },
 
   "miniPlayerOpen": "Player öffnen",
@@ -161,15 +132,176 @@
   "remotePositionAdopted": "Position vom anderen Gerät übernommen",
   "@remotePositionAdopted": { "description": "Undo-Hinweis, wenn ein Sync die Position eines anderen Geräts übernimmt (E31); Aktion wie immer „Rückgängig“." },
 
-  "connectionOk": "Verbunden.",
-  "connectionUnauthorized": "Der Server lehnt das Token ab.",
-  "connectionUnreachable": "Server nicht erreichbar.",
-  "connectionInvalidUrl": "Keine gültige Server-Adresse.",
+  "connectionOk": "Verbindung steht.",
+  "connectionUnauthorized": "Falscher Token. Der Server lehnt ihn ab.",
+  "connectionUnreachable": "Server nicht erreichbar. Adresse und Netz prüfen.",
+  "connectionInvalidUrl": "Ungültige Adresse.",
   "@connectionOk": { "description": "Ergebnisse von ApiClient.checkConnection (E37) in den Einstellungen." },
 
-  "playbackError": "Wiedergabe nicht möglich. Erneut versuchen?",
-  "@playbackError": { "description": "Wiedergabefehler (E39), z. B. Server beim Streamen nicht erreichbar." },
+  "playbackError": "Kann nicht abspielen",
+  "@playbackError": { "description": "Wiedergabefehler (E39) als SnackBar, Aktion libraryRetry." },
 
-  "downloadCancel": "Abbrechen",
-  "downloadDelete": "Download löschen"
+  "downloadCancel": "Download abbrechen",
+  "downloadDelete": "Download löschen",
+  "healthSourceIos": "Health",
+  "@healthSourceIos": { "description": "Name der Gesundheits-App auf dem iPhone." },
+
+  "healthSourceAndroid": "Health Connect",
+  "@healthSourceAndroid": { "description": "Name der Gesundheits-Schnittstelle unter Android." },
+
+  "settingsNightWindowStart": "Beginn",
+  "@settingsNightWindowStart": { "description": "Zeile Nachtfenster-Beginn; die Uhrzeit steht rechts daneben." },
+
+  "settingsNightWindowEnd": "Ende",
+  "@settingsNightWindowEnd": { "description": "Zeile Nachtfenster-Ende; die Uhrzeit steht rechts daneben." },
+
+  "settingsCheckConnection": "Verbindung prüfen",
+  "@settingsCheckConnection": { "description": "Knopf im Server-Abschnitt (E37)." },
+
+  "settingsChecking": "Prüfe …",
+  "@settingsChecking": { "description": "Während der Verbindungsprüfung." },
+
+  "settingsSleepTimerExplanation": "So lange läuft der Sleep-Timer, wenn du ihn im Player startest.",
+  "@settingsSleepTimerExplanation": { "description": "Erklärung zum Standard des Sleep-Timers." },
+
+  "settingsStorageTitle": "Speicher",
+  "@settingsStorageTitle": { "description": "Abschnittstitel: geladene Bücher." },
+
+  "storageTotal": "Geladen: {size}",
+  "@storageTotal": { "description": "Summe aller Downloads, {size} z. B. 1,2 GB.", "placeholders": { "size": {} } },
+
+  "storageNone": "Noch keine Bücher geladen.",
+  "@storageNone": { "description": "Speicher-Abschnitt ohne Downloads." },
+
+  "deleteConfirmTitle": "Download löschen?",
+  "@deleteConfirmTitle": { "description": "Rückfrage vor dem Löschen eines Downloads." },
+
+  "deleteConfirmBody": "„{title}“ wird vom Gerät gelöscht. Du kannst es jederzeit wieder laden. Dein Fortschritt bleibt.",
+  "@deleteConfirmBody": { "description": "Rückfrage vor dem Löschen eines Downloads.", "placeholders": { "title": {} } },
+
+  "deleteAction": "Löschen",
+  "@deleteAction": { "description": "Bestätigen in der Rückfrage." },
+
+  "cancelAction": "Abbrechen",
+  "@cancelAction": { "description": "Abbrechen in Rückfragen und Auswahl-Blättern." },
+
+  "durationHoursMinutes": "{h} Std. {m} Min.",
+  "@durationHoursMinutes": { "description": "Restzeit ab einer Stunde.", "placeholders": { "h": {}, "m": {} } },
+
+  "durationHours": "{h} Std.",
+  "@durationHours": { "description": "Restzeit in vollen Stunden.", "placeholders": { "h": {} } },
+
+  "durationMinutes": "{m} Min.",
+  "@durationMinutes": { "description": "Restzeit unter einer Stunde.", "placeholders": { "m": {} } },
+
+  "libraryProgressFinished": "gehört",
+  "@libraryProgressFinished": { "description": "Buch bis zum Ende gehört." },
+
+  "libraryContinueSection": "Weiterhören",
+  "@libraryContinueSection": { "description": "Abschnitt oben in der Bibliothek: zuletzt gehörte Bücher." },
+
+  "libraryAllBooks": "Alle Bücher",
+  "@libraryAllBooks": { "description": "Abschnitt mit allen Büchern." },
+
+  "librarySearchHint": "Titel oder Autor suchen",
+  "@librarySearchHint": { "description": "Suchfeld der Bibliothek." },
+
+  "librarySortTooltip": "Sortieren",
+  "@librarySortTooltip": { "description": "Bedienhilfe des Sortier-Knopfs." },
+
+  "librarySortRecent": "Zuletzt gehört",
+  "@librarySortRecent": { "description": "Sortierung." },
+
+  "librarySortTitle": "Titel",
+  "@librarySortTitle": { "description": "Sortierung." },
+
+  "librarySortAuthor": "Autor",
+  "@librarySortAuthor": { "description": "Sortierung." },
+
+  "libraryNoMatches": "Nichts gefunden.",
+  "@libraryNoMatches": { "description": "Suche ohne Treffer." },
+
+  "libraryEmptyHint": "Lege auf dem Server je Buch einen Ordner mit MP3-Dateien an. Zum Aktualisieren nach unten ziehen.",
+  "@libraryEmptyHint": { "description": "Leere Bibliothek." },
+
+  "offlineBanner": "Offline – geladene Bücher spielen weiter",
+  "@offlineBanner": { "description": "Schmaler Hinweis über der Liste, wenn der Server fehlt, aber Bücher bekannt sind." },
+
+  "setupTitle": "Willkommen bei Faden",
+  "@setupTitle": { "description": "Erster Start ohne Server." },
+
+  "setupBody": "Verbinde die App mit deinem Hörbuch-Server. Danach erscheinen hier deine Bücher.",
+  "@setupBody": { "description": "Erster Start ohne Server." },
+
+  "setupAction": "Server einrichten",
+  "@setupAction": { "description": "Öffnet die Einstellungen." },
+
+  "libraryIncompleteExplain": "Auf dem Server fehlen noch Dateien dieses Buchs.",
+  "@libraryIncompleteExplain": { "description": "Tipp auf ein unvollständiges Buch." },
+
+  "libraryEmptyExplain": "In diesem Ordner liegen keine Hördateien.",
+  "@libraryEmptyExplain": { "description": "Tipp auf ein Buch ohne Dateien." },
+
+  "libraryOpenFailed": "Dieses Buch lässt sich erst mit Verbindung zum Server öffnen.",
+  "@libraryOpenFailed": { "description": "Buch weder im Cache noch vom Server zu laden." },
+
+  "libraryPartial": "teilweise geladen",
+  "@libraryPartial": { "description": "Einige Dateien sind auf dem Gerät." },
+
+  "downloadProgress": "Lädt … {size}",
+  "@downloadProgress": { "description": "Laufender Download mit empfangener Datenmenge.", "placeholders": { "size": {} } },
+
+  "downloadDeleteWithSize": "Download löschen · {size}",
+  "@downloadDeleteWithSize": { "description": "Aktion mit Größe des Downloads.", "placeholders": { "size": {} } },
+
+  "sizeMegabytes": "{n} MB",
+  "@sizeMegabytes": { "description": "Datenmenge.", "placeholders": { "n": {} } },
+
+  "sizeGigabytes": "{n} GB",
+  "@sizeGigabytes": { "description": "Datenmenge.", "placeholders": { "n": {} } },
+
+  "reviewDialogChoose": "Diese nehmen",
+  "@reviewDialogChoose": { "description": "Knopf unter einer Reihenfolge." },
+
+  "reviewTrack": "Track {n}",
+  "@reviewTrack": { "description": "Tracknummer aus den Tags.", "placeholders": { "n": {} } },
+
+  "reviewUntitled": "ohne Titel",
+  "@reviewUntitled": { "description": "Datei ohne Titel-Tag." },
+
+  "reviewMoreFiles": "und {n} weitere",
+  "@reviewMoreFiles": { "description": "Gekürzte Dateiliste.", "placeholders": { "n": {} } },
+
+  "playbackLoading": "Lädt …",
+  "@playbackLoading": { "description": "Bedienhilfe, solange die Wiedergabe puffert." },
+
+  "detailsOpen": "Details öffnen",
+  "@detailsOpen": { "description": "Griff unten im Player." },
+
+  "threadLabel": "Fortschritt im Buch",
+  "@threadLabel": { "description": "Bedienhilfe des Fadens." },
+
+  "threadValue": "{n} % gehört",
+  "@threadValue": { "description": "Bedienhilfe-Wert des Fadens.", "placeholders": { "n": {} } },
+
+  "detailsAllChapters": "Alle {n} Kapitel",
+  "@detailsAllChapters": { "description": "Öffnet die Kapitelliste.", "placeholders": { "n": {} } },
+
+  "scrubberLabel": "Position im Kapitel",
+  "@scrubberLabel": { "description": "Bedienhilfe des Schiebers im Detailblatt." },
+
+  "sleepTimerStart": "Starten · {duration}",
+  "@sleepTimerStart": { "description": "Startet den Sleep-Timer mit dem Standard.", "placeholders": { "duration": {} } },
+
+  "sleepTimerRunning": "noch {time}",
+  "@sleepTimerRunning": { "description": "Laufender Sleep-Timer.", "placeholders": { "time": {} } },
+
+  "sleepTimerUntilChapterEnd": "bis Kapitelende · {time}",
+  "@sleepTimerUntilChapterEnd": { "description": "Laufender Sleep-Timer bis Kapitelende.", "placeholders": { "time": {} } },
+
+  "speedLabel": "{n}×",
+  "@speedLabel": { "description": "Tempo, z. B. 1,25×.", "placeholders": { "n": {} } },
+
+  "scrubberRemaining": "−{time}",
+  "@scrubberRemaining": { "description": "Restzeit im Kapitel rechts unter dem Schieber.", "placeholders": { "time": {} } }
 }

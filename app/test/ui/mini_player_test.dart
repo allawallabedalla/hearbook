@@ -12,6 +12,7 @@ import 'package:faden/domain/manifest.dart';
 import 'package:faden/domain/position.dart';
 import 'package:faden/domain/resolver.dart';
 import 'package:faden/l10n/strings.dart';
+import 'package:faden/ui/format.dart';
 import 'package:faden/ui/mini_player.dart';
 import 'package:faden/ui/player_screen.dart';
 import 'package:faden/ui/providers.dart';
@@ -128,9 +129,11 @@ void main() {
 
     testWidgets('shows the title and the remaining time', (tester) async {
       await pumpLibrary(tester);
-      // Title next to the cover, plus the no-cover placeholder (no API).
-      expect(find.text('Der Zauberberg'), findsWidgets);
-      expect(find.text(AppStrings.remainingTime('20:00')), findsOneWidget);
+      expect(find.text('Der Zauberberg'), findsOneWidget);
+      // No cover (no API): a monogram, not the title a second time.
+      expect(find.text('DZ'), findsOneWidget);
+      expect(find.text(AppStrings.remainingTime(formatRemaining(20 * 60000))), findsOneWidget);
+      expect(find.text(AppStrings.remainingTime('20 Min.')), findsOneWidget);
       await tearDownHandler(tester);
     });
 
@@ -171,9 +174,27 @@ void main() {
       await tearDownHandler(tester);
     });
 
+    testWidgets('buffering shows a spinner inside the button, which still pauses', (tester) async {
+      await pumpLibrary(tester, playing: true);
+      expect(find.byType(CircularProgressIndicator), findsNothing);
+      handler.emitStatus(buffering: true);
+      await tester.pump();
+      await tester.pump();
+      expect(find.byType(CircularProgressIndicator), findsOneWidget);
+      expect(find.byIcon(Icons.pause), findsNothing);
+      await tester.tap(find.byType(CircularProgressIndicator));
+      await tester.pump();
+      expect(handler.calls, [(action: 'pause', source: EventSource.ui)]);
+      handler.emitStatus(buffering: false);
+      await tester.pump();
+      await tester.pump();
+      expect(find.byIcon(Icons.pause), findsOneWidget);
+      await tearDownHandler(tester);
+    });
+
     testWidgets('tapping the bar returns to the single player route', (tester) async {
       await pumpLibrary(tester);
-      await tester.tap(find.text(AppStrings.remainingTime('20:00')));
+      await tester.tap(find.text(AppStrings.remainingTime('20 Min.')));
       await tester.pumpAndSettle();
       expect(handler.calls, isEmpty);
       expect(find.text('player-stub'), findsOneWidget);

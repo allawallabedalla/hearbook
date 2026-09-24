@@ -3,9 +3,15 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../audio/handler.dart';
+import '../audio/playback_status.dart';
 import '../domain/event.dart' show EventSource;
+import '../domain/manifest.dart';
 import '../domain/position.dart';
 import '../l10n/strings.dart';
+import 'cover.dart';
+import 'details_sheet.dart' show livePosition;
+import 'format.dart';
 import 'player_screen.dart';
 import 'providers.dart';
 import 'theme.dart';
@@ -28,7 +34,8 @@ MiniPlayerAction miniPlayerAction({required bool playing, required bool sleepSus
 /// a book is open (decision E29; not on the player or the Faden screen).
 /// Meant for `Scaffold.bottomNavigationBar`; renders nothing while no book
 /// is open. Tapping the bar returns to the player; the button plays or
-/// pauses through the handler's journaled methods (invariant 3).
+/// pauses through the handler's journaled methods (invariant 3). Only the
+/// progress line and the remaining time follow the position (E44).
 class MiniPlayer extends ConsumerWidget {
   /// Height of the bar's content, without the progress line and the
   /// bottom safe area.
@@ -49,6 +56,7 @@ class MiniPlayer extends ConsumerWidget {
     final tokens = FadenTokens.of(context);
     final handler = ref.watch(audioHandlerProvider);
     final title = session.bookTitle ?? '';
+    final initial = livePosition(handler, session);
 
     void openPlayer() => showPlayerScreen(Navigator.of(context));
 
@@ -56,77 +64,73 @@ class MiniPlayer extends ConsumerWidget {
       color: tokens.grund,
       child: SafeArea(
         top: false,
-        child: StreamBuilder<Position>(
-          stream: handler.positionStream,
-          initialData: bookState.position,
-          builder: (context, positionSnap) {
-            final pos = positionSnap.data ?? bookState.position;
-            final globalMs = manifest.globalMsFor(pos) ?? bookState.globalMs ?? 0;
-            final heard = computeThreadLayout(manifest: manifest, globalMs: globalMs).heardFraction;
-            final remainingMs =
-                (manifest.totalDurationMs - globalMs).clamp(0, manifest.totalDurationMs);
-
-            return Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                _ProgressLine(heardFraction: heard, tokens: tokens),
-                Semantics(
-                  button: true,
-                  label: AppStrings.miniPlayerOpen,
-                  child: GestureDetector(
-                    behavior: HitTestBehavior.opaque,
-                    onTap: openPlayer,
-                    child: SizedBox(
-                      height: barHeight,
-                      child: Padding(
-                        padding: const EdgeInsets.only(left: 16, right: 4),
-                        child: Row(
-                          children: [
-                            _MiniCover(bookId: bookId, title: title, tokens: tokens),
-                            const SizedBox(width: 12),
-                            Expanded(
-                              child: Column(
-                                mainAxisAlignment: MainAxisAlignment.center,
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Text(
-                                    title,
-                                    maxLines: 1,
-                                    overflow: TextOverflow.ellipsis,
-                                    style: TextStyle(color: tokens.tinte, fontSize: FadenTypeSizes.body),
-                                  ),
-                                  Text(
-                                    AppStrings.remainingTime(formatPlaybackDuration(remainingMs)),
-                                    maxLines: 1,
-                                    style: TextStyle(
-                                      color: tokens.tinteLeise,
-                                      fontSize: FadenTypeSizes.caption,
-                                    ),
-                                  ),
-                                ],
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            _ProgressLine(manifest: manifest, handler: handler, initial: initial, tokens: tokens),
+            Semantics(
+              button: true,
+              label: AppStrings.miniPlayerOpen,
+              child: GestureDetector(
+                behavior: HitTestBehavior.opaque,
+                onTap: openPlayer,
+                // A swipe up on the bar opens the player as well.
+                onVerticalDragEnd: (details) {
+                  if ((details.primaryVelocity ?? 0) < -200) openPlayer();
+                },
+                child: ConstrainedBox(
+                  constraints: const BoxConstraints(minHeight: barHeight),
+                  child: Padding(
+                    padding: const EdgeInsets.only(left: 16, right: 4),
+                    child: Row(
+                      children: [
+                        BookCover(bookId: bookId, title: title, size: coverSize, radius: 6),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                title,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: TextStyle(color: tokens.tinte, fontSize: FadenTypeSizes.body),
                               ),
-                            ),
-                            StreamBuilder<bool>(
-                              stream: handler.playingStream,
-                              initialData: handler.playing,
-                              builder: (context, playingSnap) => _PlayPauseButton(
-                                action: miniPlayerAction(
-                                  playing: playingSnap.data ?? false,
-                                  sleepSuspected: bookState.sleepSuspected,
-                                ),
-                                tokens: tokens,
-                                onOpenPlayer: openPlayer,
+                              PositionText(
+                                handler: handler,
+                                initial: initial,
+                                text: (pos) =>
+                                    AppStrings.remainingTime(formatRemaining(remainingMsAt(manifest, pos))),
+                                style: TextStyle(color: tokens.tinteLeise, fontSize: FadenTypeSizes.caption),
+                                textAlign: TextAlign.start,
                               ),
-                            ),
-                          ],
+                            ],
+                          ),
                         ),
-                      ),
+                        StreamBuilder<PlaybackStatus>(
+                          stream: handler.statusStream,
+                          initialData: handler.status,
+                          builder: (context, snap) {
+                            final status = snap.data ?? handler.status;
+                            return _PlayPauseButton(
+                              action: miniPlayerAction(
+                                playing: status.playing,
+                                sleepSuspected: bookState.sleepSuspected,
+                              ),
+                              buffering: status.buffering,
+                              tokens: tokens,
+                              onOpenPlayer: openPlayer,
+                            );
+                          },
+                        ),
+                      ],
                     ),
                   ),
                 ),
-              ],
-            );
-          },
+              ),
+            ),
+          ],
         ),
       ),
     );
@@ -135,10 +139,16 @@ class MiniPlayer extends ConsumerWidget {
 
 class _PlayPauseButton extends ConsumerWidget {
   final MiniPlayerAction action;
+  final bool buffering;
   final FadenTokens tokens;
   final VoidCallback onOpenPlayer;
 
-  const _PlayPauseButton({required this.action, required this.tokens, required this.onOpenPlayer});
+  const _PlayPauseButton({
+    required this.action,
+    required this.buffering,
+    required this.tokens,
+    required this.onOpenPlayer,
+  });
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -148,11 +158,21 @@ class _PlayPauseButton extends ConsumerWidget {
       // Same icon as the player's main button once sleep is suspected.
       MiniPlayerAction.openPlayer => (Icons.route, AppStrings.mainButtonRecordThread),
     };
-    return SizedBox(
-      width: fadenMinTapTarget,
-      height: fadenMinTapTarget,
+    // E39: waiting for audio shows as a spinner inside the button, which
+    // still pauses.
+    final Widget glyph = buffering && action == MiniPlayerAction.pause
+        ? Semantics(
+            label: AppStrings.playbackLoading,
+            child: SizedBox.square(
+              dimension: 24,
+              child: CircularProgressIndicator(strokeWidth: 2.5, color: tokens.faden),
+            ),
+          )
+        : Icon(icon, color: tokens.faden, size: 32, semanticLabel: label);
+    return SizedBox.square(
+      dimension: fadenMinTapTarget,
       child: IconButton(
-        icon: Icon(icon, color: tokens.faden, size: 32, semanticLabel: label),
+        icon: glyph,
         onPressed: () {
           final handler = ref.read(audioHandlerProvider);
           switch (action) {
@@ -172,72 +192,62 @@ class _PlayPauseButton extends ConsumerWidget {
 /// The book's progress as a thin line along the bar's top edge, in the
 /// Faden colours (docs/KONZEPT.md "Design": heard part in `faden`, the rest
 /// in `tinte-leise` at 40 %). Not draggable, no knot, no chapter gaps.
-class _ProgressLine extends StatelessWidget {
-  final double heardFraction;
+class _ProgressLine extends StatefulWidget {
+  final Manifest manifest;
+  final FadenAudioHandler handler;
+  final Position initial;
   final FadenTokens tokens;
 
-  const _ProgressLine({required this.heardFraction, required this.tokens});
+  const _ProgressLine({
+    required this.manifest,
+    required this.handler,
+    required this.initial,
+    required this.tokens,
+  });
+
+  @override
+  State<_ProgressLine> createState() => _ProgressLineState();
+}
+
+class _ProgressLineState extends State<_ProgressLine> {
+  late Position _pos = widget.initial;
+  StreamSubscription<Position>? _sub;
+
+  @override
+  void initState() {
+    super.initState();
+    _sub = widget.handler.positionStream.listen((pos) {
+      if (mounted) setState(() => _pos = pos);
+    });
+  }
+
+  @override
+  void didUpdateWidget(_ProgressLine oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.initial != widget.initial) _pos = widget.initial;
+  }
+
+  @override
+  void dispose() {
+    unawaited(_sub?.cancel());
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
+    final globalMs = widget.manifest.globalMsFor(_pos) ?? 0;
+    final heard = computeThreadLayout(manifest: widget.manifest, globalMs: globalMs).heardFraction;
     return SizedBox(
       height: MiniPlayer.lineThickness,
       width: double.infinity,
       child: ColoredBox(
-        color: tokens.tinteLeiseFaden,
+        color: widget.tokens.tinteLeiseFaden,
         child: FractionallySizedBox(
           alignment: Alignment.centerLeft,
-          widthFactor: heardFraction,
-          child: ColoredBox(color: tokens.faden),
+          widthFactor: heard,
+          child: ColoredBox(color: widget.tokens.faden),
         ),
       ),
-    );
-  }
-}
-
-class _MiniCover extends ConsumerWidget {
-  final String bookId;
-  final String title;
-  final FadenTokens tokens;
-
-  const _MiniCover({required this.bookId, required this.title, required this.tokens});
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final bytes = ref.watch(coverProvider(bookId)).when(
-          data: (b) => b,
-          loading: () => null,
-          error: (_, _) => null,
-        );
-    return SizedBox(
-      width: MiniPlayer.coverSize,
-      height: MiniPlayer.coverSize,
-      child: bytes == null
-          // docs/KONZEPT.md "Design": "Kein Cover vorhanden: Titel in tinte
-          // auf grund, gesetzt in der Hausschrift" -- the player's
-          // placeholder style, scaled down.
-          ? DecoratedBox(
-              decoration: BoxDecoration(
-                border: Border.all(color: tokens.tinteLeise),
-                borderRadius: BorderRadius.circular(4),
-              ),
-              child: Center(
-                child: Padding(
-                  padding: const EdgeInsets.all(2),
-                  child: Text(
-                    title,
-                    textAlign: TextAlign.center,
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(color: tokens.tinte, fontSize: FadenTypeSizes.caption),
-                  ),
-                ),
-              ),
-            )
-          : ClipRRect(
-              borderRadius: BorderRadius.circular(4),
-              child: Image.memory(bytes, fit: BoxFit.cover, gaplessPlayback: true),
-            ),
     );
   }
 }

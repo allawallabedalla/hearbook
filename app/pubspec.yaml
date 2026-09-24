@@ -31,6 +31,12 @@ dependencies:
   flutter:
     sdk: flutter
 
+  # German texts for Material/Cupertino's own widgets (back button tooltip,
+  # text selection menu, the time picker's semantics). Part of the Flutter
+  # SDK itself; pulls in intl, which the SDK pins.
+  flutter_localizations:
+    sdk: flutter
+
   # The following adds the Cupertino Icons font to your application.
   # Use with the CupertinoIcons class for iOS style icons.
   cupertino_icons: ^1.0.8

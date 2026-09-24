@@ -37,6 +37,15 @@ void main() {
     }
   });
 
+  test('no raw placeholders or English leftovers in plain texts', () {
+    for (final entry in AppStrings.values.entries) {
+      final placeholders = RegExp(r'\{(\w+)\}').allMatches(entry.value).map((m) => m.group(1)).toSet();
+      final known = {'n', 'max', 'total', 'chapter', 'time', 'size', 'title', 'h', 'm', 'duration', 'source'};
+      expect(known.containsAll(placeholders), isTrue, reason: '${entry.key}: $placeholders');
+      expect(entry.value.contains('Neu starten'), isFalse, reason: entry.key);
+    }
+  });
+
   group('formatters substitute placeholders', () {
     test('undoHint matches the KONZEPT.md pattern', () {
       expect(AppStrings.undoHint(AppStrings.chapterLabel(7), '23:41'),
@@ -50,9 +59,19 @@ void main() {
 
     test('remainingTime', () => expect(AppStrings.remainingTime('12:34'), 'noch 12:34'));
 
-    test('sleepTimerMinutes', () => expect(AppStrings.sleepTimerMinutes(30), '30 Min'));
+    test('sleepTimerMinutes', () => expect(AppStrings.sleepTimerMinutes(30), '30 Min.'));
 
-    test('reviewDialogOption', () => expect(AppStrings.reviewDialogOption(1), 'Option 1'));
+    test('reviewDialogOption', () => expect(AppStrings.reviewDialogOption(1), 'Reihenfolge 1'));
+
+    test('durations', () {
+      expect(AppStrings.durationHoursMinutes(3, 45), '3 Std. 45 Min.');
+      expect(AppStrings.durationHours(5), '5 Std.');
+      expect(AppStrings.durationMinutes(12), '12 Min.');
+    });
+
+    test('settingsHealthDataOptInDescription names the source', () {
+      expect(AppStrings.settingsHealthDataOptInDescription(AppStrings.healthSourceIos), contains('aus Health,'));
+    });
 
     test('fadenProbeCounter matches the KONZEPT.md pattern',
         () => expect(AppStrings.fadenProbeCounter(3, 8), 'Probe 3 von höchstens 8'));

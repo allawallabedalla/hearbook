@@ -15,11 +15,18 @@ class SleepTimerState {
   /// (docs/KONZEPT.md: "Die letzten 30 s werden leiser").
   final double volumeFactor;
 
+  /// The duration the listener picked for a [SleepTimerMode.fixed] timer
+  /// (also what a last-minute extension adds); null otherwise. The UI marks
+  /// the chosen preset with it -- [remaining] drifts away from the preset
+  /// as the countdown runs.
+  final Duration? chosen;
+
   const SleepTimerState({
     required this.running,
     required this.mode,
     required this.remaining,
     required this.volumeFactor,
+    this.chosen,
   });
 
   static const idle =
@@ -89,6 +96,7 @@ class SleepTimerController {
         mode: _mode,
         remaining: _remaining,
         volumeFactor: _volumeFactor,
+        chosen: _running && _mode == SleepTimerMode.fixed ? _extendBy : null,
       );
 
   Stream<SleepTimerState> get stateStream => _controller.stream;
