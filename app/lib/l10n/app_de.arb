@@ -1,0 +1,93 @@
+{
+  "@@locale": "de",
+  "@@context": "docs/KONZEPT.md ist die einzige Quelle für diese Texte. UI-Code liest ausschliesslich lib/l10n/strings.dart, das test/l10n/strings_test.dart Wort fuer Wort gegen diese Datei prueft (siehe docs/ARCHITEKTUR.md Abschnitt 13, E14).",
+
+  "appTitle": "Faden",
+  "@appTitle": { "description": "App-Name, u.a. als Fenstertitel." },
+
+  "mainButtonListen": "Weiterhören",
+  "@mainButtonListen": { "description": "Hauptbutton im Normalzustand (KONZEPT.md Texte-Tabelle: Hauptbutton)." },
+
+  "mainButtonRecordThread": "Faden aufnehmen",
+  "@mainButtonRecordThread": { "description": "Hauptbutton nach Schlafverdacht (M5-Funktion, Text hier bereits hinterlegt)." },
+
+  "resumeFromStop": "Ab Stopp weiterhören",
+  "@resumeFromStop": { "description": "Kleine Zeile unter dem Hauptbutton nach Schlafverdacht (M5)." },
+
+  "fadenModePrompt": "Kennst du das? Dann tippen.",
+  "@fadenModePrompt": { "description": "Faden-Modus Prompt (M5)." },
+
+  "fadenResultFound": "Gefunden. Weiter ab hier.",
+  "@fadenResultFound": { "description": "Ergebnis-Text der Faden-Suche (M5)." },
+
+  "fadenLadderEarlier": "Früher",
+  "@fadenLadderEarlier": { "description": "Leiter-Button der Faden-Suche (M5)." },
+
+  "undoHint": "Zurück zu {chapter}, {time}",
+  "@undoHint": {
+    "description": "Undo-Hinweis nach jedem Sprung über 2 Min (KONZEPT.md: \"Zurück zu Kapitel 7, 23:41\"). {chapter} ist bereits der fertig formatierte Kapitel-Text (chapterLabel), {time} eine mm:ss-Zeit.",
+    "placeholders": { "chapter": {}, "time": {} }
+  },
+
+  "undoAction": "Rückgängig",
+  "@undoAction": { "description": "Aktion auf dem Undo-Hinweis." },
+
+  "libraryFolderChanged": "Ordner geändert: Reihenfolge prüfen",
+  "@libraryFolderChanged": { "description": "KONZEPT.md Texte-Tabelle: Bibliothek-Status bei needs_review/pending." },
+
+  "offlineNotice": "Keine Verbindung zum Server. Geladene Bücher spielen weiter.",
+  "@offlineNotice": { "description": "KONZEPT.md Texte-Tabelle: Offline-Hinweis." },
+
+  "libraryTitle": "Bibliothek",
+  "libraryStatusDownloaded": "geladen",
+  "libraryStatusNew": "neu",
+  "libraryStatusIncomplete": "unvollständig",
+  "libraryStatusEmpty": "keine Dateien",
+  "libraryDownloadAction": "Herunterladen",
+  "libraryOpenAction": "Öffnen",
+  "libraryDownloading": "Lädt …",
+  "libraryDownloadFailed": "Herunterladen fehlgeschlagen",
+  "libraryEmpty": "Keine Bücher gefunden.",
+  "libraryRetry": "Erneut versuchen",
+
+  "reviewDialogTitle": "Reihenfolge prüfen",
+  "reviewDialogBody": "Für dieses Buch gibt es mehr als eine mögliche Reihenfolge. Wähle die richtige.",
+  "reviewDialogConfirm": "Übernehmen",
+  "reviewDialogCancel": "Abbrechen",
+  "reviewDialogOption": "Option {n}",
+  "@reviewDialogOption": { "placeholders": { "n": {} } },
+
+  "settingsTitle": "Einstellungen",
+  "settingsServerUrl": "Server-Adresse",
+  "settingsServerToken": "Zugangs-Token",
+  "settingsNightWindowStart": "Nachtfenster Beginn",
+  "settingsNightWindowEnd": "Nachtfenster Ende",
+  "settingsSave": "Speichern",
+  "settingsSaved": "Gespeichert. Neu starten, damit es wirkt.",
+
+  "detailsChapters": "Kapitel",
+  "detailsHistory": "Verlauf",
+  "detailsSpeed": "Tempo",
+  "detailsSleepTimer": "Sleep-Timer",
+
+  "sleepTimerOff": "Aus",
+  "sleepTimerChapterEnd": "Kapitelende",
+  "sleepTimerMinutes": "{n} Min",
+  "@sleepTimerMinutes": { "placeholders": { "n": {} } },
+
+  "chapterLabel": "Kapitel {n}",
+  "@chapterLabel": { "placeholders": { "n": {} } },
+
+  "chapterOfTotal": "Kapitel {n} von {total}",
+  "@chapterOfTotal": { "placeholders": { "n": {}, "total": {} } },
+
+  "remainingTime": "noch {time}",
+  "@remainingTime": { "placeholders": { "time": {} } },
+
+  "lockedHint": "Gesperrt. Halten zum Entsperren.",
+  "playAction": "Wiedergabe starten",
+  "pauseAction": "Pause",
+  "seekBackAction": "30 Sekunden zurück",
+  "seekForwardAction": "30 Sekunden vor",
+  "confirmManifestSuccess": "Reihenfolge übernommen."
+}
