@@ -5,6 +5,10 @@ services:
       - "${FADEN_PORT:-8787}:8787"
     env_file: .env
     volumes:
+      # Read-only. Can be a broader root than the actual audiobook folder
+      # (e.g. a whole NAS share); pick the real subfolder at /setup, or via
+      # settings.library_path directly (see docs/ARCHITEKTUR.md sections
+      # 10, 12, decision E12).
       - ${FADEN_LIBRARY_HOST:-./library}:/library:ro
       - faden-data:/data
     restart: unless-stopped

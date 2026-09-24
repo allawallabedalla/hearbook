@@ -37,4 +37,4 @@ Spezifikation fertig. Umsetzung mit Claude Code entlang `docs/ROADMAP.md`.
 
 ## Betrieb (ab M1)
 
-`docker compose up -d --build`. Der Hörbuch-Ordner wird nur lesend eingebunden. Von unterwegs am besten über ein VPN zugreifen, statt den Port öffentlich freizugeben.
+`docker compose up -d --build`. Der unter `FADEN_LIBRARY` eingebundene Wurzelordner wird nur lesend gemountet und darf bewusst weiter gefasst sein als die eigentliche Bibliothek (z. B. eine ganze NAS-Freigabe); den tatsächlichen Bibliotheksordner darunter per Klick wählen unter `http://<host>:8787/setup` (ab M1b, siehe `docs/ARCHITEKTUR.md` Abschnitte 10, 12, Entscheidung E12). Von unterwegs am besten über ein VPN zugreifen, statt den Port öffentlich freizugeben.
