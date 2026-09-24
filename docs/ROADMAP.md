@@ -8,18 +8,20 @@ Zeiten = Claude-Code-Laufzeit plus dein Review, ohne Tests auf echten Geräten. 
 
 Ziel: die Kernidee an einem echten Hörbuch prüfen, bevor etwas anderes gebaut wird.
 
-- [ ] `prototype/faden.html`: eine Datei, läuft ohne Server im Browser (Desktop und Android-Chrome)
-- [ ] MP3 per Dateiauswahl laden; Satzanfänge per Web Audio erkennen (Stille ≥ 350 ms, Analyse mit niedriger Abtastrate, speicherschonend); scheitert die Erkennung, ohne Einrasten weiter
-- [ ] Fenster von/bis eingeben (mm:ss); Faden-Suche exakt nach `docs/ARCHITEKTUR.md` Abschnitt 8
-- [ ] „Kenne ich“ per Leertaste, Tipp irgendwo oder Mediataste (Media Session API); keine Antwort = „kenne ich nicht“
-- [ ] Nachtfarben und Faden-Darstellung aus `docs/KONZEPT.md`; Ergebnis, „Früher“ und „Weiterhören ab hier“
-- [ ] Protokoll (Probe, Position, Antwort, Gesamtdauer) zum Kopieren
+- [x] `prototype/faden.html`: eine Datei, läuft ohne Server im Browser (Desktop und Android-Chrome)
+- [x] MP3 per Dateiauswahl laden; Satzanfänge per Web Audio erkennen (Stille ≥ 350 ms, Analyse mit niedriger Abtastrate, speicherschonend); scheitert die Erkennung, ohne Einrasten weiter
+- [x] Fenster von/bis eingeben (mm:ss); Faden-Suche exakt nach `docs/ARCHITEKTUR.md` Abschnitt 8
+- [x] „Kenne ich“ per Leertaste, Tipp irgendwo oder Mediataste (Media Session API); keine Antwort = „kenne ich nicht“
+- [x] Nachtfarben und Faden-Darstellung aus `docs/KONZEPT.md`; Ergebnis, „Früher“ und „Weiterhören ab hier“
+- [x] Protokoll (Probe, Position, Antwort, Gesamtdauer) zum Kopieren
 
 ```text
 /plan Setze Meilenstein M0 aus docs/ROADMAP.md um. Spezifikation: docs/KONZEPT.md (Faden aufnehmen, Design, Texte) und docs/ARCHITEKTUR.md Abschnitt 8. Am Ende die Abnahme-Punkte in docs/ROADMAP.md abhaken und committen.
 ```
 
 Selbsttest: 10 Min eines Kapitels hören, das du nicht kennst. Dann Fenster 00:00 bis 30:00 und Faden starten. Bestanden, wenn der Start höchstens 30 s vor 10:00 liegt, nie danach, und alles höchstens 60 s dauert. Echter Test: eine Nacht mit Sleep-Timer.
+
+Hinweis: Faden-Suche gegen 20.000 simulierte Hörer (alle 5 Eigenschaften aus Abschnitt 8 grün) und der UI-Ablauf per Headless-Chromium mit synthetischem Testton verifiziert. Der Selbsttest mit einem echten Hörbuch und der Nacht-Test brauchen ein echtes Gerät und deine Ohren — das kann hier niemand für dich abnehmen.
 
 ## M1 – Server: Import, Manifest, Dateien (≈ 120 Min)
 
