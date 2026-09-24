@@ -76,15 +76,32 @@ class AppDatabase extends _$AppDatabase {
   /// An in-memory database for tests: nothing is persisted to disk.
   AppDatabase.memory() : super(NativeDatabase.memory());
 
+  /// v3 (decision E33) only adds [bookHlcIndex]: purely additive, no
+  /// stored event is touched.
   @override
-  int get schemaVersion => 2;
+  int get schemaVersion => 3;
+
+  /// Every per-book read (`Journal.eventsForBook`, the library progress
+  /// query, the last-activity lookup) filters by `book_id` and orders by
+  /// HLC; without this index each of them scans the whole journal, which
+  /// grows by one heartbeat every 5 s of listening.
+  static const bookHlcIndex = 'event_rows_book_hlc';
+
+  static const _createBookHlcIndex =
+      'CREATE INDEX IF NOT EXISTS $bookHlcIndex ON event_rows (book_id, hlc_pt, hlc_c)';
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
-        onCreate: (m) => m.createAll(),
+        onCreate: (m) async {
+          await m.createAll();
+          await customStatement(_createBookHlcIndex);
+        },
         onUpgrade: (m, from, to) async {
           if (from < 2) {
             await m.createTable(keyValueSettings);
+          }
+          if (from < 3) {
+            await customStatement(_createBookHlcIndex);
           }
         },
       );

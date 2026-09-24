@@ -59,7 +59,7 @@ class DetailsSheetContent extends ConsumerWidget {
         const SizedBox(height: 24),
         Text(AppStrings.detailsSpeed, style: TextStyle(fontSize: FadenTypeSizes.title, color: tokens.tinte)),
         const SizedBox(height: 8),
-        _SpeedControl(handler: handler, tokens: tokens),
+        _SpeedControl(handler: handler, tokens: tokens, onSelected: session.setSpeed),
         const SizedBox(height: 24),
         Text(AppStrings.detailsSleepTimer,
             style: TextStyle(fontSize: FadenTypeSizes.title, color: tokens.tinte)),
@@ -68,8 +68,7 @@ class DetailsSheetContent extends ConsumerWidget {
           _SleepTimerControl(
             controller: sleepTimer!,
             tokens: tokens,
-            manifest: manifest,
-            handler: handler,
+            onChosen: (minutes) => ref.read(sleepTimerDefaultProvider.notifier).set(minutes),
           ),
         const SizedBox(height: 24),
         Text(AppStrings.detailsChapters,
@@ -78,7 +77,10 @@ class DetailsSheetContent extends ConsumerWidget {
         for (var i = 0; i < manifest.files.length; i++)
           ListTile(
             contentPadding: EdgeInsets.zero,
-            title: Text(AppStrings.chapterLabel(i + 1), style: TextStyle(color: tokens.tinte)),
+            title: Text(
+              manifest.files[i].displayTitle(AppStrings.chapterLabel(i + 1)),
+              style: TextStyle(color: tokens.tinte),
+            ),
             onTap: () {
               handler.seekToChapterStart(i);
               Navigator.of(context).pop();
@@ -160,7 +162,10 @@ class _SpeedControl extends StatelessWidget {
   final FadenAudioHandler handler;
   final FadenTokens tokens;
 
-  const _SpeedControl({required this.handler, required this.tokens});
+  /// Persists the speed for the open book (E38).
+  final Future<void> Function(double speed) onSelected;
+
+  const _SpeedControl({required this.handler, required this.tokens, required this.onSelected});
 
   @override
   Widget build(BuildContext context) {
@@ -176,7 +181,7 @@ class _SpeedControl extends StatelessWidget {
               ChoiceChip(
                 label: Text('${speed}x'),
                 selected: (current - speed).abs() < 0.01,
-                onSelected: (_) => handler.setSpeed(speed),
+                onSelected: (_) => onSelected(speed),
               ),
           ],
         );
@@ -188,25 +193,15 @@ class _SpeedControl extends StatelessWidget {
 class _SleepTimerControl extends StatelessWidget {
   final SleepTimerController controller;
   final FadenTokens tokens;
-  final Manifest manifest;
-  final FadenAudioHandler handler;
+
+  /// Remembers the choice as the default (minutes, 0 = "Kapitelende", E42).
+  final void Function(int minutes) onChosen;
 
   const _SleepTimerControl({
     required this.controller,
     required this.tokens,
-    required this.manifest,
-    required this.handler,
+    required this.onChosen,
   });
-
-  /// Remaining time until the end of the chapter [pos] is in
-  /// (docs/KONZEPT.md "Nachtmodus": "... oder Kapitelende").
-  Duration _remainingInChapter(Position pos) {
-    final idx = manifest.files.indexWhere((f) => f.fileHash == pos.fileHash);
-    if (idx == -1) return const Duration(minutes: 30); // needs_confirmation fallback
-    final chapterDurationMs = manifest.files[idx].durationMs;
-    final remainingMs = (chapterDurationMs - pos.offsetMs).clamp(0, chapterDurationMs);
-    return Duration(milliseconds: remainingMs);
-  }
 
   @override
   Widget build(BuildContext context) {
@@ -224,13 +219,19 @@ class _SleepTimerControl extends StatelessWidget {
               ChoiceChip(
                 label: Text(AppStrings.sleepTimerMinutes(minutes)),
                 selected: state.running && state.mode == SleepTimerMode.fixed && state.remaining.inMinutes + 1 >= minutes && state.remaining.inMinutes <= minutes,
-                onSelected: (_) => controller.start(Duration(minutes: minutes), mode: SleepTimerMode.fixed),
+                onSelected: (_) {
+                  controller.start(Duration(minutes: minutes), mode: SleepTimerMode.fixed);
+                  onChosen(minutes);
+                },
               ),
             ChoiceChip(
               label: Text(AppStrings.sleepTimerChapterEnd),
               selected: state.mode == SleepTimerMode.chapterEnd,
-              onSelected: (_) =>
-                  controller.start(_remainingInChapter(handler.currentPosition()), mode: SleepTimerMode.chapterEnd),
+              onSelected: (_) {
+                // Fires when playback actually reaches the next chapter (E42).
+                controller.startChapterEnd();
+                onChosen(0);
+              },
             ),
             if (state.running)
               ActionChip(

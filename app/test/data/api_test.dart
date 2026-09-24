@@ -272,4 +272,129 @@ void main() {
       expect(await destination.readAsString(), 'fake mp3 bytes');
     });
   });
+
+  group('downloadFile timeouts (E37)', () {
+    test('a download keeps only a stall timeout, not the 15 s API receive timeout', () async {
+      final tmpDir = await Directory.systemTemp.createTemp('faden-api-test');
+      addTearDown(() => tmpDir.delete(recursive: true));
+      RequestOptions? seen;
+      // Same base options as ApiClient.create, plus a fake transport.
+      final dio = Dio(BaseOptions(
+        baseUrl: 'https://faden.example',
+        connectTimeout: ApiClient.connectTimeout,
+        receiveTimeout: ApiClient.receiveTimeout,
+      ));
+      dio.interceptors.add(InterceptorsWrapper(onRequest: (options, handler) {
+        seen = options;
+        handler.resolve(Response(
+          requestOptions: options..responseType = ResponseType.stream,
+          statusCode: 200,
+          data: ResponseBody.fromBytes(utf8.encode('x'), 200),
+        ));
+      }));
+      await ApiClient(dio).downloadFile('f1', File(p.join(tmpDir.path, 'f1.mp3')));
+      expect(seen!.receiveTimeout, ApiClient.downloadStallTimeout);
+      expect(seen!.connectTimeout, ApiClient.connectTimeout);
+    });
+
+    test('an API call gets connect 4 s / receive 15 s', () async {
+      RequestOptions? seen;
+      final dio = Dio(BaseOptions(
+        baseUrl: 'https://faden.example',
+        connectTimeout: ApiClient.connectTimeout,
+        receiveTimeout: ApiClient.receiveTimeout,
+      ));
+      dio.interceptors.add(InterceptorsWrapper(onRequest: (options, handler) {
+        seen = options;
+        handler.resolve(Response(requestOptions: options, statusCode: 200, data: <dynamic>[]));
+      }));
+      await ApiClient(dio).listBooks();
+      expect(seen!.connectTimeout, const Duration(seconds: 4));
+      expect(seen!.receiveTimeout, const Duration(seconds: 15));
+    });
+  });
+
+  group('normalizeServerUrl (E37)', () {
+    test('adds http:// when no scheme is given and strips trailing slashes', () {
+      expect(normalizeServerUrl('nas.local:8787'), 'http://nas.local:8787');
+      expect(normalizeServerUrl('  http://192.168.1.5:8787/ '), 'http://192.168.1.5:8787');
+      expect(normalizeServerUrl('https://faden.example.org///'), 'https://faden.example.org');
+      expect(normalizeServerUrl('http://100.64.0.2:8787/faden/'), 'http://100.64.0.2:8787/faden');
+    });
+
+    test('rejects what cannot be a server address', () {
+      expect(normalizeServerUrl(''), isNull);
+      expect(normalizeServerUrl('   '), isNull);
+      expect(normalizeServerUrl('ftp://nas.local'), isNull);
+      expect(normalizeServerUrl('http://'), isNull);
+      expect(normalizeServerUrl('http://nas.local/?x=1'), isNull);
+    });
+
+    test('ApiClient.create normalizes and sets the timeouts; tryCreate returns null when unusable', () {
+      final api = ApiClient.create(baseUrl: 'nas.local:8787/', token: 't');
+      expect(api.baseUrl, 'http://nas.local:8787');
+      expect(api.authHeaders, {'Authorization': 'Bearer t'});
+      expect(ApiClient.tryCreate(baseUrl: 'ftp://x', token: 't'), isNull);
+      expect(ApiClient.tryCreate(baseUrl: 'nas.local', token: ''), isNull);
+      expect(ApiClient.tryCreate(baseUrl: null, token: 't'), isNull);
+      expect(() => ApiClient.create(baseUrl: '', token: 't'), throwsFormatException);
+    });
+  });
+
+  group('checkConnection (E37)', () {
+    Dio dioAnswering(Response Function(RequestOptions o) health, Response Function(RequestOptions o) books) {
+      final dio = Dio(BaseOptions(baseUrl: 'http://nas.local:8787'));
+      dio.interceptors.add(InterceptorsWrapper(onRequest: (options, handler) {
+        try {
+          final res = options.path.endsWith('/health') ? health(options) : books(options);
+          if ((res.statusCode ?? 200) >= 400) {
+            handler.reject(DioException.badResponse(statusCode: res.statusCode!, requestOptions: options, response: res));
+          } else {
+            handler.resolve(res);
+          }
+        } on DioException catch (e) {
+          handler.reject(e);
+        }
+      }));
+      return dio;
+    }
+
+    Response ok(RequestOptions o, Object data) => Response(requestOptions: o, statusCode: 200, data: data);
+
+    test('ok when health answers and the token is accepted', () async {
+      final api = ApiClient(dioAnswering((o) => ok(o, {'status': 'ok'}), (o) => ok(o, <dynamic>[])));
+      expect(await api.checkConnection(), ConnectionCheck.ok);
+    });
+
+    test('unauthorized when the authenticated call answers 401', () async {
+      final api = ApiClient(dioAnswering(
+        (o) => ok(o, {'status': 'ok'}),
+        (o) => Response(requestOptions: o, statusCode: 401, data: {'detail': 'bad token'}),
+      ));
+      expect(await api.checkConnection(), ConnectionCheck.unauthorized);
+    });
+
+    test('unreachable on a connect timeout or connection error', () async {
+      final api = ApiClient(dioAnswering(
+        (o) => throw DioException.connectionTimeout(timeout: ApiClient.connectTimeout, requestOptions: o),
+        (o) => ok(o, <dynamic>[]),
+      ));
+      expect(await api.checkConnection(), ConnectionCheck.unreachable);
+      final refused = ApiClient(dioAnswering(
+        (o) => throw DioException.connectionError(requestOptions: o, reason: 'refused'),
+        (o) => ok(o, <dynamic>[]),
+      ));
+      expect(await refused.checkConnection(), ConnectionCheck.unreachable);
+    });
+
+    test('unreachable when something else answers (no Faden health)', () async {
+      final api = ApiClient(dioAnswering((o) => Response(requestOptions: o, statusCode: 404), (o) => ok(o, <dynamic>[])));
+      expect(await api.checkConnection(), ConnectionCheck.unreachable);
+    });
+
+    test('invalidUrl before any request', () async {
+      expect(await ApiClient.checkServer(baseUrl: 'ftp://nas', token: 't'), ConnectionCheck.invalidUrl);
+      expect(await ApiClient(Dio(BaseOptions(baseUrl: ''))).checkConnection(), ConnectionCheck.invalidUrl);
+    });
+  });
 }

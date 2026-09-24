@@ -92,4 +92,61 @@ void main() {
     final manager = DownloadManager(api: _apiServing(Uint8List(0)), targetDir: tmpDir);
     expect(manager.pathFor('abc123').path, p.join(tmpDir.path, 'abc123.mp3'));
   });
+
+  group('verified once, then marker + size (E34)', () {
+    test('after a download the file is trusted without re-hashing', () async {
+      final audio = _tone(5, 3000);
+      final hash = audioHashBytes(audio);
+      final manager = DownloadManager(api: _apiServing(audio), targetDir: tmpDir);
+      await manager.download(hash);
+
+      // Same size, different bytes: only a re-hash could notice. The marker
+      // is trusted instead, which is what makes a library refresh cheap.
+      final file = manager.pathFor(hash);
+      final tampered = Uint8List.fromList(audio.reversed.toList());
+      await file.writeAsBytes(tampered);
+      expect(await manager.isDownloaded(hash), isTrue);
+      expect(await File(p.join(tmpDir.path, '$hash.ok')).readAsString(), '${audio.length}');
+    });
+
+    test('a file from before markers is verified once and then marked', () async {
+      final audio = _tone(4, 2500);
+      final hash = audioHashBytes(audio);
+      final manager = DownloadManager(api: null, targetDir: tmpDir);
+      await manager.pathFor(hash).writeAsBytes(audio);
+      final marker = File(p.join(tmpDir.path, '$hash.ok'));
+      expect(await marker.exists(), isFalse);
+
+      expect(await manager.isDownloaded(hash), isTrue);
+      expect(await marker.exists(), isTrue);
+    });
+
+    test('an unmarked file with the wrong hash is not downloaded and gets no marker', () async {
+      final manager = DownloadManager(api: null, targetDir: tmpDir);
+      final hash = audioHashBytes(_tone(4, 2500));
+      await manager.pathFor(hash).writeAsBytes(_tone(6, 2500));
+      expect(await manager.isDownloaded(hash), isFalse);
+      expect(await File(p.join(tmpDir.path, '$hash.ok')).exists(), isFalse);
+    });
+
+    test('delete removes file and marker; sizes are reported', () async {
+      final audio = _tone(8, 1200);
+      final hash = audioHashBytes(audio);
+      final manager = DownloadManager(api: _apiServing(audio), targetDir: tmpDir);
+      await manager.download(hash);
+      expect(await manager.bytesOnDisk(hash), 1200);
+      expect(await manager.totalBytesOnDisk(), 1200);
+
+      await manager.delete(hash);
+      expect(await manager.isDownloaded(hash), isFalse);
+      expect(await manager.bytesOnDisk(hash), 0);
+      expect(await File(p.join(tmpDir.path, '$hash.ok')).exists(), isFalse);
+    });
+
+    test('without a server a download fails instead of throwing', () async {
+      final manager = DownloadManager(api: null, targetDir: tmpDir);
+      final result = await manager.download('abc');
+      expect(result.ok, isFalse);
+    });
+  });
 }

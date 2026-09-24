@@ -6,20 +6,38 @@ class ManifestFile {
   final String fileHash;
   final int durationMs;
 
+  /// The file's title tag as the server read it (`files.title`), or null
+  /// when the file has none. Display only -- never a key (invariant 1).
+  final String? title;
+
   const ManifestFile({
     required this.idx,
     required this.fileHash,
     required this.durationMs,
+    this.title,
   });
 
   factory ManifestFile.fromJson(Map<String, dynamic> json) => ManifestFile(
         idx: json['idx'] as int,
         fileHash: json['file_hash'] as String,
         durationMs: json['duration_ms'] as int,
+        title: json['title'] as String?,
       );
 
-  Map<String, dynamic> toJson() =>
-      {'idx': idx, 'file_hash': fileHash, 'duration_ms': durationMs};
+  Map<String, dynamic> toJson() => {
+        'idx': idx,
+        'file_hash': fileHash,
+        'duration_ms': durationMs,
+        if (title != null) 'title': title,
+      };
+
+  /// The title to show for this chapter: the file's own title when it has a
+  /// non-blank one, otherwise [fallback] (the caller passes
+  /// `AppStrings.chapterLabel(idx + 1)`, since domain/ has no l10n).
+  String displayTitle(String fallback) {
+    final t = title?.trim();
+    return (t == null || t.isEmpty) ? fallback : t;
+  }
 }
 
 /// The active manifest of a book: an ordered list of files, per
@@ -49,6 +67,19 @@ class Manifest {
       };
 
   int get totalDurationMs => files.fold(0, (sum, f) => sum + f.durationMs);
+
+  /// Index of [fileHash] in playback order, or -1.
+  int indexOf(String fileHash) => files.indexWhere((f) => f.fileHash == fileHash);
+
+  /// Where [pos] lies as a fraction of the whole book (0..1), or null if
+  /// its `file_hash` is not part of this manifest or the book has no
+  /// duration.
+  double? fractionFor(Position pos) {
+    final total = totalDurationMs;
+    final g = globalMsFor(pos);
+    if (g == null || total <= 0) return null;
+    return (g / total).clamp(0.0, 1.0);
+  }
 
   bool containsFile(String fileHash) => files.any((f) => f.fileHash == fileHash);
 

@@ -45,7 +45,7 @@ class AppStrings {
     'settingsServerUrl': 'Server-Adresse',
     'settingsServerToken': 'Zugangs-Token',
     'settingsSave': 'Speichern',
-    'settingsSaved': 'Gespeichert. Neu starten, damit es wirkt.',
+    'settingsSaved': 'Gespeichert.',
     'settingsHealthDataOptIn': 'Schlafdaten erlauben',
     'settingsHealthDataOptInDescription':
         'Liest lokal den Schlafbeginn aus Health/Health Connect, um die Faden-Suche zu verkürzen. Verlässt nie dieses Gerät.',
@@ -86,6 +86,14 @@ class AppStrings {
     'settingsAppearanceNightNote':
         'Im Nachtfenster und mit Sleep-Timer ist der Player immer dunkel.',
     'miniPlayerOpen': 'Player öffnen',
+    'remotePositionAdopted': 'Position vom anderen Gerät übernommen',
+    'connectionOk': 'Verbunden.',
+    'connectionUnauthorized': 'Der Server lehnt das Token ab.',
+    'connectionUnreachable': 'Server nicht erreichbar.',
+    'connectionInvalidUrl': 'Keine gültige Server-Adresse.',
+    'playbackError': 'Wiedergabe nicht möglich. Erneut versuchen?',
+    'downloadCancel': 'Abbrechen',
+    'downloadDelete': 'Download löschen',
   };
 
   static String _of(String key) {
@@ -157,6 +165,14 @@ class AppStrings {
   static String get settingsAppearanceDark => _of('settingsAppearanceDark');
   static String get settingsAppearanceNightNote => _of('settingsAppearanceNightNote');
   static String get miniPlayerOpen => _of('miniPlayerOpen');
+  static String get remotePositionAdopted => _of('remotePositionAdopted');
+  static String get connectionOk => _of('connectionOk');
+  static String get connectionUnauthorized => _of('connectionUnauthorized');
+  static String get connectionUnreachable => _of('connectionUnreachable');
+  static String get connectionInvalidUrl => _of('connectionInvalidUrl');
+  static String get playbackError => _of('playbackError');
+  static String get downloadCancel => _of('downloadCancel');
+  static String get downloadDelete => _of('downloadDelete');
 
   /// KONZEPT.md Texte-Tabelle: "Zurück zu Kapitel 7, 23:41". [chapter] is
   /// an already-formatted [chapterLabel] and [time] an mm:ss string.

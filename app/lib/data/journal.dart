@@ -4,6 +4,7 @@ import 'package:drift/drift.dart';
 
 import '../core/hlc.dart';
 import '../domain/event.dart';
+import '../domain/position.dart';
 import 'db.dart';
 
 /// The local event journal: the durable, append-only record CLAUDE.md
@@ -86,12 +87,56 @@ class Journal {
 
   /// Stores an already-synced remote event (pulled from the server, section
   /// 6) locally, without running any local action. Also idempotent on
-  /// `event_id`.
-  Future<void> storeRemote(Event event) async {
-    await db.into(db.eventRows).insert(
-          _toCompanion(event).copyWith(synced: const Value(true)),
-          mode: InsertMode.insertOrIgnore,
-        );
+  /// `event_id`. Returns whether the event was new to this device (false
+  /// for a duplicate, e.g. this device's own event coming back in a pull).
+  Future<bool> storeRemote(Event event) {
+    return db.transaction(() async {
+      final existing = await (db.selectOnly(db.eventRows)
+            ..addColumns([db.eventRows.eventId])
+            ..where(db.eventRows.eventId.equals(event.eventId))
+            ..limit(1))
+          .getSingleOrNull();
+      if (existing != null) return false;
+      await db.into(db.eventRows).insert(
+            _toCompanion(event).copyWith(synced: const Value(true)),
+            mode: InsertMode.insertOrIgnore,
+          );
+      return true;
+    });
+  }
+
+  /// Wall time of the newest event of [bookId] (any device, any type), or
+  /// null for a book without events. Used for the auto-rewind after a
+  /// pause that spans an app restart (domain/auto_rewind.dart).
+  Future<int?> lastWallMsForBook(String bookId) async {
+    final maxWall = db.eventRows.wallMs.max();
+    final row = await (db.selectOnly(db.eventRows)
+          ..addColumns([maxWall])
+          ..where(db.eventRows.bookId.equals(bookId)))
+        .getSingleOrNull();
+    return row?.read(maxWall);
+  }
+
+  /// Per-book progress for the library (decision E33), for every book with
+  /// at least one intent event, in one query instead of a Resolver replay
+  /// per row. Mirrors Resolver rules 1-3 (domain/resolver.dart): the
+  /// winning session is the one of the last intent event by `(hlc.pt,
+  /// hlc.c, device_id, event_id)`, and the position is that session's last
+  /// event. `lastWallMs` is the newest event of the book of any type.
+  Future<Map<String, BookProgressRow>> progressRows() async {
+    final rows = await db.customSelect(
+      _progressQuery,
+      readsFrom: {db.eventRows},
+    ).get();
+    return {
+      for (final r in rows)
+        r.read<String>('book_id'): BookProgressRow(
+          bookId: r.read<String>('book_id'),
+          manifestId: r.read<String>('manifest_id'),
+          position: Position(fileHash: r.read<String>('file_hash'), offsetMs: r.read<int>('offset_ms')),
+          lastWallMs: r.read<int>('last_wall_ms'),
+        ),
+    };
   }
 
   EventRowsCompanion _toCompanion(Event e) => EventRowsCompanion.insert(
@@ -127,3 +172,43 @@ class Journal {
         data: Map<String, dynamic>.from(jsonDecode(row.dataJson) as Map),
       );
 }
+
+/// One book's resolved position and last activity, see
+/// [Journal.progressRows].
+class BookProgressRow {
+  final String bookId;
+  final String manifestId;
+  final Position position;
+  final int lastWallMs;
+
+  const BookProgressRow({
+    required this.bookId,
+    required this.manifestId,
+    required this.position,
+    required this.lastWallMs,
+  });
+}
+
+const _progressQuery = '''
+WITH last_intent AS (
+  SELECT book_id, session_id FROM (
+    SELECT book_id, session_id,
+           ROW_NUMBER() OVER (PARTITION BY book_id
+             ORDER BY hlc_pt DESC, hlc_c DESC, device_id DESC, event_id DESC) AS rn
+    FROM event_rows WHERE type IN ('PLAY', 'SEEK', 'RESUME', 'UNDO')
+  ) WHERE rn = 1
+),
+last_event AS (
+  SELECT e.book_id, e.manifest_id, e.file_hash, e.offset_ms,
+         ROW_NUMBER() OVER (PARTITION BY e.book_id
+           ORDER BY e.hlc_pt DESC, e.hlc_c DESC, e.device_id DESC, e.event_id DESC) AS rn
+  FROM event_rows e
+  JOIN last_intent li ON li.book_id = e.book_id AND li.session_id = e.session_id
+),
+last_wall AS (
+  SELECT book_id, MAX(wall_ms) AS last_wall_ms FROM event_rows GROUP BY book_id
+)
+SELECT le.book_id, le.manifest_id, le.file_hash, le.offset_ms, lw.last_wall_ms
+FROM last_event le JOIN last_wall lw ON lw.book_id = le.book_id
+WHERE le.rn = 1
+''';

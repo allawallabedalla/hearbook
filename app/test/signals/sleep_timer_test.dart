@@ -103,4 +103,131 @@ void main() {
       });
     });
   });
+
+  group('SleepTimerController while paused (E42)', () {
+    test('does not count down while nothing plays', () {
+      fakeAsync((async) {
+        var playing = false;
+        var expired = false;
+        final controller = SleepTimerController(
+          onExpire: () => expired = true,
+          onVolumeChange: (_) {},
+          isPlaying: () => playing,
+        );
+        controller.start(const Duration(minutes: 15));
+        async.elapse(const Duration(hours: 2));
+        expect(expired, isFalse);
+        expect(controller.state.remaining, const Duration(minutes: 15));
+
+        playing = true;
+        async.elapse(const Duration(minutes: 10));
+        playing = false;
+        async.elapse(const Duration(minutes: 30));
+        expect(controller.state.remaining, const Duration(minutes: 5));
+
+        playing = true;
+        async.elapse(const Duration(minutes: 5));
+        expect(expired, isTrue);
+        controller.dispose();
+      });
+    });
+  });
+
+  group('SleepTimerController "Kapitelende" (E42)', () {
+    test('pauses when the chapter actually changes, not at a precomputed time', () {
+      fakeAsync((async) {
+        var expired = 0;
+        var remaining = const Duration(minutes: 3);
+        final controller = SleepTimerController(
+          onExpire: () => expired++,
+          onVolumeChange: (_) {},
+          chapterRemaining: () => remaining,
+        );
+        controller.startChapterEnd();
+        expect(controller.state.mode, SleepTimerMode.chapterEnd);
+        expect(controller.state.remaining, const Duration(minutes: 3));
+
+        // Far past the 3 minutes computed at start (e.g. slower speed, a
+        // seek back): no expiry until the chapter really changes.
+        async.elapse(const Duration(minutes: 10));
+        expect(expired, 0);
+        expect(controller.state.running, isTrue);
+
+        controller.onChapterAdvanced();
+        expect(expired, 1);
+        expect(controller.state.running, isFalse);
+        controller.dispose();
+      });
+    });
+
+    test('countdown and fade follow the chapter time left', () {
+      fakeAsync((async) {
+        final volumes = <double>[];
+        var remaining = const Duration(minutes: 2);
+        final controller = SleepTimerController(
+          onExpire: () {},
+          onVolumeChange: volumes.add,
+          chapterRemaining: () => remaining,
+        );
+        controller.startChapterEnd();
+        remaining = const Duration(seconds: 50);
+        async.elapse(const Duration(seconds: 1));
+        expect(controller.state.remaining, const Duration(seconds: 50));
+        expect(controller.inLastMinute, isTrue);
+        expect(volumes, isEmpty);
+        remaining = const Duration(seconds: 15);
+        async.elapse(const Duration(seconds: 1));
+        expect(volumes.last, closeTo(0.5, 0.01));
+        controller.dispose();
+      });
+    });
+
+    test('a last-minute extension lets one chapter change pass', () {
+      fakeAsync((async) {
+        var expired = 0;
+        var remaining = const Duration(seconds: 30);
+        final controller = SleepTimerController(
+          onExpire: () => expired++,
+          onVolumeChange: (_) {},
+          chapterRemaining: () => remaining,
+        );
+        controller.startChapterEnd();
+        expect(controller.extendIfInLastMinute(), isTrue);
+        expect(controller.inLastMinute, isFalse); // no second extension in the same chapter
+
+        remaining = const Duration(minutes: 20);
+        controller.onChapterAdvanced();
+        expect(expired, 0);
+        expect(controller.state.running, isTrue);
+
+        controller.onChapterAdvanced();
+        expect(expired, 1);
+        controller.dispose();
+      });
+    });
+
+    test('a chapter change does nothing to a fixed timer', () {
+      fakeAsync((async) {
+        var expired = false;
+        final controller = SleepTimerController(onExpire: () => expired = true, onVolumeChange: (_) {});
+        controller.start(const Duration(minutes: 15));
+        controller.onChapterAdvanced();
+        expect(expired, isFalse);
+        expect(controller.state.running, isTrue);
+        controller.dispose();
+      });
+    });
+
+    test('startWithDefault: minutes, or 0 for Kapitelende', () {
+      fakeAsync((async) {
+        final controller = SleepTimerController(onExpire: () {}, onVolumeChange: (_) {});
+        controller.startWithDefault(45);
+        expect(controller.state.mode, SleepTimerMode.fixed);
+        expect(controller.state.remaining, const Duration(minutes: 45));
+        controller.startWithDefault(0);
+        expect(controller.state.mode, SleepTimerMode.chapterEnd);
+        controller.dispose();
+      });
+    });
+  });
 }

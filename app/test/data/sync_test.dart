@@ -364,4 +364,31 @@ void main() {
       expect(seenSince, 9);
     });
   });
+
+  group('pulledBookIds (E31)', () {
+    test('lists books with events new to this device, not this device\'s own echoed back', () async {
+      await journal.record(_event('own', bookId: 'book-own'), () async {});
+      final dio = Dio(BaseOptions(baseUrl: 'https://faden.example'));
+      dio.interceptors.add(InterceptorsWrapper(onRequest: (options, handler) {
+        if (options.method == 'POST') {
+          handler.resolve(Response(
+            requestOptions: options,
+            statusCode: 200,
+            data: {'accepted': 1, 'duplicates': 0, 'max_seq': 1},
+          ));
+          return;
+        }
+        handler.resolve(Response(requestOptions: options, statusCode: 200, data: {
+          'events': [
+            {..._event('own', bookId: 'book-own').toJson(), 'seq': 1, 'skew_flag': false},
+            {..._event('other', bookId: 'book-remote', pt: 5000).toJson(), 'seq': 2, 'skew_flag': false},
+          ],
+          'has_more': false,
+        }));
+      }));
+      final summary = await SyncClient(db: db, journal: journal, api: ApiClient(dio)).sync();
+      expect(summary.pulled, 2);
+      expect(summary.pulledBookIds, {'book-remote'});
+    });
+  });
 }

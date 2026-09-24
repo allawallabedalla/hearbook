@@ -29,13 +29,18 @@ class SyncSummary {
   final PushSummary pushed;
   final int pulled;
 
-  const SyncSummary({required this.pushed, required this.pulled});
+  /// Books that pulled events new to this device belong to (this device's
+  /// own events coming back from the server do not count) -- the player re-resolves the open
+  /// book when it is among them (docs/ARCHITEKTUR.md section 6, E31).
+  final Set<String> pulledBookIds;
+
+  const SyncSummary({required this.pushed, required this.pulled, this.pulledBookIds = const {}});
 }
 
 /// Sync client, docs/ARCHITEKTUR.md section 6: push local events first,
 /// then pull remote ones, paging both directions at [_pageSize]. Triggers
 /// (app start, foreground, pause, network change, every 60s during
-/// playback) are the caller's job (audio/, signals/, later milestones);
+/// playback) are the caller's job (audio/handler.dart `syncNow`, main.dart);
 /// this class only implements one `sync()` run.
 class SyncClient {
   final AppDatabase db;
@@ -52,8 +57,9 @@ class SyncClient {
 
   Future<SyncSummary> sync() async {
     final pushed = await _pushAll();
-    final pulled = await _pullAll();
-    return SyncSummary(pushed: pushed, pulled: pulled);
+    final bookIds = <String>{};
+    final pulled = await _pullAll(bookIds);
+    return SyncSummary(pushed: pushed, pulled: pulled, pulledBookIds: bookIds);
   }
 
   /// Pushes every locally unsynced event, [_pageSize] at a time. The
@@ -91,7 +97,7 @@ class SyncClient {
   /// each one and advancing the cursor as pages come in (so a crash
   /// mid-pull loses at most the in-flight page, never already-stored
   /// progress).
-  Future<int> _pullAll() async {
+  Future<int> _pullAll(Set<String> bookIds) async {
     var since = await _readCursor();
     var pulled = 0;
     while (true) {
@@ -99,7 +105,7 @@ class SyncClient {
       for (final raw in page.events) {
         final event = Event.fromJson(raw);
         onRemoteHlc?.call(event.hlc);
-        await journal.storeRemote(event);
+        if (await journal.storeRemote(event)) bookIds.add(event.bookId);
         pulled++;
         final seq = raw['seq'] as int;
         if (seq > since) since = seq;

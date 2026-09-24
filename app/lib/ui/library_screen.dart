@@ -144,28 +144,9 @@ class _BookRow extends ConsumerWidget {
   }
 
   Future<void> _openPlayer(BuildContext context, WidgetRef ref) async {
-    final api = ref.read(apiClientProvider);
-    final downloads = ref.read(downloadManagerProvider);
-    final settings = ref.read(settingsStoreProvider);
-    if (api == null) return;
-    final detail = await api.bookDetail(book.bookId);
-    final activeJson = detail['active_manifest'] as Map<String, dynamic>?;
-    if (activeJson == null) return;
-    final manifest = ManifestCandidate.fromJson(activeJson).manifest;
-    final serverUrl = await settings.serverUrl() ?? '';
-    final token = await settings.serverToken() ?? '';
-    await settings.setLastOpenedBookId(book.bookId);
-    await ref.read(playerSessionProvider).openBook(
-          bookId: book.bookId,
-          bookTitle: book.title,
-          manifest: manifest,
-          downloads: downloads,
-          serverBaseUrl: serverUrl,
-          serverToken: token,
-          api: api,
-          author: book.author,
-        );
-    if (!context.mounted) return;
+    // Cache first (decision E30): opens offline, too.
+    final result = await ref.read(bookOpenerProvider).open(book.bookId);
+    if (result == OpenBookResult.unavailable || !context.mounted) return;
     // Back to the one root player instead of stacking a new one on top
     // (decision E29).
     showPlayerScreen(Navigator.of(context));

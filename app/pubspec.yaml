@@ -64,6 +64,13 @@ dependencies:
   # interface, never directly from domain/ or ui/.
   health: ^13.3.2
 
+  # Network-change sync trigger (docs/ARCHITEKTUR.md section 6: "Auslöser:
+  # ... Netzwechsel", decision E31). Verified on pub.dev before adding:
+  # Flutter Favorite, publisher fluttercommunity.dev, 7.3.1, 160/160 pub
+  # points, iOS/Android; only `Connectivity().onConnectivityChanged` is used
+  # (main.dart), as a trigger -- never to decide whether to try the server.
+  connectivity_plus: ^7.3.1
+
 dev_dependencies:
   flutter_test:
     sdk: flutter

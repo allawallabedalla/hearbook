@@ -1,20 +1,19 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:audio_service/audio_service.dart';
 import 'package:audio_session/audio_session.dart';
+import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:path_provider/path_provider.dart';
 
 import 'audio/handler.dart';
-import 'data/api.dart';
 import 'data/db.dart';
-import 'data/downloads.dart';
 import 'data/journal.dart';
 import 'data/settings_store.dart';
 import 'data/sleep_data_source.dart';
-import 'data/sync.dart';
-import 'domain/manifest.dart';
+import 'data/storage.dart';
 import 'l10n/strings.dart';
 import 'ui/library_screen.dart';
 import 'ui/player_screen.dart';
@@ -24,30 +23,39 @@ import 'ui/theme.dart';
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
-  final appDir = await getApplicationDocumentsDirectory();
-  final db = AppDatabase.open(File('${appDir.path}/faden.db'));
+  // The journal stays where it always was: nothing may move or rewrite it.
+  final documentsDir = await getApplicationDocumentsDirectory();
+  final supportDir = await getApplicationSupportDirectory();
+  final db = AppDatabase.open(File('${documentsDir.path}/faden.db'));
   final journal = Journal(db);
   final settings = SettingsStore(db);
   final deviceId = await settings.deviceId();
   // Read before the first frame so it already has the chosen look (E28).
   final appearance = await settings.appearance();
+  final serverConfig = ServerConfig(url: await settings.serverUrl(), token: await settings.serverToken());
 
-  final serverUrl = await settings.serverUrl();
-  final serverToken = await settings.serverToken();
-  final api = (serverUrl != null && serverUrl.isNotEmpty && serverToken != null)
-      ? ApiClient.create(baseUrl: serverUrl, token: serverToken)
-      : null;
-  final downloads =
-      api == null ? null : DownloadManager(api: api, targetDir: downloadsDirFor(appDir));
-  final syncClient = api == null ? null : SyncClient(db: db, journal: journal, api: api);
+  // Decision E35: downloads live in Application Support, excluded from the
+  // iCloud backup; files from the old Documents location move over once,
+  // keeping their names (and so their verified state).
+  final audioDir = audioDirIn(supportDir);
+  try {
+    await migrateDownloads(from: legacyAudioDirIn(documentsDir), to: audioDir);
+    await audioDir.create(recursive: true);
+    await excludeFromBackup(audioDir);
+  } catch (_) {
+    // Storage housekeeping must never keep the app from starting.
+  }
+
   // M6 (docs/ARCHITEKTUR.md section 9): constructing/overriding this alone
   // requests no OS permission and reads no health data -- both only happen
   // inside PlayerSessionController.sleepOnsetAdjustment, and only once the
   // "Schlafdaten erlauben" setting is on and Faden-Suche actually starts.
   final sleepDataSource = HealthPluginSleepDataSource();
 
+  // The sync client is attached by syncWiringProvider once the providers
+  // exist, and replaced whenever the server settings change (E37).
   final audioHandler = await AudioService.init(
-    builder: () => FadenAudioHandler(journal: journal, deviceId: deviceId, syncClient: syncClient),
+    builder: () => FadenAudioHandler(journal: journal, deviceId: deviceId),
     config: const AudioServiceConfig(
       androidNotificationChannelId: 'de.faden.app.channel.audio',
       androidNotificationChannelName: 'Faden Wiedergabe',
@@ -59,7 +67,13 @@ Future<void> main() async {
   );
   // just_audio would default to a music session, which ducks under navigation
   // prompts instead of pausing; its README recommends speech() for audiobooks.
-  await (await AudioSession.instance).configure(const AudioSessionConfiguration.speech());
+  final session = await AudioSession.instance;
+  await session.configure(const AudioSessionConfiguration.speech());
+  // E36: calls and headphone unplugs pause (and resume) through the journal.
+  audioHandler.attachAudioSessionEvents(
+    interruptions: session.interruptionEventStream,
+    becomingNoisy: session.becomingNoisyEventStream,
+  );
 
   runApp(
     ProviderScope(
@@ -68,9 +82,8 @@ Future<void> main() async {
         journalProvider.overrideWithValue(journal),
         settingsStoreProvider.overrideWithValue(settings),
         deviceIdProvider.overrideWithValue(deviceId),
-        apiClientProvider.overrideWithValue(api),
-        downloadManagerProvider.overrideWithValue(downloads),
-        syncClientProvider.overrideWithValue(syncClient),
+        appSupportDirProvider.overrideWithValue(supportDir),
+        initialServerConfigProvider.overrideWithValue(serverConfig),
         sleepDataSourceProvider.overrideWithValue(sleepDataSource),
         audioHandlerProvider.overrideWithValue(audioHandler),
         initialAppearanceProvider.overrideWithValue(appearance),
@@ -84,11 +97,64 @@ Future<void> main() async {
 /// phone's brightness (decision E28, [resolveFadenTokens]). Nachtmodus is
 /// not applied here: it belongs to the player screen, which sets its own
 /// theme on top (ui/player_screen.dart).
-class FadenApp extends ConsumerWidget {
+///
+/// Also the home of the app-level sync triggers of docs/ARCHITEKTUR.md
+/// section 6 that are not tied to playback (E31): app start (via opening
+/// the last book), app back in the foreground, and a network change.
+class FadenApp extends ConsumerStatefulWidget {
   const FadenApp({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<FadenApp> createState() => _FadenAppState();
+}
+
+class _FadenAppState extends ConsumerState<FadenApp> {
+  AppLifecycleListener? _lifecycle;
+  StreamSubscription<List<ConnectivityResult>>? _connectivitySub;
+  List<ConnectivityResult>? _lastConnectivity;
+
+  @override
+  void initState() {
+    super.initState();
+    _lifecycle = AppLifecycleListener(onResume: _syncNow);
+    try {
+      final connectivity = Connectivity();
+      unawaited(connectivity
+          .checkConnectivity()
+          .then((r) => _lastConnectivity ??= r)
+          .catchError((Object _) => const <ConnectivityResult>[]));
+      _connectivitySub = connectivity.onConnectivityChanged.listen(_onConnectivity, onError: (Object _) {});
+    } catch (_) {
+      // No connectivity plugin (tests): the other triggers still run.
+    }
+  }
+
+  void _onConnectivity(List<ConnectivityResult> results) {
+    final previous = _lastConnectivity;
+    _lastConnectivity = results;
+    // The first report (or checkConnectivity) is the baseline; only a change is a trigger.
+    if (previous == null || _sameResults(previous, results)) return;
+    if (results.every((r) => r == ConnectivityResult.none)) return;
+    _syncNow();
+  }
+
+  static bool _sameResults(List<ConnectivityResult> a, List<ConnectivityResult> b) =>
+      a.length == b.length && a.toSet().containsAll(b);
+
+  /// Results reach the open book (take-over, E31) and the library's
+  /// progress through the handler's `remoteEventsPulled`.
+  void _syncNow() => unawaited(ref.read(audioHandlerProvider).syncNow());
+
+  @override
+  void dispose() {
+    _lifecycle?.dispose();
+    unawaited(_connectivitySub?.cancel());
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    ref.watch(syncWiringProvider);
     final tokens = resolveFadenTokens(
       appearance: ref.watch(appearanceProvider),
       platformBrightness: MediaQuery.platformBrightnessOf(context),
@@ -124,30 +190,17 @@ class _StartupScreenState extends ConsumerState<_StartupScreen> {
     WidgetsBinding.instance.addPostFrameCallback((_) => _bootstrap());
   }
 
+  /// Decision E30: the last book opens from the cached detail and the
+  /// local journal, so a downloaded book is ready to play without the
+  /// server; the detail is refreshed in the background.
   Future<void> _bootstrap() async {
-    final api = ref.read(apiClientProvider);
     final settings = ref.read(settingsStoreProvider);
     final lastBookId = await settings.lastOpenedBookId();
 
-    if (api != null && lastBookId != null) {
+    if (lastBookId != null) {
       try {
-        final detail = await api.bookDetail(lastBookId);
-        final activeJson = detail['active_manifest'] as Map<String, dynamic>?;
-        if (activeJson != null) {
-          final manifest = Manifest.fromJson(activeJson);
-          final title = detail['title'] as String? ?? '';
-          final serverUrl = await settings.serverUrl() ?? '';
-          final token = await settings.serverToken() ?? '';
-          await ref.read(playerSessionProvider).openBook(
-                bookId: lastBookId,
-                bookTitle: title,
-                manifest: manifest,
-                downloads: ref.read(downloadManagerProvider),
-                serverBaseUrl: serverUrl,
-                serverToken: token,
-                api: api,
-                author: detail['author'] as String?,
-              );
+        final result = await ref.read(bookOpenerProvider).open(lastBookId);
+        if (result != OpenBookResult.unavailable) {
           if (!mounted) return;
           Navigator.of(context).pushReplacement(PlayerScreen.route());
           return;

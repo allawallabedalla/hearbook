@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 import 'dart:typed_data';
 
@@ -5,22 +6,26 @@ import 'package:flutter/foundation.dart' show ChangeNotifier;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_riverpod/legacy.dart';
 import 'package:just_audio/just_audio.dart' as ja;
-import 'package:path_provider/path_provider.dart';
 
 import '../audio/handler.dart';
 import '../audio/player.dart';
 import '../data/api.dart';
+import '../data/book_downloads.dart';
 import '../data/db.dart';
 import '../data/downloads.dart';
 import '../data/journal.dart';
+import '../data/library.dart';
 import '../data/settings_store.dart';
 import '../data/sleep_data_source.dart';
+import '../data/storage.dart';
 import '../data/sync.dart';
 import '../domain/event.dart';
 import '../domain/manifest.dart';
 import '../domain/position.dart';
 import '../domain/resolver.dart';
 import '../domain/sleep_onset.dart';
+
+export '../data/library.dart' show BookSummary, ManifestCandidate, BookDetail;
 
 /// Wiring for the singletons main.dart creates before `runApp` (the
 /// database file, the audio_service handler, ...). Every provider here is
@@ -34,12 +39,103 @@ final settingsStoreProvider =
     Provider<SettingsStore>((ref) => SettingsStore(ref.watch(appDatabaseProvider)));
 final deviceIdProvider = Provider<String>((ref) => throw UnimplementedError('override in main.dart'));
 
-/// Null until docs/KONZEPT.md's "Einstellungen" screen has a server URL
-/// and token (settings_screen.dart writes both, then main.dart is
-/// restarted / the provider re-overridden on next launch).
-final apiClientProvider = Provider<ApiClient?>((ref) => null);
-final downloadManagerProvider = Provider<DownloadManager?>((ref) => null);
-final syncClientProvider = Provider<SyncClient?>((ref) => null);
+/// The app-support directory (path_provider), resolved once in main.dart.
+/// Downloads, the library cache and saved covers live below it. Null in
+/// tests that do not need files.
+final appSupportDirProvider = Provider<Directory?>((ref) => null);
+
+/// Server address and token as stored in the settings.
+class ServerConfig {
+  final String? url;
+  final String? token;
+
+  const ServerConfig({this.url, this.token});
+
+  static const empty = ServerConfig();
+
+  bool get isConfigured => ApiClient.tryCreate(baseUrl: url, token: token) != null;
+
+  @override
+  bool operator ==(Object other) => other is ServerConfig && other.url == url && other.token == token;
+
+  @override
+  int get hashCode => Object.hash(url, token);
+}
+
+/// The stored server settings as read once in main.dart before `runApp`.
+final initialServerConfigProvider = Provider<ServerConfig>((ref) => ServerConfig.empty);
+
+/// The live server settings (decision E37). [save] writes the store first,
+/// then changes the state, and everything built on it -- API client,
+/// downloads, sync, library -- is rebuilt at once, without an app restart.
+class ServerConfigController extends Notifier<ServerConfig> {
+  @override
+  ServerConfig build() => ref.watch(initialServerConfigProvider);
+
+  /// Normalizes [url] (data/api.dart `normalizeServerUrl`) and saves both.
+  /// An address that cannot be normalized is saved as typed, so the
+  /// settings screen shows what was entered; the API client then stays
+  /// null. Returns the saved configuration.
+  Future<ServerConfig> save({required String url, required String token}) async {
+    final normalized = normalizeServerUrl(url) ?? url.trim();
+    final trimmedToken = token.trim();
+    final settings = ref.read(settingsStoreProvider);
+    await settings.setServerUrl(normalized);
+    await settings.setServerToken(trimmedToken);
+    final next = ServerConfig(url: normalized, token: trimmedToken);
+    if (ref.mounted) state = next;
+    return next;
+  }
+}
+
+final serverConfigProvider =
+    NotifierProvider<ServerConfigController, ServerConfig>(ServerConfigController.new);
+
+/// Null until a server URL and token are configured. Rebuilt whenever
+/// [serverConfigProvider] changes.
+final apiClientProvider = Provider<ApiClient?>((ref) {
+  final config = ref.watch(serverConfigProvider);
+  return ApiClient.tryCreate(baseUrl: config.url, token: config.token);
+});
+
+/// Decision E30: JSON cache of the book list and details. Null without an
+/// app-support directory (tests).
+final libraryCacheProvider = Provider<LibraryCache?>((ref) {
+  final dir = ref.watch(appSupportDirProvider);
+  return dir == null ? null : LibraryCache(Directory('${dir.path}/library'));
+});
+
+final libraryRepositoryProvider = Provider<LibraryRepository>(
+  (ref) => LibraryRepository(api: ref.watch(apiClientProvider), cache: ref.watch(libraryCacheProvider)),
+);
+
+/// Downloaded audio (decision E35: `<app support>/audio`, excluded from
+/// the iCloud backup). Exists whenever the directory is known, also
+/// without a server: downloaded books must play offline.
+final downloadManagerProvider = Provider<DownloadManager?>((ref) {
+  final dir = ref.watch(appSupportDirProvider);
+  if (dir == null) return null;
+  return DownloadManager(api: ref.watch(apiClientProvider), targetDir: audioDirIn(dir));
+});
+
+/// Whole-book downloads with progress, cancel, retry, delete and storage
+/// (decision E34). Null without a [downloadManagerProvider].
+final bookDownloadsProvider = ChangeNotifierProvider<BookDownloads?>((ref) {
+  final manager = ref.watch(downloadManagerProvider);
+  return manager == null ? null : BookDownloads(manager: manager);
+});
+
+final syncClientProvider = Provider<SyncClient?>((ref) {
+  final api = ref.watch(apiClientProvider);
+  if (api == null) return null;
+  return SyncClient(db: ref.watch(appDatabaseProvider), journal: ref.watch(journalProvider), api: api);
+});
+
+/// Keeps the audio handler's sync client in step with the server settings
+/// (E37). Watched once by the app root (main.dart).
+final syncWiringProvider = Provider<void>((ref) {
+  ref.watch(audioHandlerProvider).syncClient = ref.watch(syncClientProvider);
+});
 
 /// Keeps a copy of the book's cover on the device for the lock screen, so it
 /// also shows offline; falls back to the last saved copy.
@@ -61,8 +157,14 @@ Future<Uri?> saveCoverForLockScreen(String bookId, ApiClient? api, Directory dir
 }
 
 // Fetched once per book; loading it in build() refetched it on every position tick.
+// Offline (E30), the copy saved for the lock screen is shown instead.
 final coverProvider = FutureProvider.family<Uint8List?, String>((ref, bookId) async {
   final api = ref.watch(apiClientProvider);
+  final dir = ref.watch(appSupportDirProvider);
+  if (dir != null) {
+    final uri = await saveCoverForLockScreen(bookId, api, dir);
+    return uri == null ? null : await File.fromUri(uri).readAsBytes();
+  }
   if (api == null) return null;
   final bytes = await api.cover(bookId);
   if (bytes == null) return null;
@@ -143,6 +245,23 @@ class NightWindowController extends AsyncNotifier<NightWindow> {
 final nightWindowProvider =
     AsyncNotifierProvider<NightWindowController, NightWindow>(NightWindowController.new);
 
+/// The stored default sleep-timer duration in minutes, 0 meaning
+/// "Kapitelende" (data/settings_store.dart `sleepTimerDefaultMin`, E42).
+/// [set] writes the store first, then updates the state.
+class SleepTimerDefaultController extends AsyncNotifier<int> {
+  @override
+  Future<int> build() => ref.watch(settingsStoreProvider).sleepTimerDefaultMin();
+
+  Future<void> set(int minutes) async {
+    await ref.read(settingsStoreProvider).setSleepTimerDefaultMin(minutes);
+    if (!ref.mounted) return;
+    state = AsyncData(minutes);
+  }
+}
+
+final sleepTimerDefaultProvider =
+    AsyncNotifierProvider<SleepTimerDefaultController, int>(SleepTimerDefaultController.new);
+
 /// M6 (docs/ARCHITEKTUR.md section 9): null on a platform without a
 /// [SleepDataSource] implementation wired up (there is none yet besides
 /// [HealthPluginSleepDataSource], but this stays overridable/nullable the
@@ -154,164 +273,262 @@ final sleepDataSourceProvider = Provider<SleepDataSource?>((ref) => null);
 final audioHandlerProvider =
     Provider<FadenAudioHandler>((ref) => throw UnimplementedError('override in main.dart'));
 
-/// One row of `GET /api/v1/books` (server/src/faden_server/api.py
-/// `list_books`), plus the local download state
-/// docs/KONZEPT.md's Bibliothek screen shows alongside it.
-class BookSummary {
+/// Where a book stands, for the library's "Weiterhören" row and the
+/// "zuletzt gehört" order (decision E33) -- computed from one journal
+/// query, not a Resolver replay per row.
+class BookProgress {
   final String bookId;
-  final String title;
-  final String? author;
-  final int? durationMs;
 
-  /// Server status: `ok`, `needs_review`, `pending`, `incomplete`, `empty`.
-  final String serverStatus;
+  /// The resolved position (invariant 1).
+  final Position position;
 
-  const BookSummary({
+  /// [position] as a fraction of the book (0..1); null while the book's
+  /// manifest is unknown or does not contain the position's file.
+  final double? fraction;
+
+  /// Wall time of the book's newest event (any device).
+  final DateTime lastPlayed;
+
+  const BookProgress({
     required this.bookId,
-    required this.title,
-    required this.author,
-    required this.durationMs,
-    required this.serverStatus,
+    required this.position,
+    required this.fraction,
+    required this.lastPlayed,
   });
-
-  factory BookSummary.fromJson(Map<String, dynamic> json) => BookSummary(
-        bookId: json['book_id'] as String,
-        title: json['title'] as String,
-        author: json['author'] as String?,
-        durationMs: json['duration_ms'] as int?,
-        serverStatus: json['status'] as String,
-      );
-
-  bool get needsReview => serverStatus == 'needs_review' || serverStatus == 'pending';
 }
 
-/// One manifest candidate offered by `GET /api/v1/books/{id}` when the
-/// book's status is `needs_review`/`pending` (docs/KONZEPT.md: "Reihenfolge
-/// prüfen" -- "die App lässt wählen", docs/ARCHITEKTUR.md section 3.2/10).
-class ManifestCandidate {
-  final Manifest manifest;
-  final String status;
-
-  const ManifestCandidate({required this.manifest, required this.status});
-
-  factory ManifestCandidate.fromJson(Map<String, dynamic> json) => ManifestCandidate(
-        manifest: Manifest.fromJson(json),
-        status: json['status'] as String,
-      );
-}
+/// Builds [BookProgress] from journal rows and whatever manifests are known.
+Map<String, BookProgress> bookProgressFrom(
+  Map<String, BookProgressRow> rows,
+  Map<String, Manifest> manifests,
+) =>
+    {
+      for (final row in rows.values)
+        row.bookId: BookProgress(
+          bookId: row.bookId,
+          position: row.position,
+          fraction: manifests[row.bookId]?.fractionFor(row.position),
+          lastPlayed: DateTime.fromMillisecondsSinceEpoch(row.lastWallMs),
+        ),
+    };
 
 /// docs/KONZEPT.md "Bibliothek": the book list plus download and
-/// reorder-review actions. `null` `api`/`downloads` (server not configured
-/// yet) is a valid, handled state -- docs/KONZEPT.md Texte-Tabelle
-/// "Offline": "Keine Verbindung zum Server. Geladene Bücher spielen
-/// weiter."
+/// reorder-review actions, cache first (decision E30). A missing server
+/// (not configured, unreachable) is a valid, handled state --
+/// docs/KONZEPT.md Texte-Tabelle "Offline": "Keine Verbindung zum Server.
+/// Geladene Bücher spielen weiter."
+///
+/// [refresh] shows the cached list at once, notifies as soon as the
+/// server's list arrives, and only then walks the books' details in the
+/// background (bounded concurrency, E30/E34) to learn manifests and
+/// download state. [whenIdle] completes once that walk is done.
 class LibraryController extends ChangeNotifier {
-  final ApiClient? api;
-  final DownloadManager? downloads;
+  final LibraryRepository repository;
+  final BookDownloads? downloads;
+  final Journal? journal;
+
+  /// How many book details are fetched at the same time.
+  final int detailConcurrency;
 
   bool loading = false;
   bool offline = false;
   List<BookSummary> books = [];
-  final Map<String, bool> downloadedByBook = {};
-  final Map<String, double?> downloadProgressByBook = {};
 
-  LibraryController({required this.api, required this.downloads});
+  /// Active manifests known so far (cache or server), per book.
+  final Map<String, Manifest> manifests = {};
 
-  Future<void> refresh() async {
-    final client = api;
-    if (client == null) {
+  /// Per-book progress (E33); see [refreshProgress].
+  Map<String, BookProgress> progressByBook = {};
+
+  Future<void>? _refreshing;
+  Future<void> _detailsPass = Future.value();
+  bool _disposed = false;
+
+  LibraryController({
+    required this.repository,
+    required this.downloads,
+    this.journal,
+    this.detailConcurrency = 4,
+  }) {
+    downloads?.addListener(_notify);
+  }
+
+  ApiClient? get api => repository.api;
+
+  /// Whether every file of [bookId] is on the device (legacy view of
+  /// [downloadStateFor]).
+  Map<String, bool> get downloadedByBook => {
+        for (final e in (downloads?.states ?? const <String, BookDownloadState>{}).entries)
+          e.key: e.value.isDownloaded,
+      };
+
+  /// Running downloads' progress 0..1 (legacy view of [downloadStateFor]).
+  Map<String, double?> get downloadProgressByBook => {
+        for (final e in (downloads?.states ?? const <String, BookDownloadState>{}).entries)
+          if (e.value.isDownloading) e.key: e.value.fraction,
+      };
+
+  BookDownloadState downloadStateFor(String bookId) =>
+      downloads?.stateFor(bookId) ?? BookDownloadState.unknown;
+
+  /// Books with progress, most recently played first ("zuletzt gehört").
+  List<BookSummary> get recentlyPlayed {
+    final withProgress = [
+      for (final b in books)
+        if (progressByBook.containsKey(b.bookId)) b,
+    ];
+    withProgress.sort((a, b) => progressByBook[b.bookId]!.lastPlayed.compareTo(progressByBook[a.bookId]!.lastPlayed));
+    return withProgress;
+  }
+
+  /// Completes when the last [refresh]'s background detail walk is done.
+  Future<void> whenIdle() async {
+    await _refreshing;
+    await _detailsPass;
+  }
+
+  Future<void> refresh() => _refreshing ??= _refresh().whenComplete(() => _refreshing = null);
+
+  Future<void> _refresh() async {
+    if (books.isEmpty) {
+      final cached = await repository.cachedBooks();
+      if (cached != null && books.isEmpty) {
+        books = cached;
+        _notify();
+        _detailsPass = _walkDetails(cached, network: false);
+      }
+    }
+    unawaited(refreshProgress());
+    if (repository.api == null) {
       offline = true;
-      notifyListeners();
+      _notify();
       return;
     }
     loading = true;
-    notifyListeners();
+    _notify();
+    var fetched = false;
     try {
-      final raw = await client.listBooks();
-      books = raw.map(BookSummary.fromJson).toList();
+      books = await repository.fetchBooks();
       offline = false;
-      for (final book in books) {
-        await _refreshDownloadState(book);
-      }
+      fetched = true;
     } catch (_) {
       offline = true;
     } finally {
       loading = false;
-      notifyListeners();
+      _notify();
+    }
+    if (fetched) {
+      final list = books;
+      final previous = _detailsPass;
+      _detailsPass = previous.then((_) => _walkDetails(list, network: true));
     }
   }
 
-  Future<void> _refreshDownloadState(BookSummary book) async {
-    final dm = downloads;
-    final client = api;
-    if (dm == null || client == null) return;
-    try {
-      final detail = await client.bookDetail(book.bookId);
-      final active = detail['active_manifest'] as Map<String, dynamic>?;
-      if (active == null) return;
-      final manifest = Manifest.fromJson(active);
-      var allDownloaded = manifest.files.isNotEmpty;
-      for (final file in manifest.files) {
-        if (!await dm.isDownloaded(file.fileHash)) {
-          allDownloaded = false;
-          break;
+  /// Learns each book's manifest (server first when [network], else the
+  /// cache) and its download state, [detailConcurrency] books at a time.
+  Future<void> _walkDetails(List<BookSummary> list, {required bool network}) async {
+    var next = 0;
+    Future<void> worker() async {
+      while (next < list.length && !_disposed) {
+        final book = list[next++];
+        try {
+          final detail = network
+              ? await repository.detailNetworkFirst(book.bookId)
+              : await repository.cachedDetail(book.bookId);
+          final manifest = detail?.activeManifest;
+          if (manifest == null || _disposed) continue;
+          manifests[book.bookId] = manifest;
+          await downloads?.refresh(book.bookId, manifest);
+        } catch (_) {
+          // One unreadable book never stops the others.
         }
       }
-      downloadedByBook[book.bookId] = allDownloaded;
-    } catch (_) {
-      // Leave unknown -- the library list itself already loaded.
     }
+
+    await Future.wait([for (var i = 0; i < detailConcurrency; i++) worker()]);
+    if (_disposed) return;
+    progressByBook = bookProgressFrom(await _progressRows(), manifests);
+    _notify();
+  }
+
+  /// Re-reads per-book progress from the journal (one query, E33).
+  Future<void> refreshProgress() async {
+    final rows = await _progressRows();
+    if (_disposed) return;
+    progressByBook = bookProgressFrom(rows, manifests);
+    _notify();
+  }
+
+  Future<Map<String, BookProgressRow>> _progressRows() async {
+    final j = journal;
+    if (j == null) return const {};
+    try {
+      return await j.progressRows();
+    } catch (_) {
+      return const {};
+    }
+  }
+
+  Future<Manifest?> _manifestFor(String bookId) async {
+    final known = manifests[bookId];
+    if (known != null) return known;
+    final detail = await repository.detailCacheFirst(bookId);
+    final manifest = detail?.activeManifest;
+    if (manifest != null) manifests[bookId] = manifest;
+    return manifest;
   }
 
   /// Downloads every file of [bookId]'s active manifest, hash-verified
   /// (data/downloads.dart). docs/ARCHITEKTUR.md section 11: "Ein Download
-  /// gilt erst als fertig, wenn der Audio-Hash der Datei stimmt."
+  /// gilt erst als fertig, wenn der Audio-Hash der Datei stimmt." Progress
+  /// and failures: [downloadStateFor].
   Future<bool> downloadBook(String bookId) async {
-    final client = api;
     final dm = downloads;
-    if (client == null || dm == null) return false;
-    downloadProgressByBook[bookId] = 0;
-    notifyListeners();
-    try {
-      final detail = await client.bookDetail(bookId);
-      final active = detail['active_manifest'] as Map<String, dynamic>?;
-      if (active == null) return false;
-      final manifest = Manifest.fromJson(active);
-      for (var i = 0; i < manifest.files.length; i++) {
-        final file = manifest.files[i];
-        if (await dm.isDownloaded(file.fileHash)) continue;
-        final result = await dm.download(file.fileHash);
-        if (!result.ok) {
-          downloadProgressByBook.remove(bookId);
-          notifyListeners();
-          return false;
-        }
-        downloadProgressByBook[bookId] = (i + 1) / manifest.files.length;
-        notifyListeners();
-      }
-      downloadedByBook[bookId] = true;
-      return true;
-    } catch (_) {
-      return false;
-    } finally {
-      downloadProgressByBook.remove(bookId);
-      notifyListeners();
-    }
+    if (dm == null) return false;
+    final manifest = await _manifestFor(bookId);
+    if (manifest == null) return false;
+    return dm.download(bookId, manifest);
   }
 
+  Future<bool> retryDownload(String bookId) => downloadBook(bookId);
+
+  void cancelDownload(String bookId) => downloads?.cancel(bookId);
+
+  /// Removes [bookId]'s downloaded files; the book streams again.
+  Future<void> deleteDownload(String bookId) async {
+    final dm = downloads;
+    if (dm == null) return;
+    final manifest = await _manifestFor(bookId);
+    if (manifest == null) return;
+    await dm.deleteBook(bookId, manifest);
+  }
+
+  /// Bytes all downloaded audio takes on this device.
+  Future<int> totalDownloadedBytes() async => await downloads?.totalBytesOnDisk() ?? 0;
+
   Future<List<ManifestCandidate>> reviewCandidates(String bookId) async {
-    final client = api;
-    if (client == null) return const [];
-    final detail = await client.bookDetail(bookId);
-    final candidates = (detail['candidates'] as List).cast<Map<String, dynamic>>();
-    return candidates.map(ManifestCandidate.fromJson).toList();
+    if (repository.api == null) return const [];
+    final detail = await repository.fetchDetail(bookId);
+    return detail.candidates;
   }
 
   Future<void> confirmManifest(String bookId, String manifestId) async {
-    final client = api;
+    final client = repository.api;
     if (client == null) return;
     await client.confirmManifest(bookId, manifestId);
+    manifests.remove(bookId);
     await refresh();
+  }
+
+  void _notify() {
+    if (!_disposed) notifyListeners();
+  }
+
+  @override
+  void dispose() {
+    _disposed = true;
+    downloads?.removeListener(_notify);
+    super.dispose();
   }
 }
 
@@ -324,6 +541,14 @@ class LibraryController extends ChangeNotifier {
 class PlayerSessionController extends ChangeNotifier {
   final FadenAudioHandler handler;
   final Journal journal;
+
+  /// Per-book speed (E38); null in tests that do not need it.
+  final SettingsStore? settings;
+
+  /// How long [openBook] waits for a sync before resolving (E31). The sync
+  /// carries on afterwards; its result reaches the open book through
+  /// `handler.remoteEventsPulled`.
+  final Duration syncBeforeOpenTimeout;
 
   String? bookId;
   String? bookTitle;
@@ -349,8 +574,30 @@ class PlayerSessionController extends ChangeNotifier {
   /// (prototype/faden.html: "ohne Einrasten weiter").
   Map<String, List<int>> pauseIndex = {};
 
-  PlayerSessionController({required this.handler, required this.journal}) {
-    handler.eventsWritten.listen((_) => _refreshBookState());
+  final List<StreamSubscription<Object?>> _subs = [];
+  bool _opening = false;
+  bool _remoteCheckPending = false;
+  bool _disposed = false;
+
+  PlayerSessionController({
+    required this.handler,
+    required this.journal,
+    this.settings,
+    this.syncBeforeOpenTimeout = const Duration(seconds: 2),
+  }) {
+    // E40: a HEARTBEAT never changes anything the UI derives from the
+    // Resolver beyond the position, which the UI reads live from
+    // `handler.positionStream` -- replaying every event of the book every
+    // 5 s would only cost battery.
+    _subs.add(handler.eventsWritten.listen((event) {
+      if (event.type == EventType.heartbeat) return;
+      if (event.bookId != bookId) return;
+      unawaited(_refreshBookState());
+    }));
+    _subs.add(handler.remoteEventsPulled.listen((bookIds) {
+      final id = bookId;
+      if (id != null && bookIds.contains(id)) unawaited(onRemoteEvents());
+    }));
   }
 
   bool get isOpen => bookId != null;
@@ -364,45 +611,59 @@ class PlayerSessionController extends ChangeNotifier {
     required String serverToken,
     ApiClient? api,
     String? author,
+    Directory? coverDir,
   }) async {
+    _opening = true;
     loading = true;
-    notifyListeners();
+    _notify();
     this.bookId = bookId;
     this.bookTitle = bookTitle;
     this.manifest = manifest;
     playlistSources = null;
     pauseIndex = {};
 
-    final events = await journal.eventsForBook(bookId);
-    final state = events.isEmpty
-        ? _freshBookState(manifest)
-        : resolve(events, manifest);
-    bookState = state;
+    try {
+      // E31: pull what other devices did before resolving, so the player
+      // opens where the listener last was on any device. Bounded: offline,
+      // the book opens from the local journal right away.
+      await handler.syncNow(timeout: syncBeforeOpenTimeout);
 
-    if (downloads != null) {
-      final sources = await buildPlaylist(
-        manifest: manifest,
-        downloads: downloads,
-        serverBaseUrl: serverBaseUrl,
-        serverToken: serverToken,
-      );
-      playlistSources = sources;
-      Uri? artUri;
-      try {
-        artUri = await saveCoverForLockScreen(bookId, api, await getApplicationSupportDirectory())
-            .timeout(const Duration(seconds: 3));
-      } catch (_) {
-        // No cover on the lock screen is fine; opening the book must not wait on it.
+      final events = await journal.eventsForBook(bookId);
+      final state = events.isEmpty ? _freshBookState(manifest) : resolve(events, manifest);
+      bookState = state;
+
+      if (downloads != null) {
+        final sources = await buildPlaylist(
+          manifest: manifest,
+          downloads: downloads,
+          serverBaseUrl: serverBaseUrl,
+          serverToken: serverToken,
+        );
+        playlistSources = sources;
+        Uri? artUri;
+        if (coverDir != null) {
+          try {
+            artUri = await saveCoverForLockScreen(bookId, api, coverDir).timeout(const Duration(seconds: 3));
+          } catch (_) {
+            // No cover on the lock screen is fine; opening the book must not wait on it.
+          }
+        }
+        final speed = await settings?.bookSpeed(bookId);
+        await handler.openBook(
+          bookId: bookId,
+          manifest: manifest,
+          bookTitle: bookTitle,
+          sources: sources,
+          initialPosition: state.position,
+          author: author,
+          artUri: artUri,
+          speed: speed,
+          syncAfterOpen: false, // synced right above
+        );
       }
-      await handler.openBook(
-        bookId: bookId,
-        manifest: manifest,
-        bookTitle: bookTitle,
-        sources: sources,
-        initialPosition: state.position,
-        author: author,
-        artUri: artUri,
-      );
+    } finally {
+      _opening = false;
+      loading = false;
     }
 
     if (api != null) {
@@ -414,8 +675,44 @@ class PlayerSessionController extends ChangeNotifier {
       }
     }
 
-    loading = false;
-    notifyListeners();
+    _notify();
+    if (_remoteCheckPending) {
+      _remoteCheckPending = false;
+      unawaited(onRemoteEvents());
+    }
+  }
+
+  /// A sync pulled new events for the open book (E31): re-resolve, and if
+  /// nothing plays, move the prepared player to the resolved position --
+  /// the handler shows the undo hint "Position vom anderen Gerät
+  /// übernommen" for a jump over 2 min (invariant 6).
+  Future<void> onRemoteEvents() async {
+    if (_opening) {
+      _remoteCheckPending = true;
+      return;
+    }
+    await _refreshBookState();
+    final state = bookState;
+    final m = manifest;
+    if (state == null || m == null || state.needsConfirmation) return;
+    if (handler.playing || handler.bookId != bookId) return;
+    final here = m.globalMsFor(handler.currentPosition());
+    final there = m.globalMsFor(state.position);
+    if (there == null) return;
+    // The player runs a moment past the position its own PAUSE recorded;
+    // that difference is not another device's doing.
+    if (here != null && (here - there).abs() < _adoptToleranceMs) return;
+    await handler.adoptRemotePosition(state.position);
+  }
+
+  static const _adoptToleranceMs = 1500;
+
+  /// Changes the speed of the open book and remembers it for that book
+  /// (E38). Not journaled.
+  Future<void> setSpeed(double speed) async {
+    await handler.setSpeed(speed);
+    final id = bookId;
+    if (id != null) await settings?.setBookSpeed(id, speed);
   }
 
   Future<void> _refreshBookState() async {
@@ -423,9 +720,22 @@ class PlayerSessionController extends ChangeNotifier {
     final m = manifest;
     if (id == null || m == null) return;
     final events = await journal.eventsForBook(id);
-    if (events.isEmpty) return;
+    if (events.isEmpty || id != bookId || _disposed) return;
     bookState = resolve(events, m);
-    notifyListeners();
+    _notify();
+  }
+
+  void _notify() {
+    if (!_disposed) notifyListeners();
+  }
+
+  @override
+  void dispose() {
+    _disposed = true;
+    for (final sub in _subs) {
+      unawaited(sub.cancel());
+    }
+    super.dispose();
   }
 
   /// A book with no events yet (never opened on any device before): the
@@ -510,14 +820,114 @@ class PlayerSessionController extends ChangeNotifier {
   }
 }
 
-/// Directory downloaded audio files live in (data/downloads.dart's
-/// `targetDir`), resolved once in main.dart.
-Directory downloadsDirFor(Directory appSupportDir) => Directory('${appSupportDir.path}/audio');
-
-final libraryControllerProvider = ChangeNotifierProvider<LibraryController>(
-  (ref) => LibraryController(api: ref.watch(apiClientProvider), downloads: ref.watch(downloadManagerProvider)),
-);
+final libraryControllerProvider = ChangeNotifierProvider<LibraryController>((ref) {
+  final controller = LibraryController(
+    repository: ref.watch(libraryRepositoryProvider),
+    downloads: ref.watch(bookDownloadsProvider),
+    journal: ref.watch(journalProvider),
+  );
+  // Progress changes with every local intent/pause (not heartbeats, E40)
+  // and with every sync that brought other devices' events (E31/E33).
+  final handler = ref.watch(audioHandlerProvider);
+  final subs = [
+    handler.eventsWritten
+        .where((e) => e.type != EventType.heartbeat)
+        .listen((_) => unawaited(controller.refreshProgress())),
+    handler.remoteEventsPulled.listen((_) => unawaited(controller.refreshProgress())),
+  ];
+  ref.onDispose(() {
+    for (final sub in subs) {
+      unawaited(sub.cancel());
+    }
+  });
+  // Rebuilt after a server change (E37): load at once, cache first, so an
+  // open library never shows an empty list. Shared with the screen's own
+  // refresh call (refresh() runs one pass at a time).
+  unawaited(controller.refresh());
+  return controller;
+});
 
 final playerSessionProvider = ChangeNotifierProvider<PlayerSessionController>(
-  (ref) => PlayerSessionController(handler: ref.watch(audioHandlerProvider), journal: ref.watch(journalProvider)),
+  (ref) => PlayerSessionController(
+    handler: ref.watch(audioHandlerProvider),
+    journal: ref.watch(journalProvider),
+    settings: ref.watch(settingsStoreProvider),
+  ),
 );
+
+/// Result of [BookOpener.open].
+enum OpenBookResult {
+  /// The book is open in the player (paused at its resolved position).
+  opened,
+
+  /// It already was the open book; nothing was touched (playback goes on).
+  alreadyOpen,
+
+  /// Neither the cache nor the server knows the book's active manifest
+  /// (never opened or listed while online, or it has none yet).
+  unavailable,
+}
+
+/// Opens a book by id, cache first (decision E30): the cached detail
+/// opens it at once -- fully offline for a downloaded book -- and a fresh
+/// detail is fetched in the background. Used by the app start (main.dart)
+/// and the library.
+class BookOpener {
+  final Ref _ref;
+
+  BookOpener(this._ref);
+
+  Future<OpenBookResult> open(String bookId) async {
+    final session = _ref.read(playerSessionProvider);
+    final handler = _ref.read(audioHandlerProvider);
+    if (session.bookId == bookId && handler.bookId == bookId && session.manifest != null) {
+      return OpenBookResult.alreadyOpen;
+    }
+    final repository = _ref.read(libraryRepositoryProvider);
+    final cached = await repository.cachedDetail(bookId);
+    final detail = cached ?? await repository.detailCacheFirst(bookId);
+    final manifest = detail?.activeManifest;
+    if (detail == null || manifest == null || manifest.files.isEmpty) return OpenBookResult.unavailable;
+
+    await _ref.read(settingsStoreProvider).setLastOpenedBookId(bookId);
+    await _openWith(detail, manifest);
+    if (cached != null) unawaited(_refreshInBackground(bookId, manifest.manifestId));
+    return OpenBookResult.opened;
+  }
+
+  Future<void> _openWith(BookDetail detail, Manifest manifest) {
+    final api = _ref.read(apiClientProvider);
+    final config = _ref.read(serverConfigProvider);
+    return _ref.read(playerSessionProvider).openBook(
+          bookId: detail.bookId,
+          bookTitle: detail.title,
+          manifest: manifest,
+          downloads: _ref.read(downloadManagerProvider),
+          serverBaseUrl: api?.baseUrl ?? '',
+          serverToken: config.token ?? '',
+          api: api,
+          author: detail.author,
+          coverDir: _ref.read(appSupportDirProvider),
+        );
+  }
+
+  /// Refreshes the cached detail; if the server's active manifest changed
+  /// meanwhile (e.g. chapters appended, invariant 4) and nothing plays,
+  /// the book is prepared again with the new manifest.
+  Future<void> _refreshInBackground(String bookId, String openedManifestId) async {
+    final BookDetail fresh;
+    try {
+      fresh = await _ref.read(libraryRepositoryProvider).fetchDetail(bookId);
+    } catch (_) {
+      return; // offline: the cached detail stays
+    }
+    final manifest = fresh.activeManifest;
+    if (manifest == null || manifest.files.isEmpty || manifest.manifestId == openedManifestId) return;
+    final session = _ref.read(playerSessionProvider);
+    final handler = _ref.read(audioHandlerProvider);
+    if (session.bookId != bookId || handler.playing || handler.fadenModeActive) return;
+    await _openWith(fresh, manifest);
+  }
+}
+
+final bookOpenerProvider = Provider<BookOpener>(BookOpener.new);

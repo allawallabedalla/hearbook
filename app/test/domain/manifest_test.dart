@@ -96,4 +96,31 @@ void main() {
     expect(decoded.files.map((f) => f.fileHash), m.files.map((f) => f.fileHash));
     expect(decoded.files.map((f) => f.durationMs), m.files.map((f) => f.durationMs));
   });
+
+  group('file titles', () {
+    test('are read from the server manifest and fall back when missing or blank', () {
+      final m = Manifest.fromJson({
+        'manifest_id': 'm',
+        'files': [
+          {'idx': 0, 'file_hash': 'a', 'duration_ms': 1, 'title': ' Prolog '},
+          {'idx': 1, 'file_hash': 'b', 'duration_ms': 1, 'title': null},
+          {'idx': 2, 'file_hash': 'c', 'duration_ms': 1, 'title': '  '},
+          {'idx': 3, 'file_hash': 'd', 'duration_ms': 1},
+        ],
+      });
+      expect(m.files[0].displayTitle('Kapitel 1'), 'Prolog');
+      expect(m.files[1].displayTitle('Kapitel 2'), 'Kapitel 2');
+      expect(m.files[2].displayTitle('Kapitel 3'), 'Kapitel 3');
+      expect(m.files[3].title, isNull);
+      expect(Manifest.fromJson(m.toJson()).files[0].title, ' Prolog ');
+      expect(m.files[1].toJson().containsKey('title'), isFalse);
+    });
+
+    test('fractionFor: share of the whole book, null for an unknown file', () {
+      final m = threeFileManifest();
+      expect(m.fractionFor(Position(fileHash: 'b', offsetMs: 7500)), closeTo(0.5, 1e-9));
+      expect(m.fractionFor(Position(fileHash: 'x', offsetMs: 0)), isNull);
+      expect(m.indexOf('c'), 2);
+    });
+  });
 }

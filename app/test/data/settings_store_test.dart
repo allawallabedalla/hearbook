@@ -50,4 +50,13 @@ void main() {
     expect(await settings.nightStartMin(), 22 * 60 + 15);
     expect(await settings.nightEndMin(), 5 * 60 + 45);
   });
+
+  test('speed per book (E38): 1.0 by default, stored per book', () async {
+    expect(await settings.bookSpeed('book-1'), 1.0);
+    await settings.setBookSpeed('book-1', 1.5);
+    await settings.setBookSpeed('book-2', 0.75);
+    expect(await settings.bookSpeed('book-1'), 1.5);
+    expect(await settings.bookSpeed('book-2'), 0.75);
+    expect(await settings.bookSpeed('book-3'), 1.0);
+  });
 }

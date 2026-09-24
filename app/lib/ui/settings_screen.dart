@@ -13,9 +13,8 @@ import 'theme.dart';
 /// fixed +/-30s of section 9 stays out of scope (M7).
 ///
 /// Night window, appearance and the health-data switch are saved the
-/// moment they change. Server address and token keep an explicit save:
-/// main.dart builds the API client from them once at start, so a change
-/// only takes effect after a restart, which the saved notice says.
+/// moment they change. Server address and token keep an explicit save,
+/// which takes effect at once (decision E37).
 class SettingsScreen extends ConsumerStatefulWidget {
   const SettingsScreen({super.key});
 
@@ -52,11 +51,15 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   }
 
   Future<void> _saveServer() async {
-    final settings = ref.read(settingsStoreProvider);
-    await settings.setServerUrl(_urlController.text.trim());
-    await settings.setServerToken(_tokenController.text.trim());
+    // Applies at once: API client, downloads and sync are rebuilt (E37).
+    final saved = await ref
+        .read(serverConfigProvider.notifier)
+        .save(url: _urlController.text, token: _tokenController.text);
     if (!mounted) return;
-    setState(() => _saved = true);
+    setState(() {
+      _urlController.text = saved.url ?? '';
+      _saved = true;
+    });
   }
 
   Future<void> _setHealthDataOptIn(bool optIn) async {

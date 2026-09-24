@@ -67,7 +67,7 @@
   "settingsServerUrl": "Server-Adresse",
   "settingsServerToken": "Zugangs-Token",
   "settingsSave": "Speichern",
-  "settingsSaved": "Gespeichert. Neu starten, damit es wirkt.",
+  "settingsSaved": "Gespeichert.",
 
   "settingsHealthDataOptIn": "Schlafdaten erlauben",
   "@settingsHealthDataOptIn": { "description": "M6: Opt-in-Schalter, KONZEPT.md Screens-Liste (\"Schlafdaten erlauben\")." },
@@ -156,5 +156,20 @@
   "@settingsAppearanceNightNote": { "description": "Hinweis unter dem Erscheinungsbild: Nachtmodus hat Vorrang." },
 
   "miniPlayerOpen": "Player öffnen",
-  "@miniPlayerOpen": { "description": "Bedienhilfen-Beschriftung des Mini-Players (E29)." }
+  "@miniPlayerOpen": { "description": "Bedienhilfen-Beschriftung des Mini-Players (E29)." },
+
+  "remotePositionAdopted": "Position vom anderen Gerät übernommen",
+  "@remotePositionAdopted": { "description": "Undo-Hinweis, wenn ein Sync die Position eines anderen Geräts übernimmt (E31); Aktion wie immer „Rückgängig“." },
+
+  "connectionOk": "Verbunden.",
+  "connectionUnauthorized": "Der Server lehnt das Token ab.",
+  "connectionUnreachable": "Server nicht erreichbar.",
+  "connectionInvalidUrl": "Keine gültige Server-Adresse.",
+  "@connectionOk": { "description": "Ergebnisse von ApiClient.checkConnection (E37) in den Einstellungen." },
+
+  "playbackError": "Wiedergabe nicht möglich. Erneut versuchen?",
+  "@playbackError": { "description": "Wiedergabefehler (E39), z. B. Server beim Streamen nicht erreichbar." },
+
+  "downloadCancel": "Abbrechen",
+  "downloadDelete": "Download löschen"
 }

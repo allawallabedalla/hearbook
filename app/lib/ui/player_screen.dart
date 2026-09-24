@@ -44,6 +44,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
   late final ScreenLockController _lock;
   late final SleepTimerController _sleepTimer;
   StreamSubscription<UndoHint>? _undoHintSub;
+  StreamSubscription<int>? _chapterSub;
 
   /// True while the Faden screen (ui/faden_screen.dart) is pushed on top of
   /// this one. Its RESUME's undo hint arrives then, but must not appear
@@ -62,11 +63,16 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
       // decision E13 in docs/ARCHITEKTUR.md section 13).
       onExpire: () => ref.read(audioHandlerProvider).pauseForSleepTimerExpiry(),
       onVolumeChange: (factor) => ref.read(audioHandlerProvider).setSleepFadeVolume(factor),
+      // E42: counts down only while playing; "Kapitelende" follows the
+      // chapter actually playing, at the current speed.
+      isPlaying: () => ref.read(audioHandlerProvider).playing,
+      chapterRemaining: () => ref.read(audioHandlerProvider).chapterRemaining(),
     );
     _lock.lockedStream.listen((_) => setState(() {}));
     _sleepTimer.stateStream.listen((_) => setState(() {}));
     final handler = ref.read(audioHandlerProvider);
     _undoHintSub = handler.undoHints.listen(_showUndoHint);
+    _chapterSub = handler.chapterAdvanced.listen((_) => _sleepTimer.onChapterAdvanced());
     // docs/ARCHITEKTUR.md section 9: a hardware/system media button in the
     // sleep timer's last minute extends it instead of acting, and counts as
     // an awake-proof; a media/system pause while in the night window writes
@@ -106,6 +112,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
     handler.onLastMinuteExtend = null;
     handler.isInNightWindow = null;
     _undoHintSub?.cancel();
+    _chapterSub?.cancel();
     _lock.dispose();
     _sleepTimer.dispose();
     super.dispose();
@@ -142,11 +149,6 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
     _lock.onInteraction();
     unawaited(ref.read(audioHandlerProvider).awake());
   }
-
-  /// Consumes taps during the sleep timer's last minute as an extend
-  /// (docs/KONZEPT.md "Nachtmodus") instead of the tapped control's normal
-  /// action. Returns true if the tap was consumed this way.
-  bool _maybeExtend() => _sleepTimer.extendIfInLastMinute();
 
   /// docs/KONZEPT.md "Faden aufnehmen": the main button opens the full-screen
   /// Faden-Modus (ui/faden_screen.dart) once `sleep_suspected` is true.
@@ -270,8 +272,9 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
               sleepTimer: _sleepTimer,
               onUnlockHoldStart: _lock.startUnlockHold,
               onUnlockHoldEnd: _lock.cancelUnlockHold,
+              // KONZEPT.md "Nachtmodus": only headphone buttons extend the
+              // sleep timer in its last minute; screen buttons act normally.
               onMainButton: () {
-                if (_maybeExtend()) return;
                 final bookState = session.bookState;
                 if (bookState != null && bookState.sleepSuspected) {
                   unawaited(_openFadenMode(session, bookState));
@@ -280,7 +283,6 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
                 ref.read(audioHandlerProvider).playPause();
               },
               onSeek: (delta) {
-                if (_maybeExtend()) return;
                 ref.read(audioHandlerProvider).seekBySeconds(delta);
               },
               onResumeFromStop: () {

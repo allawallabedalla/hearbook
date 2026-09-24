@@ -16,6 +16,10 @@ class SettingsKeys {
   static const lastOpenedBookId = 'last_opened_book_id';
   static const healthDataOptIn = 'health_data_opt_in';
   static const appearance = 'appearance';
+
+  /// Prefix of the per-book playback speed (decision E38), one key per
+  /// book: `book_speed:<book_id>`.
+  static const bookSpeedPrefix = 'book_speed:';
 }
 
 /// The "Erscheinungsbild" setting (decision E28 in docs/ARCHITEKTUR.md
@@ -124,4 +128,16 @@ class SettingsStore {
 
   Future<void> setAppearance(Appearance appearance) =>
       _set(SettingsKeys.appearance, appearance.name);
+
+  /// Playback speed of [bookId] (decision E38), 1.0 when never set or
+  /// unreadable. Local only: speed is not an event (docs/ARCHITEKTUR.md
+  /// section 5 has no type for it) and not synced.
+  Future<double> bookSpeed(String bookId) async {
+    final v = double.tryParse(await _get('${SettingsKeys.bookSpeedPrefix}$bookId') ?? '');
+    if (v == null || v.isNaN || v <= 0) return 1.0;
+    return v;
+  }
+
+  Future<void> setBookSpeed(String bookId, double speed) =>
+      _set('${SettingsKeys.bookSpeedPrefix}$bookId', speed.toString());
 }

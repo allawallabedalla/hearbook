@@ -26,15 +26,20 @@ class SleepTimerState {
       SleepTimerState(running: false, mode: null, remaining: Duration.zero, volumeFactor: 1.0);
 }
 
-/// Sleep-timer countdown, docs/KONZEPT.md "Nachtmodus". Scope note (M4):
-/// this only runs the countdown, the last-30s fade and the last-minute
-/// "extend instead of act" mechanic. It intentionally does *not* emit a
-/// `SLEEP_HINT` event on expiry, nor an `AWAKE` event on an extend -- both
-/// belong to the "Wach-Signale" work in docs/ARCHITEKTUR.md section 9,
-/// scoped to M5. [onExpire] here is expected to just pause playback
-/// (already a plain `PAUSE`/`source=timer` event via the journal, which
-/// M3's domain layer already models), and an extend is a local UI/timer
-/// effect only.
+/// Sleep-timer countdown, docs/KONZEPT.md "Nachtmodus". Runs the
+/// countdown, the last-30s fade and the last-minute "extend instead of
+/// act" mechanic; [onExpire] pauses playback (audio/handler.dart
+/// `pauseForSleepTimerExpiry`: PAUSE plus SLEEP_HINT, decision E13).
+///
+/// Decision E42:
+/// - The countdown only runs while [isPlaying] says so: a paused book does
+///   not use up the timer.
+/// - "Kapitelende" ([startChapterEnd]) is not a wall-clock time computed at
+///   start (wrong at speeds other than 1x and after seeks): it fires when
+///   playback actually runs into the next chapter ([onChapterAdvanced],
+///   fed from the handler's `chapterAdvanced`). Its countdown and fade
+///   follow [chapterRemaining] (already divided by the speed). A last-minute
+///   extension lets it run to the end of the following chapter instead.
 class SleepTimerController {
   /// docs/KONZEPT.md: "Die letzten 30 s werden leiser."
   final Duration fadeWindow;
@@ -46,6 +51,12 @@ class SleepTimerController {
   final void Function() onExpire;
   final void Function(double volumeFactor) onVolumeChange;
 
+  /// Whether the book is playing right now; the countdown pauses otherwise.
+  final bool Function() isPlaying;
+
+  /// Wall-clock time left in the current chapter at the current speed.
+  final Duration Function() chapterRemaining;
+
   Timer? _ticker;
   bool _running = false;
   SleepTimerMode? _mode;
@@ -53,15 +64,25 @@ class SleepTimerController {
   Duration _extendBy = Duration.zero;
   double _volumeFactor = 1.0;
 
+  /// Chapter changes still to let pass before a "Kapitelende" timer fires
+  /// (one per last-minute extension).
+  int _chapterChangesToSkip = 0;
+
   final StreamController<SleepTimerState> _controller =
       StreamController<SleepTimerState>.broadcast();
 
   SleepTimerController({
     required this.onExpire,
     required this.onVolumeChange,
+    bool Function()? isPlaying,
+    Duration Function()? chapterRemaining,
     this.fadeWindow = const Duration(seconds: 30),
     this.lastMinuteWindow = const Duration(minutes: 1),
-  });
+  })  : isPlaying = isPlaying ?? _alwaysPlaying,
+        chapterRemaining = chapterRemaining ?? _noChapterInfo;
+
+  static bool _alwaysPlaying() => true;
+  static Duration _noChapterInfo() => Duration.zero;
 
   SleepTimerState get state => SleepTimerState(
         running: _running,
@@ -74,15 +95,42 @@ class SleepTimerController {
 
   /// Starts (or replaces) the timer. [duration] is both the initial
   /// countdown and the amount a last-minute interaction extends it by.
-  void start(Duration duration, {required SleepTimerMode mode}) {
-    _mode = mode;
+  /// `mode: chapterEnd` ignores [duration] and behaves like
+  /// [startChapterEnd].
+  void start(Duration duration, {SleepTimerMode mode = SleepTimerMode.fixed}) {
+    if (mode == SleepTimerMode.chapterEnd) {
+      startChapterEnd();
+      return;
+    }
+    _begin(SleepTimerMode.fixed, remaining: duration);
     _extendBy = duration;
-    _remaining = duration;
+    _emit();
+  }
+
+  /// "Kapitelende": pauses when playback runs into the next chapter.
+  void startChapterEnd() {
+    _begin(SleepTimerMode.chapterEnd, remaining: chapterRemaining());
+    _emit();
+  }
+
+  /// Starts with the stored default (data/settings_store.dart
+  /// `sleepTimerDefaultMin`): minutes, or 0 for "Kapitelende".
+  void startWithDefault(int minutes) {
+    if (minutes <= 0) {
+      startChapterEnd();
+    } else {
+      start(Duration(minutes: minutes));
+    }
+  }
+
+  void _begin(SleepTimerMode mode, {required Duration remaining}) {
+    _mode = mode;
+    _remaining = remaining;
+    _chapterChangesToSkip = 0;
     _setVolumeFactor(1.0);
     _running = true;
     _ticker?.cancel();
     _ticker = Timer.periodic(const Duration(seconds: 1), (_) => _tick());
-    _emit();
   }
 
   void cancel() {
@@ -91,37 +139,63 @@ class SleepTimerController {
     _running = false;
     _mode = null;
     _remaining = Duration.zero;
+    _chapterChangesToSkip = 0;
     _setVolumeFactor(1.0);
     _emit();
   }
 
-  /// True while an interaction (screen tap or headphone button) should
-  /// extend the timer instead of doing its normal action (last minute
-  /// only, docs/KONZEPT.md).
-  bool get inLastMinute => _running && _remaining <= lastMinuteWindow;
+  /// True while a headphone/media button should extend the timer instead
+  /// of doing its normal action (last minute only, docs/KONZEPT.md). Screen
+  /// buttons always act normally.
+  bool get inLastMinute {
+    if (!_running) return false;
+    if (_mode == SleepTimerMode.chapterEnd && _chapterChangesToSkip > 0) return false;
+    return _remaining <= lastMinuteWindow;
+  }
 
-  /// Consumes an interaction as an extend if [inLastMinute]. Returns
-  /// whether it did (the caller then must not also treat the interaction
-  /// as a normal play/pause/media-button action).
+  /// Consumes a media-button press as an extend if [inLastMinute]. Returns
+  /// whether it did (the caller then must not also treat the press as a
+  /// normal play/pause/skip).
   bool extendIfInLastMinute() {
     if (!inLastMinute) return false;
-    _remaining = _extendBy;
+    if (_mode == SleepTimerMode.chapterEnd) {
+      _chapterChangesToSkip++;
+    } else {
+      _remaining = _extendBy;
+    }
     _setVolumeFactor(1.0);
     _emit();
     return true;
   }
 
+  /// Playback ran into the next chapter by itself (not a seek). Fires a
+  /// "Kapitelende" timer, unless an extension lets this change pass.
+  void onChapterAdvanced() {
+    if (!_running || _mode != SleepTimerMode.chapterEnd) return;
+    if (_chapterChangesToSkip > 0) {
+      _chapterChangesToSkip--;
+      _remaining = chapterRemaining();
+      _emit();
+      return;
+    }
+    _expire();
+  }
+
   void _tick() {
     if (!_running) return;
+    if (!isPlaying()) return; // paused: the timer waits too
+    if (_mode == SleepTimerMode.chapterEnd) {
+      _remaining = chapterRemaining();
+      final fading = _chapterChangesToSkip == 0 && _remaining <= fadeWindow;
+      _setVolumeFactor(
+        fading ? (_remaining.inMilliseconds / fadeWindow.inMilliseconds).clamp(0.0, 1.0) : 1.0,
+      );
+      _emit();
+      return;
+    }
     final next = _remaining - const Duration(seconds: 1);
     if (next <= Duration.zero) {
-      _remaining = Duration.zero;
-      _running = false;
-      _mode = null;
-      _ticker?.cancel();
-      _setVolumeFactor(1.0); // restored for the next playback
-      _emit();
-      onExpire();
+      _expire();
       return;
     }
     _remaining = next;
@@ -131,13 +205,26 @@ class SleepTimerController {
     _emit();
   }
 
+  void _expire() {
+    _remaining = Duration.zero;
+    _running = false;
+    _mode = null;
+    _chapterChangesToSkip = 0;
+    _ticker?.cancel();
+    _setVolumeFactor(1.0); // restored for the next playback
+    _emit();
+    onExpire();
+  }
+
   void _setVolumeFactor(double factor) {
     if (_volumeFactor == factor) return;
     _volumeFactor = factor;
     onVolumeChange(factor);
   }
 
-  void _emit() => _controller.add(state);
+  void _emit() {
+    if (!_controller.isClosed) _controller.add(state);
+  }
 
   void dispose() {
     _ticker?.cancel();
