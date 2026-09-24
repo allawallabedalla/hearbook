@@ -39,6 +39,8 @@ Spezifikation fertig. Umsetzung mit Claude Code entlang `docs/ROADMAP.md`.
 
 `docker compose up -d --build`. Der unter `FADEN_LIBRARY` eingebundene Wurzelordner wird nur lesend gemountet und darf bewusst weiter gefasst sein als die eigentliche Bibliothek (z. B. eine ganze NAS-Freigabe); den tatsächlichen Bibliotheksordner darunter per Klick wählen unter `http://<host>:8787/setup` (ab M1b, siehe `docs/ARCHITEKTUR.md` Abschnitte 10, 12, Entscheidung E12). Von unterwegs am besten über ein VPN zugreifen, statt den Port öffentlich freizugeben.
 
+In `.env` ist `FADEN_TOKEN` Pflicht: mindestens 16 Zeichen, nicht der Platzhalter `change-me` (sonst startet der Server nicht), z. B. `openssl rand -hex 32`. Der Container läuft nicht als root, sondern als `FADEN_UID`/`FADEN_GID` (Standard 10001). Bleibt die Bibliothek leer, fehlen meist Leserechte auf der Freigabe: dann dort die uid/gid des NAS-Benutzers eintragen, dem die Hörbücher gehören (`id <benutzer>` per SSH), wie `USERMAP_UID` bei Paperless. Neue Hörbücher werden alle `FADEN_RESCAN_MIN` Minuten (Standard 10) automatisch eingelesen, sofort per `POST /api/v1/rescan`.
+
 ## iOS ohne Bezahl-Account
 
 Mit einer kostenlosen Apple-ID läuft die App mit allen Funktionen (Hintergrundwiedergabe und HealthKit sind laut Apple auch ohne Bezahl-Account erlaubt), die Signatur gilt aber nur 7 Tage. `app/scripts/ios-resign.sh` erneuert sie automatisch vom Mac aus und installiert die App per WLAN neu; die Daten auf dem iPhone bleiben dabei erhalten.

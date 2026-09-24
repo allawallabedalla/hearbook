@@ -43,8 +43,11 @@ COPY static ./static
 # volume created by an older, root-run image keeps its root ownership and
 # needs a one-off `chown -R 10001:10001` (e.g. via a throwaway root
 # container mounting it) before this image can write to it.
+# /data is world-writable so a fresh volume also works when docker-compose.yml
+# runs the container under the NAS user's uid (FADEN_UID) instead of faden.
 RUN mkdir -p /data \
-    && chown -R faden:faden /app /data
+    && chown -R faden:faden /app /data \
+    && chmod 0777 /data
 
 ENV PATH="/app/.venv/bin:${PATH}"
 

@@ -1,6 +1,9 @@
 services:
   faden:
     build: ./server
+    # Must be able to read the audiobook share; set FADEN_UID/FADEN_GID in .env
+    # to the NAS user that owns it (like paperless' USERMAP_UID/USERMAP_GID).
+    user: "${FADEN_UID:-10001}:${FADEN_GID:-10001}"
     ports:
       - "${FADEN_PORT:-8787}:8787"
     env_file: .env
