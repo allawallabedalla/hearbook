@@ -32,6 +32,11 @@ class FadenScreen extends ConsumerStatefulWidget {
   /// Sentence-start offsets, global ms (domain/pause_index.dart).
   final List<int> pausen;
 
+  /// Optional local-health-data first guess (docs/ARCHITEKTUR.md section 9,
+  /// M6) -- forwarded to [FadenSearchController]. Null reproduces M5's
+  /// behaviour exactly.
+  final int? prior;
+
   final List<ja.IndexedAudioSource> playlistSources;
 
   const FadenScreen({
@@ -40,6 +45,7 @@ class FadenScreen extends ConsumerStatefulWidget {
     required this.lo,
     required this.hi,
     required this.pausen,
+    this.prior,
     required this.playlistSources,
   });
 
@@ -69,6 +75,7 @@ class _FadenScreenState extends ConsumerState<FadenScreen> {
       lo: widget.lo,
       hi: widget.hi,
       pausen: widget.pausen,
+      prior: widget.prior,
       playTone: _probePlayer.playTone,
       playProbe: (p) {
         final pos = widget.manifest.positionForGlobalMs(p);

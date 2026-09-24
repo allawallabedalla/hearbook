@@ -12,10 +12,13 @@ import '../data/db.dart';
 import '../data/downloads.dart';
 import '../data/journal.dart';
 import '../data/settings_store.dart';
+import '../data/sleep_data_source.dart';
 import '../data/sync.dart';
+import '../domain/event.dart';
 import '../domain/manifest.dart';
 import '../domain/position.dart';
 import '../domain/resolver.dart';
+import '../domain/sleep_onset.dart';
 
 /// Wiring for the singletons main.dart creates before `runApp` (the
 /// database file, the audio_service handler, ...). Every provider here is
@@ -35,6 +38,14 @@ final deviceIdProvider = Provider<String>((ref) => throw UnimplementedError('ove
 final apiClientProvider = Provider<ApiClient?>((ref) => null);
 final downloadManagerProvider = Provider<DownloadManager?>((ref) => null);
 final syncClientProvider = Provider<SyncClient?>((ref) => null);
+
+/// M6 (docs/ARCHITEKTUR.md section 9): null on a platform without a
+/// [SleepDataSource] implementation wired up (there is none yet besides
+/// [HealthPluginSleepDataSource], but this stays overridable/nullable the
+/// same way [syncClientProvider] is, so tests never need a real plugin
+/// instance). Constructing/overriding this alone requests no permission
+/// and reads no data -- see [PlayerSessionController.sleepOnsetAdjustment].
+final sleepDataSourceProvider = Provider<SleepDataSource?>((ref) => null);
 
 final audioHandlerProvider =
     Provider<FadenAudioHandler>((ref) => throw UnimplementedError('override in main.dart'));
@@ -319,6 +330,68 @@ class PlayerSessionController extends ChangeNotifier {
       history: const [],
       finished: false,
       needsConfirmation: false,
+      sessionId: '', // no session yet -- matches no event, see sleepOnsetAdjustment
+    );
+  }
+
+  /// M6 (docs/ARCHITEKTUR.md section 9): the local sleep-onset adjustment
+  /// to [lo]/[hi] (both global ms, as computed by the caller that is about
+  /// to open ui/faden_screen.dart) from [dataSource], gated by the
+  /// settings opt-in ([optedIn]). Returns null whenever nothing should
+  /// change -- opt-in off, no [dataSource], an unsupported platform,
+  /// denied permission, no reading in the session's time range, or a
+  /// reading domain/sleep_onset.dart's own validity checks reject -- in
+  /// every one of those cases the caller keeps using the original `hi`
+  /// verbatim and `prior: null`, byte-for-byte the same as before M6.
+  ///
+  /// CLAUDE.md invariant 7: [dataSource]'s reading is used here purely
+  /// in-memory for this one calculation; this method only ever returns a
+  /// value, it never calls [journal] or any other storage/sync/logging
+  /// with it.
+  Future<SleepPriorAdjustment?> sleepOnsetAdjustment({
+    required SleepDataSource? dataSource,
+    required bool optedIn,
+    required int lo,
+    required int hi,
+  }) async {
+    final id = bookId;
+    final m = manifest;
+    final state = bookState;
+    if (dataSource == null || !optedIn || id == null || m == null || state == null) return null;
+    if (!dataSource.isSupported) return null;
+    if (!await dataSource.requestPermission()) return null;
+
+    final events = await journal.eventsForBook(id);
+    final sessionEvents = [
+      for (final e in events)
+        if (e.sessionId == state.sessionId) e,
+    ];
+    if (sessionEvents.isEmpty) return null;
+
+    var sessionMinWallMs = sessionEvents.first.wallMs;
+    var sessionMaxWallMs = sessionEvents.first.wallMs;
+    final heartbeats = <HeartbeatSample>[];
+    for (final e in sessionEvents) {
+      if (e.wallMs < sessionMinWallMs) sessionMinWallMs = e.wallMs;
+      if (e.wallMs > sessionMaxWallMs) sessionMaxWallMs = e.wallMs;
+      if (e.type != EventType.heartbeat) continue;
+      final g = m.globalMsFor(e.position);
+      if (g != null) heartbeats.add(HeartbeatSample(wallMs: e.wallMs, globalMs: g));
+    }
+
+    final onsetWallMs = await dataSource.sleepOnsetWallMs(
+      fromWallMs: sessionMinWallMs,
+      toWallMs: sessionMaxWallMs,
+    );
+    if (onsetWallMs == null) return null;
+
+    return adjustForSleepOnset(
+      lo: lo,
+      hi: hi,
+      sleepOnsetWallMs: onsetWallMs,
+      sessionMinWallMs: sessionMinWallMs,
+      sessionMaxWallMs: sessionMaxWallMs,
+      heartbeats: heartbeats,
     );
   }
 }

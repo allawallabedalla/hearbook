@@ -11,6 +11,7 @@ import 'data/db.dart';
 import 'data/downloads.dart';
 import 'data/journal.dart';
 import 'data/settings_store.dart';
+import 'data/sleep_data_source.dart';
 import 'data/sync.dart';
 import 'domain/manifest.dart';
 import 'l10n/strings.dart';
@@ -36,6 +37,11 @@ Future<void> main() async {
   final downloads =
       api == null ? null : DownloadManager(api: api, targetDir: downloadsDirFor(appDir));
   final syncClient = api == null ? null : SyncClient(db: db, journal: journal, api: api);
+  // M6 (docs/ARCHITEKTUR.md section 9): constructing/overriding this alone
+  // requests no OS permission and reads no health data -- both only happen
+  // inside PlayerSessionController.sleepOnsetAdjustment, and only once the
+  // "Schlafdaten erlauben" setting is on and Faden-Suche actually starts.
+  final sleepDataSource = HealthPluginSleepDataSource();
 
   final audioHandler = await AudioService.init(
     builder: () => FadenAudioHandler(journal: journal, deviceId: deviceId, syncClient: syncClient),
@@ -56,6 +62,7 @@ Future<void> main() async {
         apiClientProvider.overrideWithValue(api),
         downloadManagerProvider.overrideWithValue(downloads),
         syncClientProvider.overrideWithValue(syncClient),
+        sleepDataSourceProvider.overrideWithValue(sleepDataSource),
         audioHandlerProvider.overrideWithValue(audioHandler),
       ],
       child: const FadenApp(),

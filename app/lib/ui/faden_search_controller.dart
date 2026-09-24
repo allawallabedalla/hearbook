@@ -46,6 +46,12 @@ class FadenSearchController {
   /// Sentence-start offsets, global ms (domain/pause_index.dart).
   final List<int> pausen;
 
+  /// Optional first guess from local health data (docs/ARCHITEKTUR.md
+  /// section 9, M6) -- forwarded verbatim to [fs.fadenSuche]'s own `prior`
+  /// parameter. Null (the default) reproduces exactly M5's behaviour: the
+  /// ordinary "Fehlalarm-Test" runs as probe 1 instead.
+  final int? prior;
+
   /// docs/KONZEPT.md: "Ein leiser Ton, dann eine 4 s lange Hörprobe" --
   /// played once before every probe.
   final Future<void> Function() playTone;
@@ -89,6 +95,7 @@ class FadenSearchController {
     required this.lo,
     required this.hi,
     required this.pausen,
+    this.prior,
     required this.playTone,
     required this.playProbe,
     required this.stopProbe,
@@ -109,7 +116,7 @@ class FadenSearchController {
   Future<void> start() async {
     _progressController.add(FadenProgress(lo: lo, hi: hi, probeNr: 0, maxProbes: fs.maxProbes));
     try {
-      final result = await fs.fadenSuche(lo, hi, pausen, _frage);
+      final result = await fs.fadenSuche(lo, hi, pausen, _frage, prior: prior);
       _leiter = result.leiter;
       _leiterIndex = _leiter.length - 1;
       await onResumeAt(result.start);

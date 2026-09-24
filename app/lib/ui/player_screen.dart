@@ -140,21 +140,48 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
   /// domain/resolver.dart rule 5 should not happen whenever
   /// `sleep_suspected` is actually true (see docs/ARCHITEKTUR.md section
   /// 13 for this belt-and-braces guard).
-  void _openFadenMode(PlayerSessionController session, BookState bookState) {
+  Future<void> _openFadenMode(PlayerSessionController session, BookState bookState) async {
     final manifest = session.manifest;
     final sources = session.playlistSources;
     if (manifest == null || sources == null) return;
     final lo = manifest.globalMsFor(bookState.lastAwake);
-    final hi = manifest.globalMsFor(bookState.stop);
+    var hi = manifest.globalMsFor(bookState.stop);
     if (lo == null || hi == null || hi <= lo) return;
     final pausen = globalPauseOffsets(manifest, session.pauseIndex);
+
+    // docs/ARCHITEKTUR.md section 9 / M6: shrink `hi` and/or supply a
+    // `prior` first guess from a local sleep-onset reading, if the user
+    // opted in and a reading is actually available -- a no-op (adjustment
+    // == null) reproduces M5 exactly (`hi` from `stop`, `prior: null`).
+    // `lo` itself is never touched here (invariant 9): only ever the
+    // Resolver-derived value above is passed on.
+    final optedIn = await ref.read(settingsStoreProvider).healthDataOptIn();
+    final adjustment = await session.sleepOnsetAdjustment(
+      dataSource: ref.read(sleepDataSourceProvider),
+      optedIn: optedIn,
+      lo: lo,
+      hi: hi,
+    );
+    int? prior;
+    if (adjustment != null) {
+      hi = adjustment.hi;
+      prior = adjustment.prior;
+    }
+    if (!mounted) return;
+
+    // `hi` is reassigned above, so it is not promoted from `int?` to `int`
+    // inside the closure below (a local variable assigned anywhere in this
+    // function loses promotion in a closure literal) -- a final copy fixes
+    // that without changing anything about the value itself.
+    final resolvedHi = hi;
     Navigator.of(context).push(
       MaterialPageRoute(
         builder: (_) => FadenScreen(
           manifest: manifest,
           lo: lo,
-          hi: hi,
+          hi: resolvedHi,
           pausen: pausen,
+          prior: prior,
           playlistSources: sources,
         ),
       ),
@@ -205,7 +232,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
                 if (_maybeExtend()) return;
                 final bookState = session.bookState;
                 if (bookState != null && bookState.sleepSuspected) {
-                  _openFadenMode(session, bookState);
+                  unawaited(_openFadenMode(session, bookState));
                   return;
                 }
                 ref.read(audioHandlerProvider).playPause();

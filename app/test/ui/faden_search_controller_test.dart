@@ -25,11 +25,17 @@ class _Recorder {
   /// p <= S" listener model, docs/ARCHITEKTUR.md section 8).
   int knowsUpTo = 0;
 
-  FadenSearchController build({required int lo, required int hi, List<int> pausen = const []}) {
+  FadenSearchController build({
+    required int lo,
+    required int hi,
+    List<int> pausen = const [],
+    int? prior,
+  }) {
     return FadenSearchController(
       lo: lo,
       hi: hi,
       pausen: pausen,
+      prior: prior,
       playTone: () async {
         toneCount++;
       },
@@ -78,6 +84,20 @@ void main() {
         expect(rec.probeAnswers.every((a) => a.known == false), isTrue);
         expect(rec.probeAnswers, isNotEmpty);
         expect(rec.resumeCalls, [lo - fs.preroll]);
+        controller.dispose();
+      });
+    });
+
+    test('a health-data prior (M6, docs/ARCHITEKTUR.md section 9) reaches fs.fadenSuche: '
+        'the first probe lands there, skipping the Fehlalarm-Test', () {
+      fakeAsync((async) {
+        final rec = _Recorder();
+        const lo = 0, hi = 40 * 60000, prior = 5 * 60000;
+        final controller = rec.build(lo: lo, hi: hi, prior: prior);
+        controller.start();
+        async.elapse(const Duration(minutes: 10));
+        expect(rec.probesPlayed, isNotEmpty);
+        expect(rec.probesPlayed.first, prior); // prior used verbatim, not hi - firstOffset
         controller.dispose();
       });
     });
