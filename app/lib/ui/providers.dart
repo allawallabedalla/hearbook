@@ -895,7 +895,10 @@ class PlayerSessionController extends ChangeNotifier {
 final libraryControllerProvider = ChangeNotifierProvider<LibraryController>((ref) {
   final controller = LibraryController(
     repository: ref.watch(libraryRepositoryProvider),
-    downloads: ref.watch(bookDownloadsProvider),
+    // .notifier: the instance only. Watching the provider itself rebuilt
+    // this controller (empty list, restarted detail walk) on every
+    // download-state change; the controller already listens to it.
+    downloads: ref.watch(bookDownloadsProvider.notifier),
     journal: ref.watch(journalProvider),
   );
   // Progress changes with every local intent/pause (not heartbeats, E40)
