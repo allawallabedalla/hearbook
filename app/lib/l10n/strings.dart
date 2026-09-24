@@ -118,7 +118,6 @@ class AppStrings {
     'libraryEmptyExplain': 'In diesem Ordner liegen keine Hördateien.',
     'libraryOpenFailed': 'Dieses Buch lässt sich erst mit Verbindung zum Server öffnen.',
     'libraryPartial': 'teilweise geladen',
-    'downloadProgress': 'Lädt … {size}',
     'downloadDeleteWithSize': 'Download löschen · {size}',
     'sizeMegabytes': '{n} MB',
     'sizeGigabytes': '{n} GB',
@@ -142,6 +141,8 @@ class AppStrings {
     'settingsAutoDownload': 'Aktuelle Bücher automatisch laden',
     'settingsAutoDownloadDescription': 'Lädt im WLAN das offene Buch und das nächste aus „Weiterhören“, solange der Server erreichbar ist. Nie über Mobilfunk.',
     'storageFinishedNote': 'Zu Ende gehörte Bücher werden automatisch vom Gerät gelöscht. Der Fortschritt bleibt.',
+    'downloadRemaining': 'noch {size}',
+    'playerClose': 'Zur Bibliothek',
   };
 
   static String _of(String key) {
@@ -161,6 +162,7 @@ class AppStrings {
   static String get libraryFolderChanged => _of('libraryFolderChanged');
   static String get offlineNotice => _of('offlineNotice');
   static String get libraryTitle => _of('libraryTitle');
+  static String get playerClose => _of('playerClose');
   static String get libraryStatusDownloaded => _of('libraryStatusDownloaded');
   static String get libraryStatusNew => _of('libraryStatusNew');
   static String get libraryStatusIncomplete => _of('libraryStatusIncomplete');
@@ -287,7 +289,8 @@ class AppStrings {
 
   static String durationMinutes(int m) => _of('durationMinutes').replaceAll('{m}', '$m');
 
-  static String downloadProgress(String size) => _of('downloadProgress').replaceAll('{size}', size);
+  /// A running download's rest, "noch 240 MB" (E62).
+  static String downloadRemaining(String size) => _of('downloadRemaining').replaceAll('{size}', size);
 
   static String downloadDeleteWithSize(String size) =>
       _of('downloadDeleteWithSize').replaceAll('{size}', size);

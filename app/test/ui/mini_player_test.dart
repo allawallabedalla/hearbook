@@ -1,9 +1,8 @@
 // Tests ui/mini_player.dart (decision E29): it shows the open book, its
 // button goes through the handler's journaled playFrom/pauseFrom with
 // source ui (invariant 3), and with sleep suspected it opens the player
-// instead of resuming from the stop point. The player route is a stub
-// here, registered under PlayerScreen.routeName, so showPlayerScreen finds
-// it without building the real player.
+// instead of resuming from the stop point. The library is the base route
+// (decision E60) and a tap pushes the real player on top of it, once.
 
 import 'package:faden/data/db.dart';
 import 'package:faden/data/journal.dart';
@@ -67,7 +66,7 @@ void main() {
     late FakeAudioHandler handler;
     late PlayerSessionController session;
 
-    /// Stack: stub player route (root) -> "library" with the mini player.
+    /// Stack: a "library" with the mini player as the root route (E60).
     Future<void> pumpLibrary(
       WidgetTester tester, {
       bool open = true,
@@ -87,33 +86,23 @@ void main() {
         session.manifest = _manifest;
         session.bookState = _state(sleepSuspected: sleepSuspected);
       }
-      final navigatorKey = GlobalKey<NavigatorState>();
       await tester.pumpWidget(
         ProviderScope(
           overrides: [
+            appDatabaseProvider.overrideWithValue(db),
             audioHandlerProvider.overrideWithValue(handler),
             playerSessionProvider.overrideWith((ref) => session),
           ],
-          child: MaterialApp(navigatorKey: navigatorKey, home: const SizedBox()),
-        ),
-      );
-      navigatorKey.currentState!.pushAndRemoveUntil(
-        MaterialPageRoute<void>(
-          settings: const RouteSettings(name: PlayerScreen.routeName),
-          builder: (_) => const Scaffold(body: Text('player-stub')),
-        ),
-        (_) => false,
-      );
-      await tester.pumpAndSettle();
-      navigatorKey.currentState!.push(
-        MaterialPageRoute<void>(
-          builder: (_) => const Scaffold(body: Text('library'), bottomNavigationBar: MiniPlayer()),
+          child: const MaterialApp(
+            home: Scaffold(body: Text('library'), bottomNavigationBar: MiniPlayer()),
+          ),
         ),
       );
       await tester.pumpAndSettle();
     }
 
     Future<void> tearDownHandler(WidgetTester tester) async {
+      await tester.pumpWidget(const SizedBox());
       await tester.runAsync(() async {
         await handler.dispose();
         await db.close();
@@ -169,7 +158,7 @@ void main() {
       await tester.tap(find.byIcon(Icons.route));
       await tester.pumpAndSettle();
       expect(handler.calls, isEmpty);
-      expect(find.text('player-stub'), findsOneWidget);
+      expect(find.byType(PlayerScreen), findsOneWidget);
       expect(find.text('library'), findsNothing);
       await tearDownHandler(tester);
     });
@@ -192,13 +181,30 @@ void main() {
       await tearDownHandler(tester);
     });
 
-    testWidgets('tapping the bar returns to the single player route', (tester) async {
+    testWidgets('tapping the bar pushes the player over the library; closing it comes back', (tester) async {
       await pumpLibrary(tester);
       await tester.tap(find.text(AppStrings.remainingTime('20 Min.')));
       await tester.pumpAndSettle();
       expect(handler.calls, isEmpty);
-      expect(find.text('player-stub'), findsOneWidget);
+      expect(find.byType(PlayerScreen), findsOneWidget);
       expect(find.text('library'), findsNothing);
+      expect(find.text('library', skipOffstage: false), findsOneWidget, reason: 'the library stays below');
+      await tester.tap(find.byTooltip(AppStrings.playerClose));
+      await tester.pumpAndSettle();
+      expect(find.text('library'), findsOneWidget);
+      expect(find.byType(PlayerScreen, skipOffstage: false), findsNothing);
+      await tearDownHandler(tester);
+    });
+
+    testWidgets('a swipe up on the bar opens the player too, and only one', (tester) async {
+      await pumpLibrary(tester);
+      final bar = find.text(AppStrings.remainingTime('20 Min.'));
+      await tester.fling(bar, const Offset(0, -200), 1000);
+      await tester.pump();
+      // A second request while the first player slides in brings back that one.
+      showPlayerScreen(Navigator.of(tester.element(find.text('library', skipOffstage: false))));
+      await tester.pumpAndSettle();
+      expect(find.byType(PlayerScreen, skipOffstage: false), findsOneWidget);
       await tearDownHandler(tester);
     });
   });

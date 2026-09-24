@@ -8,7 +8,10 @@
 // - the details sheet takes the player's night colours in the night view
 //   (E46);
 // - buffering and playback errors from the handler's status (E39);
-// - German speed labels and the minute-level remaining time.
+// - German speed labels and the minute-level remaining time;
+// - the sleep timer on the player itself (E61): the moon button starts and
+//   stops the shared timer and shows what is left;
+// - closing the player (E60): chevron, swipe down, slide and reduced motion.
 
 import 'package:faden/audio/playback_status.dart';
 import 'package:faden/data/db.dart';
@@ -23,7 +26,9 @@ import 'package:faden/ui/cover.dart';
 import 'package:faden/ui/details_sheet.dart';
 import 'package:faden/ui/format.dart';
 import 'package:faden/ui/library_screen.dart';
+import 'package:faden/signals/sleep_timer.dart';
 import 'package:faden/ui/mini_player.dart';
+import 'package:faden/ui/playback_announcer.dart';
 import 'package:faden/ui/player_screen.dart';
 import 'package:faden/ui/providers.dart';
 import 'package:faden/ui/theme.dart';
@@ -79,6 +84,7 @@ void main() {
     String? author = 'Thomas Mann',
     bool serverReachable = true,
     PlaybackFailure? initialError,
+    bool underLibrary = false,
   }) async {
     await tester.runAsync(() async {
       db = AppDatabase.memory();
@@ -129,12 +135,19 @@ void main() {
         ],
         child: MaterialApp(
           theme: fadenThemeFor(FadenTokens.day),
-          builder: (context, child) => MediaQuery(
-            data: MediaQuery.of(context).copyWith(textScaler: TextScaler.linear(textScale)),
-            child: child!,
+          // As in main.dart: SnackBars come from above the navigator (E60).
+          builder: (context, child) => PlaybackAnnouncer(
+            child: MediaQuery(
+              data: MediaQuery.of(context).copyWith(textScaler: TextScaler.linear(textScale)),
+              child: child!,
+            ),
           ),
           onGenerateRoute: (_) => PlayerScreen.route(instant: true),
-          onGenerateInitialRoutes: (_) => [PlayerScreen.route(instant: true)],
+          // The app's stack (E60): the library below the player.
+          onGenerateInitialRoutes: (_) => [
+            if (underLibrary) LibraryScreen.route(),
+            PlayerScreen.route(instant: true),
+          ],
         ),
       ),
     );
@@ -179,13 +192,51 @@ void main() {
             expectOnScreen(tester, find.byType(PlayerMainButton), size);
             expectOnScreen(tester, find.bySemanticsLabel(AppStrings.seekBackAction), size);
             expectOnScreen(tester, find.bySemanticsLabel(AppStrings.seekForwardAction), size);
+            expectOnScreen(tester, find.byType(SleepTimerButton), size);
             if (sleepSuspected) expectOnScreen(tester, find.text(AppStrings.resumeFromStop), size);
             final title = tester.widget<Text>(find.text(_longTitle));
             expect(title.maxLines, 2);
             await tearDownPlayer(tester);
           });
+
+          testWidgets('night, $name', (tester) async {
+            await pumpPlayer(
+              tester,
+              size: size,
+              textScale: scale,
+              night: true,
+              sleepSuspected: sleepSuspected,
+              title: _longTitle,
+            );
+            expect(tester.takeException(), isNull);
+            expectOnScreen(tester, find.byType(PlayerMainButton), size);
+            expectOnScreen(tester, find.bySemanticsLabel(AppStrings.seekBackAction), size);
+            expectOnScreen(tester, find.byType(SleepTimerButton), size);
+            expectOnScreen(tester, find.byType(PlayerThread), size);
+            if (sleepSuspected) expectOnScreen(tester, find.text(AppStrings.resumeFromStop), size);
+            await tearDownPlayer(tester);
+          });
         }
       }
+    }
+
+    for (final night in [false, true]) {
+      testWidgets('${night ? 'night' : 'day'}, SE x1.35, sleep suspected, a "Kapitelende" timer running',
+          (tester) async {
+        await pumpPlayer(tester, size: _se, textScale: 1.35, night: night, sleepSuspected: true, title: _longTitle);
+        final container = ProviderScope.containerOf(tester.element(find.byType(PlayerBody)));
+        container.read(sleepTimerProvider).startChapterEnd();
+        await tester.pump();
+        await tester.pump();
+        expect(tester.takeException(), isNull);
+        expect(find.descendant(of: find.byType(SleepTimerButton), matching: find.text(AppStrings.sleepTimerChapterEnd)),
+            findsOneWidget);
+        expectOnScreen(tester, find.byType(SleepTimerButton), _se);
+        expectOnScreen(tester, find.byType(PlayerMainButton), _se);
+        expectOnScreen(tester, find.text(AppStrings.resumeFromStop), _se);
+        container.read(sleepTimerProvider).cancel();
+        await tearDownPlayer(tester);
+      });
     }
 
     testWidgets('night, SE x1.35, sleep suspected', (tester) async {
@@ -229,7 +280,12 @@ void main() {
     expect(find.bySemanticsLabel(AppStrings.seekBackAction), findsOneWidget);
     expect(find.bySemanticsLabel(AppStrings.seekForwardAction), findsOneWidget);
     expect(find.bySemanticsLabel(AppStrings.mainButtonRecordThread), findsWidgets);
-    expect(find.byTooltip(AppStrings.libraryTitle), findsOneWidget);
+    expect(find.byTooltip(AppStrings.playerClose), findsOneWidget);
+    expect(tester.getSize(find.byTooltip(AppStrings.playerClose)).height, greaterThanOrEqualTo(fadenMinTapTarget));
+    final moon = find.bySemanticsLabel(AppStrings.detailsSleepTimer);
+    expect(moon, findsOneWidget);
+    expect(tester.getSize(moon).width, greaterThanOrEqualTo(fadenMinTapTarget));
+    expect(tester.getSize(moon).height, greaterThanOrEqualTo(fadenMinTapTarget));
     final thread = tester.getSemantics(find.byType(PlayerThread));
     expect(thread.label, AppStrings.threadLabel);
     expect(thread.value, AppStrings.threadValue(3));
@@ -240,13 +296,11 @@ void main() {
     await tearDownPlayer(tester);
   });
 
-  group('motion', () {
-    Finder slideAbovePlayer() =>
-        find.ancestor(of: find.byType(PlayerBody, skipOffstage: false), matching: find.byType(SlideTransition));
-
-    testWidgets('a swipe down slides the player away to the library; the mini player brings it back',
+  group('closing the player (E60)', () {
+    testWidgets('a swipe down slides the player down onto the library; the mini player brings it back',
         (tester) async {
-      await pumpPlayer(tester);
+      await pumpPlayer(tester, underLibrary: true);
+      expect(find.byType(LibraryScreen), findsNothing, reason: 'covered by the player');
       final before = tester.getTopLeft(find.byType(PlayerBody)).dy;
       await tester.fling(find.byType(PlayerBody), const Offset(0, 300), 1500);
       await tester.pump();
@@ -254,25 +308,138 @@ void main() {
       expect(tester.getTopLeft(find.byType(PlayerBody)).dy, greaterThan(before + 50), reason: 'sliding down');
       await tester.pumpAndSettle();
       expect(find.byType(LibraryScreen), findsOneWidget);
+      expect(find.byType(PlayerScreen, skipOffstage: false), findsNothing, reason: 'closed, not kept below');
+      expect(find.byType(BackButton), findsNothing, reason: 'the library is the base');
       await tester.tap(find.descendant(of: find.byType(MiniPlayer), matching: find.text('Der Zauberberg')));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 150));
+      expect(tester.getTopLeft(find.byType(PlayerBody)).dy, greaterThan(before + 50), reason: 'sliding up');
       await tester.pumpAndSettle();
       expect(find.byType(LibraryScreen), findsNothing);
       expect(find.byType(PlayerBody), findsOneWidget);
       await tearDownPlayer(tester);
     });
 
-    testWidgets('with reduced motion the switch is immediate', (tester) async {
-      tester.platformDispatcher.accessibilityFeaturesTestValue = const FakeAccessibilityFeatures(disableAnimations: true);
-      addTearDown(tester.platformDispatcher.clearAccessibilityFeaturesTestValue);
-      await pumpPlayer(tester);
-      await tester.fling(find.byType(PlayerBody), const Offset(0, 300), 1500);
-      final before = tester.getTopLeft(find.byType(PlayerBody)).dy;
-      await tester.pump();
-      await tester.pump(const Duration(milliseconds: 150));
-      expect(slideAbovePlayer(), findsNothing);
-      expect(tester.getTopLeft(find.byType(PlayerBody, skipOffstage: false)).dy, before);
+    testWidgets('the down chevron closes it', (tester) async {
+      await pumpPlayer(tester, underLibrary: true);
+      await tester.tap(find.byTooltip(AppStrings.playerClose));
       await tester.pumpAndSettle();
       expect(find.byType(LibraryScreen), findsOneWidget);
+      expect(find.byType(PlayerScreen, skipOffstage: false), findsNothing);
+      await tearDownPlayer(tester);
+    });
+
+    testWidgets('with reduced motion it closes at once, without sliding', (tester) async {
+      tester.platformDispatcher.accessibilityFeaturesTestValue = const FakeAccessibilityFeatures(disableAnimations: true);
+      addTearDown(tester.platformDispatcher.clearAccessibilityFeaturesTestValue);
+      await pumpPlayer(tester, underLibrary: true);
+      await tester.fling(find.byType(PlayerBody), const Offset(0, 300), 1500);
+      await tester.pump();
+      expect(find.byType(PlayerBody, skipOffstage: false), findsNothing);
+      expect(find.byType(LibraryScreen), findsOneWidget);
+      await tearDownPlayer(tester);
+    });
+
+    testWidgets('alone on the stack, closing puts the library in its place', (tester) async {
+      await pumpPlayer(tester);
+      await tester.tap(find.byTooltip(AppStrings.playerClose));
+      await tester.pumpAndSettle();
+      expect(find.byType(LibraryScreen), findsOneWidget);
+      expect(find.byType(PlayerScreen, skipOffstage: false), findsNothing);
+      await tearDownPlayer(tester);
+    });
+  });
+
+  group('sleep timer on the player (E61)', () {
+    Finder moon() => find.byType(SleepTimerButton);
+    Finder inMoon(Finder f) => find.descendant(of: moon(), matching: f);
+
+    for (final night in [false, true]) {
+      testWidgets('${night ? 'night' : 'day'}: starts the shared timer, counts down, and "Aus" stops it',
+          (tester) async {
+        await pumpPlayer(tester, night: night);
+        handler.fakePlaying = true;
+        final timer = ProviderScope.containerOf(tester.element(moon())).read(sleepTimerProvider);
+        expect(inMoon(find.byType(Text)), findsNothing, reason: 'just the moon while off');
+
+        await tester.tap(moon());
+        await tester.pumpAndSettle();
+        for (final label in [
+          for (final m in sleepTimerPresetMinutes) AppStrings.sleepTimerMinutes(m),
+          AppStrings.sleepTimerChapterEnd,
+          AppStrings.sleepTimerOff,
+        ]) {
+          expect(find.widgetWithText(ListTile, label), findsOneWidget, reason: label);
+        }
+        expect(tester.widget<Material>(find.byKey(detailsSheetSurfaceKey)).color,
+            night ? FadenTokens.night.grund : FadenTokens.day.grund);
+        await tester.tap(find.widgetWithText(ListTile, AppStrings.sleepTimerMinutes(15)));
+        await tester.pumpAndSettle();
+        expect(find.byType(SleepTimerChoices), findsNothing, reason: 'a choice closes the sheet');
+        expect(timer.state.running, isTrue);
+        expect(timer.state.mode, SleepTimerMode.fixed);
+        expect(inMoon(find.text(AppStrings.sleepTimerMinutes(15))), findsOneWidget);
+
+        await tester.pump(const Duration(minutes: 3));
+        await tester.pump();
+        expect(inMoon(find.text(AppStrings.sleepTimerMinutes(12))), findsOneWidget);
+        final semantics = tester.ensureSemantics();
+        expect(tester.getSemantics(moon()),
+            isSemantics(label: AppStrings.detailsSleepTimer, value: AppStrings.sleepTimerMinutes(12), isButton: true));
+        semantics.dispose();
+
+        // The details sheet shows the very same timer.
+        await tester.tap(find.bySemanticsLabel(AppStrings.detailsOpen));
+        await tester.pumpAndSettle();
+        expect(find.text(AppStrings.sleepTimerRunning('12:00')), findsOneWidget);
+        Navigator.of(tester.element(find.byType(DetailsSheetContent))).pop();
+        await tester.pumpAndSettle();
+
+        await tester.tap(moon());
+        await tester.pumpAndSettle();
+        await tester.tap(find.widgetWithText(ListTile, AppStrings.sleepTimerOff));
+        await tester.pumpAndSettle();
+        expect(timer.state.running, isFalse);
+        expect(inMoon(find.byType(Text)), findsNothing);
+        handler.fakePlaying = false;
+        await tearDownPlayer(tester);
+      });
+    }
+
+    testWidgets('"Kapitelende" shows as such; a timer from the details sheet shows on the button', (tester) async {
+      await pumpPlayer(tester);
+      await tester.tap(moon());
+      await tester.pumpAndSettle();
+      await tester.tap(find.widgetWithText(ListTile, AppStrings.sleepTimerChapterEnd));
+      await tester.pumpAndSettle();
+      expect(inMoon(find.text(AppStrings.sleepTimerChapterEnd)), findsOneWidget);
+
+      await tester.tap(find.bySemanticsLabel(AppStrings.detailsOpen));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text(AppStrings.sleepTimerMinutes(45)));
+      await tester.pump();
+      await tester.pump();
+      expect(inMoon(find.text(AppStrings.sleepTimerMinutes(45))), findsOneWidget);
+      await tester.tap(find.text(AppStrings.sleepTimerOff));
+      await tester.pump();
+      await tester.pump();
+      expect(inMoon(find.byType(Text)), findsNothing);
+      await tearDownPlayer(tester);
+    });
+
+    testWidgets('the timer outlives the player: it keeps running once the player is closed', (tester) async {
+      await pumpPlayer(tester, underLibrary: true);
+      final timer = ProviderScope.containerOf(tester.element(moon())).read(sleepTimerProvider);
+      await tester.tap(moon());
+      await tester.pumpAndSettle();
+      await tester.tap(find.widgetWithText(ListTile, AppStrings.sleepTimerMinutes(30)));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byTooltip(AppStrings.playerClose));
+      await tester.pumpAndSettle();
+      expect(find.byType(PlayerScreen, skipOffstage: false), findsNothing);
+      expect(timer.state.running, isTrue);
+      expect(handler.onLastMinuteExtend, isNotNull, reason: 'headphone buttons still extend it');
+      timer.cancel();
       await tearDownPlayer(tester);
     });
   });

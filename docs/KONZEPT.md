@@ -43,18 +43,20 @@ Regeln:
 
 ## Screens
 
-1. **Start ist der Player:** Cover, Titel, Autor, Kapitel, Restzeit in Minuten („noch 3 Std. 45 Min.“), der Faden als Buchfortschritt (nicht ziehbar), großer Button, unten ein Griff zu den Details. Die Bibliothek erreichst du über ein kleines Symbol oder durch Wischen nach unten.
-2. **Details (nach oben wischen oder Griff antippen):** Scrubber für das aktuelle Kapitel mit verstrichener und verbleibender Zeit, Tempo, Sleep-Timer, Verlauf, alle Kapitel mit Titel und Dauer, der Weg zur Bibliothek.
+Aufbau: Die Bibliothek ist die Basis der App, der Player liegt darüber. Schließt du den Player, bist du in der Bibliothek; der Mini-Player oder ein Buch aus der Liste schiebt ihn wieder hoch. Es gibt immer nur einen Player.
+
+1. **Start ist der Player:** War ein Buch offen, startet die App im Player (über der Bibliothek), sonst in der Bibliothek. Cover, Titel, Autor, Kapitel, Restzeit in Minuten („noch 3 Std. 45 Min.“), der Faden als Buchfortschritt (nicht ziehbar), großer Button, unten ein Griff zu den Details und rechts daneben der Sleep-Timer (Mond; läuft er, steht dort die Restzeit, „12 Min.“ oder „Kapitelende“). Oben links schließt ein Pfeil nach unten den Player, ebenso Wischen nach unten.
+2. **Details (nach oben wischen oder Griff antippen):** Scrubber für das aktuelle Kapitel mit verstrichener und verbleibender Zeit, Tempo, Sleep-Timer (derselbe wie im Player), Verlauf, alle Kapitel mit Titel und Dauer, der Weg zurück zur Bibliothek.
 3. **Faden-Modus:** Vollbild, dunkel, siehe oben.
-4. **Bibliothek:** oben „Weiterhören“ (zuletzt gehört), darunter alle Bücher mit Suche und Sortierung (zuletzt gehört, Titel, Autor). Je Buch Cover, Autor, Fortschritt als dünner Faden mit Restzeit oder „neu“/„gehört“, Download-Status (geladen, lädt mit Abbrechen, Fehler mit „Erneut versuchen“), „Reihenfolge prüfen“. Download löschen per Wischen oder langem Druck. Ohne Server zuerst „Server einrichten“. Offline sind nicht geladene Bücher gedimmt und als „nur online“ markiert.
-5. **Einstellungen:** Server mit „Verbindung prüfen“, Nachtfenster, Sleep-Timer-Standard, Erscheinungsbild (Wie iPhone, Hell, Dunkel), Speicher (geladene Bücher; zu Ende gehörte werden automatisch gelöscht), „Aktuelle Bücher automatisch laden“ (im WLAN das offene und das nächste Buch aus „Weiterhören“), Schlafdaten erlauben, Belegung der Kopfhörertasten.
+4. **Bibliothek:** die Basis, ohne Zurück-Pfeil; oben Sortierung und Einstellungen, unten der Mini-Player, solange ein Buch offen ist. Oben „Weiterhören“ (zuletzt gehört), darunter alle Bücher mit Suche und Sortierung (zuletzt gehört, Titel, Autor). Je Buch Cover, Autor, Fortschritt als dünner Faden mit Restzeit oder „neu“/„gehört“, Download-Status (geladen, lädt mit der Restmenge „noch 240 MB“ und Abbrechen, Fehler mit „Erneut versuchen“), „Reihenfolge prüfen“. Download löschen per Wischen oder langem Druck. Ohne Server zuerst „Server einrichten“. Offline sind nicht geladene Bücher gedimmt und als „nur online“ markiert.
+5. **Einstellungen (aus der Bibliothek):** Server mit „Verbindung prüfen“, Nachtfenster, Sleep-Timer-Standard, Erscheinungsbild (Wie iPhone, Hell, Dunkel), Speicher (geladene Bücher; zu Ende gehörte werden automatisch gelöscht), „Aktuelle Bücher automatisch laden“ (im WLAN das offene und das nächste Buch aus „Weiterhören“), Schlafdaten erlauben, Belegung der Kopfhörertasten.
 
 ## Nachtmodus
 
 - Aktiv, solange die Bildschirmhelligkeit unter 30 % steht; aus erst wieder über 35 %, damit die Ansicht an der Schwelle nicht flackert. Nachtfenster und Sleep-Timer schalten die Ansicht nicht um; das Nachtfenster zählt nur für „Faden aufnehmen“.
 - Echtes Schwarz, Cover stark abgedunkelt. Buchtitel und aktuelles Kapitel klein und gedimmt in `tinte-leise`, darunter Faden, Kapitel-Scrubber, Hauptbutton und ±30 s. Details, Bibliothek und Einstellungen sind dann ebenfalls dunkel.
 - Keine Tastensperre: Alle Bildschirmtasten und die Details bleiben bedienbar. Jede Berührung zählt als Wach-Beleg.
-- Sleep-Timer: 15, 30, 45, 60 Min oder Kapitelende. Die letzten 30 s werden leiser. In der letzten Minute verlängert jede Kopfhörertaste den Timer um die gewählte Dauer, statt zu pausieren, und zählt als Wach-Beleg.
+- Sleep-Timer: 15, 30, 45, 60 Min oder Kapitelende, direkt im Player über den Mond oder in den Details. Die letzten 30 s werden leiser. In der letzten Minute verlängert jede Kopfhörertaste den Timer um die gewählte Dauer, statt zu pausieren, und zählt als Wach-Beleg.
 
 ## Design
 
@@ -75,7 +77,7 @@ Tagsüber indigo gefärbtes Garn auf kühlem Weiß. Nachts warmes Bernstein ohne
 - **Hauptbutton:** mindestens 88 dp. Tagsüber gefüllt in `faden` mit Symbol in `grund`; nachts nur ein Ring in `faden`, damit wenig Licht entsteht.
 - **Schrift:** eine Familie, Atkinson Hyperlegible Next (OFL, für Lesbarkeit entworfen; Fallback Atkinson Hyperlegible), im App-Bundle. Größen 28, 20, 17, 14 sp. Keine Großbuchstaben-Labels.
 - **Layout:** eine Spalte. Im Player zentriert, Listen linksbündig. Alle Tippziele mindestens 56 dp.
-- **Bewegung:** ein einziger bewusster Moment: Im Faden-Modus wird der Faden mit jeder Antwort kürzer (300 ms). Sonst keine Deko-Animationen; nur der Player gleitet vom Mini-Player nach oben und beim Wischen nach unten weg. Die System-Einstellung „Bewegung reduzieren“ gilt für alles.
+- **Bewegung:** ein einziger bewusster Moment: Im Faden-Modus wird der Faden mit jeder Antwort kürzer (300 ms). Sonst keine Deko-Animationen; nur der Player gleitet beim Öffnen nach oben und beim Schließen (Pfeil, Wischen nach unten) nach unten weg. Die System-Einstellung „Bewegung reduzieren“ gilt für alles.
 - **Kein Cover vorhanden:** die Initialen des Titels in `faden` auf einer leisen Fläche, in der Hausschrift. Der Titel selbst steht direkt darunter.
 - **Bedienung wie auf dem iPhone:** keine Tinten-Welle beim Tippen, Schalter und Auswahl im iOS-Stil, Uhrzeit per Drehrad. Nur Hochformat.
 
@@ -94,6 +96,7 @@ Tagsüber indigo gefärbtes Garn auf kühlem Weiß. Nachts warmes Bernstein ohne
 | Offline | Keine Verbindung zum Server. Geladene Bücher spielen weiter. |
 | Offline, Bücher bekannt | Offline – geladene Bücher spielen weiter |
 | Restzeit | noch 3 Std. 45 Min. |
+| Download läuft | noch 240 MB |
 | Wiedergabefehler | Kann nicht abspielen |
 | Nicht geladen, Server aus | Nicht geladen – der Server ist gerade nicht erreichbar. |
 

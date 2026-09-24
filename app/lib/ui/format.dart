@@ -54,6 +54,25 @@ String formatBytes(int bytes) {
   return AppStrings.sizeGigabytes(text);
 }
 
+/// What a running download still has to fetch, for "noch 240 MB" (decision
+/// E62). Decimal units like [formatBytes], but coarser, since it is an
+/// estimate that changes while it runs, and rounded up so a rest never
+/// reads "0 MB": whole MB below 100 MB, steps of 10 MB up to 1 GB, then
+/// GB with one decimal (German comma) below 10 GB and whole GB above.
+String formatRemainingBytes(int bytes) {
+  const mb = 1000 * 1000;
+  const gb = 1000 * mb;
+  if (bytes <= 0) return AppStrings.sizeMegabytes('0');
+  var megabytes = (bytes + mb - 1) ~/ mb;
+  if (megabytes >= 100) megabytes = (megabytes + 9) ~/ 10 * 10;
+  if (megabytes < 1000) return AppStrings.sizeMegabytes('$megabytes');
+  if (bytes < 10 * gb) {
+    final tenths = (bytes + gb ~/ 10 - 1) ~/ (gb ~/ 10);
+    if (tenths < 100) return AppStrings.sizeGigabytes('${tenths ~/ 10},${tenths % 10}');
+  }
+  return AppStrings.sizeGigabytes('${(bytes + gb - 1) ~/ gb}');
+}
+
 /// Up to two initials for the no-cover monogram: "Der Zauberberg" -> "DZ",
 /// "Momo" -> "M". Empty for a title without letters or digits.
 String initialsFor(String title) {

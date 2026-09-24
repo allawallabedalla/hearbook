@@ -1,9 +1,15 @@
 // Tests ui/library_screen.dart (decision E48): search, order and the
-// "Weiterhören" section; the first-launch state without a server; and the
+// "Weiterhören" section; the first-launch state without a server; a
+// running download saying what is left (E62), with cancel and retry; the
+// library as the base route without a back button (E60); and the
 // "Reihenfolge prüfen" dialog, which shows each candidate's real file
 // order instead of "Option 1 · 12 · needs_review".
 
+import 'dart:io';
+
+import 'package:faden/data/book_downloads.dart';
 import 'package:faden/data/db.dart';
+import 'package:faden/data/downloads.dart';
 import 'package:faden/data/journal.dart';
 import 'package:faden/data/library.dart';
 import 'package:faden/domain/manifest.dart';
@@ -53,8 +59,11 @@ final _progressByBook = {
 /// A controller that shows exactly what the test sets (no cache, server
 /// or journal behind it).
 class _FixedLibraryController extends LibraryController {
-  _FixedLibraryController({required List<BookSummary> books, required Map<String, BookProgress> progress})
-      : super(repository: LibraryRepository(api: null, cache: null), downloads: null) {
+  _FixedLibraryController({
+    required List<BookSummary> books,
+    required Map<String, BookProgress> progress,
+    super.downloads,
+  }) : super(repository: LibraryRepository(api: null, cache: null)) {
     this.books = books;
     progressByBook = progress;
   }
@@ -64,6 +73,35 @@ class _FixedLibraryController extends LibraryController {
 
   @override
   Future<void> refreshProgress() async {}
+}
+
+/// Download states the test sets; records cancels and (re)starts.
+class _FakeDownloads extends BookDownloads {
+  _FakeDownloads() : super(manager: DownloadManager(api: null, targetDir: Directory('unused')));
+
+  final Map<String, BookDownloadState> fixed = {};
+  final List<String> cancelled = [];
+  final List<String> started = [];
+
+  void put(String bookId, BookDownloadState state) {
+    fixed[bookId] = state;
+    notifyListeners();
+  }
+
+  @override
+  BookDownloadState stateFor(String bookId) => fixed[bookId] ?? BookDownloadState.unknown;
+
+  @override
+  Map<String, BookDownloadState> get states => Map.unmodifiable(fixed);
+
+  @override
+  void cancel(String bookId) => cancelled.add(bookId);
+
+  @override
+  Future<bool> download(String bookId, Manifest manifest) async {
+    started.add(bookId);
+    return false;
+  }
 }
 
 void main() {
@@ -231,6 +269,61 @@ void main() {
       await tester.tap(find.text(AppStrings.setupAction));
       await tester.pumpAndSettle();
       expect(find.byType(SettingsScreen), findsOneWidget);
+      await tearDownLibrary(tester);
+    });
+
+    testWidgets('a running download says what is left, not what arrived (E62); cancel and retry work',
+        (tester) async {
+      final downloads = _FakeDownloads()
+        ..put(
+          'b-momo',
+          const BookDownloadState(
+            status: BookDownloadStatus.downloading,
+            filesDone: 3,
+            filesTotal: 10,
+            receivedBytes: 80 * 1000 * 1000,
+            fraction: 0.25,
+            remainingBytes: 237 * 1000 * 1000,
+          ),
+        )
+        ..put('b-anon', const BookDownloadState(status: BookDownloadStatus.downloading, filesTotal: 4))
+        ..put('b-zauber', const BookDownloadState(status: BookDownloadStatus.failed, filesTotal: 4, error: 'x'));
+      final controller = _FixedLibraryController(books: _books, progress: const {}, downloads: downloads)
+        ..manifests['b-zauber'] = const Manifest(manifestId: 'm', files: [
+          ManifestFile(idx: 0, fileHash: 'h', durationMs: 1000),
+        ]);
+      await pumpLibrary(tester, controller);
+
+      final momo = find.ancestor(of: find.text('Momo'), matching: find.byType(BookRow));
+      expect(find.descendant(of: momo, matching: find.text(AppStrings.downloadRemaining('240 MB'))), findsOneWidget);
+      expect(find.textContaining('80 MB'), findsNothing, reason: 'not the received amount');
+      expect(find.descendant(of: momo, matching: find.byType(CircularProgressIndicator)), findsNothing,
+          reason: 'no progress ring');
+      // No estimate yet: a plain "Lädt …".
+      final anon = find.ancestor(of: find.text('Anonyme Briefe'), matching: find.byType(BookRow));
+      expect(find.descendant(of: anon, matching: find.text(AppStrings.libraryDownloading)), findsOneWidget);
+
+      await tester.tap(find.descendant(of: momo, matching: find.byTooltip(AppStrings.downloadCancel)));
+      await tester.pump();
+      expect(downloads.cancelled, ['b-momo']);
+
+      final zauber = find.ancestor(of: find.text('Der Zauberberg'), matching: find.byType(BookRow));
+      expect(find.descendant(of: zauber, matching: find.text(AppStrings.libraryDownloadFailed)), findsOneWidget);
+      await tester.tap(find.descendant(of: zauber, matching: find.byTooltip(AppStrings.libraryRetry)));
+      await tester.pump();
+      expect(downloads.started, ['b-zauber']);
+
+      downloads.put('b-momo', const BookDownloadState(status: BookDownloadStatus.downloading, remainingBytes: 1500000000));
+      await tester.pump();
+      expect(find.text(AppStrings.downloadRemaining('1,5 GB')), findsOneWidget);
+      await tearDownLibrary(tester);
+    });
+
+    testWidgets('is the base: no back button, settings in the app bar (E60)', (tester) async {
+      await pumpLibrary(tester, _FixedLibraryController(books: _books, progress: const {}));
+      expect(find.byType(BackButton), findsNothing);
+      expect(find.byTooltip(AppStrings.settingsTitle), findsOneWidget);
+      expect(find.byTooltip(AppStrings.librarySortTooltip), findsOneWidget);
       await tearDownLibrary(tester);
     });
 

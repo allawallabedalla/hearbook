@@ -40,7 +40,7 @@ class DetailsSheetHooks {
   final VoidCallback onInteraction;
 
   /// The night player has no app bar, so the sheet is its way to the
-  /// library.
+  /// library: it closes the player (E60).
   final VoidCallback? onOpenLibrary;
 
   const DetailsSheetHooks({
@@ -89,6 +89,121 @@ Future<void> showDetailsSheet(
       ),
     ),
   );
+}
+
+/// The player's own sleep-timer choice (decision E61): 15, 30, 45, 60 Min.,
+/// Kapitelende, Aus. Themed from [chrome] like the details sheet, acting on
+/// the same [sleepTimer] as the details sheet's [SleepTimerControl]. A
+/// choice starts (or stops) the timer, is remembered as the default via
+/// [onChosen] (minutes, 0 = "Kapitelende"), and closes the sheet.
+Future<void> showSleepTimerSheet(
+  BuildContext context, {
+  required ValueListenable<PlayerChrome> chrome,
+  required SleepTimerController sleepTimer,
+  required void Function(int minutes) onChosen,
+  DetailsSheetHooks hooks = const DetailsSheetHooks(),
+}) {
+  return showModalBottomSheet<void>(
+    context: context,
+    isScrollControlled: true,
+    useSafeArea: true,
+    backgroundColor: Colors.transparent,
+    elevation: 0,
+    builder: (_) => _SheetFrame(
+      chrome: chrome,
+      hooks: hooks,
+      child: SleepTimerChoices(controller: sleepTimer, onChosen: onChosen),
+    ),
+  );
+}
+
+/// The rows of [showSleepTimerSheet]; the running choice is marked.
+class SleepTimerChoices extends StatelessWidget {
+  final SleepTimerController controller;
+  final void Function(int minutes) onChosen;
+
+  const SleepTimerChoices({super.key, required this.controller, required this.onChosen});
+
+  @override
+  Widget build(BuildContext context) {
+    final tokens = FadenTokens.of(context);
+    return StreamBuilder<SleepTimerState>(
+      stream: controller.stateStream,
+      initialData: controller.state,
+      builder: (context, snap) {
+        final state = snap.data ?? controller.state;
+        final chapterEnd = state.running && state.mode == SleepTimerMode.chapterEnd;
+        final chosenMin = state.running ? state.chosen?.inMinutes : null;
+        final status = !state.running
+            ? null
+            : chapterEnd
+                ? AppStrings.sleepTimerUntilChapterEnd(formatClock(state.remaining.inMilliseconds))
+                : AppStrings.sleepTimerRunning(formatClock(state.remaining.inMilliseconds));
+
+        Widget choice(String label, {required bool selected, required VoidCallback onTap}) => ListTile(
+              contentPadding: EdgeInsets.zero,
+              selected: selected,
+              selectedColor: tokens.faden,
+              title: Text(label),
+              trailing: selected ? Icon(Icons.check, color: tokens.faden) : null,
+              onTap: () {
+                onTap();
+                Navigator.of(context).pop();
+              },
+            );
+
+        return SingleChildScrollView(
+          padding: const EdgeInsets.fromLTRB(20, 8, 20, 24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Center(
+                child: Container(
+                  width: 36,
+                  height: 5,
+                  decoration: BoxDecoration(color: tokens.tinteLeiseFaden, borderRadius: BorderRadius.circular(3)),
+                ),
+              ),
+              const SizedBox(height: 12),
+              SectionTitle(
+                AppStrings.detailsSleepTimer,
+                trailing: status == null
+                    ? null
+                    : Text(
+                        status,
+                        style: TextStyle(
+                          color: tokens.faden,
+                          fontSize: FadenTypeSizes.caption,
+                          fontFeatures: const [FontFeature.tabularFigures()],
+                        ),
+                      ),
+              ),
+              for (final minutes in sleepTimerPresetMinutes)
+                choice(
+                  AppStrings.sleepTimerMinutes(minutes),
+                  selected: chosenMin == minutes,
+                  onTap: () {
+                    controller.start(Duration(minutes: minutes));
+                    onChosen(minutes);
+                  },
+                ),
+              choice(
+                AppStrings.sleepTimerChapterEnd,
+                selected: chapterEnd,
+                onTap: () {
+                  // Fires when playback actually reaches the next chapter (E42).
+                  controller.startChapterEnd();
+                  onChosen(0);
+                },
+              ),
+              choice(AppStrings.sleepTimerOff, selected: !state.running, onTap: controller.cancel),
+            ],
+          ),
+        );
+      },
+    );
+  }
 }
 
 /// Background, theme and touch forwarding shared by the details sheet and

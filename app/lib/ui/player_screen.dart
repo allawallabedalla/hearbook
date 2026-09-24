@@ -7,14 +7,11 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../audio/handler.dart';
 import '../audio/playback_status.dart';
-import '../audio/undo_hint.dart';
-import '../domain/event.dart' show EventSource;
 import '../domain/manifest.dart';
 import '../domain/pause_index.dart';
 import '../domain/position.dart';
 import '../domain/resolver.dart' show BookState;
 import '../l10n/strings.dart';
-import '../signals/night.dart';
 import '../signals/sleep_timer.dart';
 import 'cover.dart';
 import 'details_sheet.dart';
@@ -27,21 +24,26 @@ import 'theme.dart';
 import 'thread_progress.dart';
 
 /// docs/KONZEPT.md "Screens": "1. Start ist der Player: Cover, Titel,
-/// Kapitel, Restzeit, der Faden als Buchfortschritt (nicht ziehbar), großer
-/// Button." Also owns the sleep timer (signals/sleep_timer.dart) and the
-/// night view's player layout (docs/KONZEPT.md "Nachtmodus": black, no
-/// cover, title and chapter dimmed; switched by the display brightness,
-/// [nightModeProvider], decision E54).
+/// Kapitel, Restzeit, der Faden als Buchfortschritt, großer Button." Also
+/// the night view's player layout (docs/KONZEPT.md "Nachtmodus": black,
+/// cover dimmed, title and chapter dimmed; switched by the display
+/// brightness, [nightModeProvider], decision E54).
+///
+/// Decision E60: a route on top of the library ([PlayerRoute]); the down
+/// chevron, a swipe down and the details sheet's "Bibliothek" close it
+/// ([closePlayer]). What must outlive it lives app-wide: the sleep timer
+/// ([sleepTimerProvider], set from the moon button here or the details
+/// sheet), the SLEEP_HINT hook ([nightWindowHookProvider]) and the undo
+/// and error SnackBars (ui/playback_announcer.dart).
 class PlayerScreen extends ConsumerStatefulWidget {
   const PlayerScreen({super.key});
 
-  /// Name of the player's route, so [showPlayerScreen] can find it on the
-  /// navigator stack.
+  /// Name of the player's route.
   static const routeName = '/player';
 
-  /// The one route the player is ever shown in. Always use this so
-  /// [showPlayerScreen] recognises it. [instant] skips the slide-up (app
-  /// start, where it replaces the empty start screen).
+  /// The one route the player is ever shown in. Always use this (through
+  /// [showPlayerScreen]) so there is never a second player. [instant]
+  /// skips the slide-up (app start, where it covers the library at once).
   static Route<void> route({bool instant = false}) => PlayerRoute(
     settings: const RouteSettings(name: routeName),
     instant: instant,
@@ -53,148 +55,22 @@ class PlayerScreen extends ConsumerStatefulWidget {
 }
 
 class _PlayerScreenState extends ConsumerState<PlayerScreen> {
-  late final SleepTimerController _sleepTimer;
   late final FadenAudioHandler _handler;
-  final List<StreamSubscription<Object?>> _subs = [];
 
-  /// What the details sheet needs to look and act like the player (E46);
-  /// updated after every build that changes it.
+  /// What the sheets need to look and act like the player (E46); updated
+  /// after every build that changes it.
   ValueNotifier<PlayerChrome>? _chrome;
-
-  /// True while the Faden screen (ui/faden_screen.dart) is pushed on top of
-  /// this one. Its RESUME's undo hint arrives then, but must not appear
-  /// over the Faden screen (where a tap means "kenne ich"/"close") and
-  /// would likely time out before the listener is back here.
-  bool _fadenOpen = false;
-  UndoHint? _heldUndoHint;
-
-  /// The playback error a SnackBar was shown for, so one error is
-  /// announced once.
-  PlaybackFailure? _shownError;
 
   @override
   void initState() {
     super.initState();
-    final handler = _handler = ref.read(audioHandlerProvider);
-    _sleepTimer = SleepTimerController(
-      // docs/ARCHITEKTUR.md section 9: "SLEEP_HINT entsteht beim Ablauf des
-      // Sleep-Timers" -- M5 adds this on top of M4's plain PAUSE (see
-      // decision E13 in docs/ARCHITEKTUR.md section 13).
-      onExpire: () => handler.pauseForSleepTimerExpiry(),
-      onVolumeChange: (factor) => handler.setSleepFadeVolume(factor),
-      // E42: counts down only while playing; "Kapitelende" follows the
-      // chapter actually playing, at the current speed.
-      isPlaying: () => handler.playing,
-      chapterRemaining: () => handler.chapterRemaining(),
-    );
-    _subs.add(handler.undoHints.listen(_showUndoHint));
-    _subs.add(
-      handler.chapterAdvanced.listen((_) => _sleepTimer.onChapterAdvanced()),
-    );
-    _subs.add(handler.statusStream.listen(_onStatus));
-    // An error from opening the book before this screen existed (app
-    // start) would otherwise never be announced.
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) unawaited(_onStatus(handler.status));
-    });
-    // docs/ARCHITEKTUR.md section 9: a hardware/system media button in the
-    // sleep timer's last minute extends it instead of acting, and counts as
-    // an awake-proof; a media/system pause while in the night window writes
-    // SLEEP_HINT. Both hooks read live state (the closures capture `this`),
-    // so no re-wiring is needed as `_sleepTimer`/the night window change.
-    handler.onLastMinuteExtend = () {
-      final extended = _sleepTimer.extendIfInLastMinute();
-      if (extended) unawaited(HapticFeedback.lightImpact());
-      return extended;
-    };
-    handler.isInNightWindow = () => _inNightWindowNow;
-  }
-
-  void _showUndoHint(UndoHint hint) {
-    if (!mounted) return;
-    if (_fadenOpen) {
-      // Keep the first one: it points back to where playback stood before
-      // the search (the pre-sleep position). Later ones only come from
-      // "Früher" steps the listener took on the Faden screen itself.
-      _heldUndoHint ??= hint;
-      return;
-    }
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(hint.message),
-        action: SnackBarAction(
-          label: AppStrings.undoAction,
-          onPressed: () => _handler.undo(hint.target),
-        ),
-        duration: const Duration(seconds: 8),
-      ),
-    );
-  }
-
-  /// E39: a playback error shows once as "Kann nicht abspielen" with a
-  /// retry; the next play reloads the playlist (audio/handler.dart). The
-  /// root ScaffoldMessenger shows it on whatever screen is in front.
-  ///
-  /// E58: if the failing chapter is not downloaded and the server does not
-  /// answer (the NAS is off at night), it says exactly that instead.
-  Future<void> _onStatus(PlaybackStatus status) async {
-    final error = status.error;
-    if (error == null) {
-      _shownError = null;
-      return;
-    }
-    if (error == _shownError || !mounted || _fadenOpen) return;
-    _shownError = error;
-    final messenger = ScaffoldMessenger.of(context);
-    var text = AppStrings.playbackError;
-    if (error.notDownloaded && !await ref.read(serverReachableProvider)()) {
-      text = AppStrings.offlineNotDownloaded;
-    }
-    if (!mounted || _shownError != error) return;
-    messenger.showSnackBar(
-      SnackBar(
-        content: Text(text),
-        action: SnackBarAction(
-          label: AppStrings.libraryRetry,
-          onPressed: () => unawaited(_handler.playFrom(EventSource.ui)),
-        ),
-        duration: const Duration(seconds: 10),
-      ),
-    );
+    _handler = ref.read(audioHandlerProvider);
   }
 
   @override
   void dispose() {
-    // The handler outlives this screen (it is a main.dart-owned singleton),
-    // so these hooks must not keep referring to a SleepTimerController that
-    // is about to be disposed right below.
-    _handler.onLastMinuteExtend = null;
-    _handler.isInNightWindow = null;
-    for (final sub in _subs) {
-      unawaited(sub.cancel());
-    }
-    _sleepTimer.dispose();
     _chrome?.dispose();
     super.dispose();
-  }
-
-  /// The device-time night window right now (docs/ARCHITEKTUR.md section 9's
-  /// "im Nachtfenster" for a media/system pause, SLEEP_HINT). It no longer
-  /// switches the night view, which follows the display brightness (E54).
-  ///
-  /// Reads the window from [nightWindowProvider] on every call, so a change
-  /// in the settings screen applies at once (the player stays mounted below
-  /// the library and settings, see [showPlayerScreen]). Until the setting
-  /// has loaded, the default 20:00-06:00 applies, as before.
-  bool get _inNightWindowNow {
-    final window = ref.read(nightWindowProvider).value ?? NightWindow.defaults;
-    final now = DateTime.now();
-    return isInNightWindow(
-      nowWallMs: now.millisecondsSinceEpoch,
-      tzMin: now.timeZoneOffset.inMinutes,
-      nightStartMin: window.startMin,
-      nightEndMin: window.endMin,
-    );
   }
 
   /// docs/ARCHITEKTUR.md section 9: "AWAKE entsteht bei Berührung des
@@ -203,13 +79,8 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
   /// unconditionally).
   void _onInteraction() => unawaited(_handler.awake());
 
-  /// Pushed on top (not replacing the player), so the player -- and its
-  /// sleep timer -- stays alive below the library and the mini player can
-  /// return to it (decision E29). The player slides down to show it (E49).
-  void _openLibrary() {
-    Navigator.of(context)
-        .push(UnderPlayerRoute<void>(builder: (_) => const LibraryScreen()));
-  }
+  /// Back to the library below (E60); the player slides down.
+  void _close() => closePlayer(context);
 
   void _openDetails() {
     final chrome = _chrome;
@@ -218,11 +89,26 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
       showDetailsSheet(
         context,
         chrome: chrome,
-        sleepTimer: _sleepTimer,
+        sleepTimer: ref.read(sleepTimerProvider),
         hooks: DetailsSheetHooks(
           onInteraction: _onInteraction,
-          onOpenLibrary: _openLibrary,
+          onOpenLibrary: _close,
         ),
+      ),
+    );
+  }
+
+  /// The moon button's choice (E61): the same timer as the details sheet.
+  void _openSleepTimer() {
+    final chrome = _chrome;
+    if (chrome == null) return;
+    unawaited(
+      showSleepTimerSheet(
+        context,
+        chrome: chrome,
+        sleepTimer: ref.read(sleepTimerProvider),
+        onChosen: (minutes) => unawaited(ref.read(sleepTimerDefaultProvider.notifier).set(minutes)),
+        hooks: DetailsSheetHooks(onInteraction: _onInteraction),
       ),
     );
   }
@@ -272,7 +158,8 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
     // function loses promotion in a closure literal) -- a final copy fixes
     // that without changing anything about the value itself.
     final resolvedHi = hi;
-    _fadenOpen = true;
+    // Undo hints wait until the Faden screen closes (playback_announcer.dart).
+    final fadenOpen = ref.read(fadenScreenOpenProvider.notifier)..set(true);
     try {
       await Navigator.of(context).push(
         MaterialPageRoute<void>(
@@ -287,11 +174,8 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
         ),
       );
     } finally {
-      _fadenOpen = false;
+      fadenOpen.set(false);
     }
-    final held = _heldUndoHint;
-    _heldUndoHint = null;
-    if (held != null) _showUndoHint(held);
   }
 
   /// Hands the current look to open sheets (E46) -- after the frame,
@@ -310,9 +194,10 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
   @override
   Widget build(BuildContext context) {
     final session = ref.watch(playerSessionProvider);
-    // Keeps the night window loaded for the SLEEP_HINT hook
-    // ([_inNightWindowNow]); it does not affect the look (E54).
-    ref.watch(nightWindowProvider);
+    // App-wide since E60 (main.dart watches them too); watched here so the
+    // player never runs without them.
+    ref.watch(nightWindowHookProvider);
+    final sleepTimer = ref.watch(sleepTimerProvider);
     final night = ref.watch(nightModeProvider);
     // Decision E28: the night view always gets the night look; otherwise
     // the "Erscheinungsbild" setting decides. Only [night] drives the night
@@ -356,9 +241,9 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
                 : AppBar(
                     automaticallyImplyLeading: false,
                     leading: IconButton(
-                      tooltip: AppStrings.libraryTitle,
-                      icon: const Icon(Icons.menu_book_outlined),
-                      onPressed: _openLibrary,
+                      tooltip: AppStrings.playerClose,
+                      icon: const Icon(Icons.keyboard_arrow_down, size: 32),
+                      onPressed: _close,
                     ),
                   ),
             body: SafeArea(
@@ -393,7 +278,12 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
                     );
                   },
                   onOpenDetails: _openDetails,
-                  onOpenLibrary: _openLibrary,
+                  onClose: _close,
+                  sleepTimerButton: SleepTimerButton(
+                    controller: sleepTimer,
+                    tokens: tokens,
+                    onPressed: _openSleepTimer,
+                  ),
                 ),
               ),
             ),
@@ -415,7 +305,14 @@ class PlayerBody extends ConsumerWidget {
   final void Function(int deltaSeconds) onSeek;
   final VoidCallback onResumeFromStop;
   final VoidCallback onOpenDetails;
-  final VoidCallback onOpenLibrary;
+
+  /// Closes the player (E60): a swipe down.
+  final VoidCallback onClose;
+
+  /// The sleep timer's button (E61), at the right end of the bottom strip
+  /// beside the details grip, day and night: the night view has no app
+  /// bar, and there it costs no height on a short screen.
+  final Widget? sleepTimerButton;
 
   const PlayerBody({
     super.key,
@@ -425,7 +322,8 @@ class PlayerBody extends ConsumerWidget {
     required this.onSeek,
     required this.onResumeFromStop,
     required this.onOpenDetails,
-    required this.onOpenLibrary,
+    required this.onClose,
+    this.sleepTimerButton,
   });
 
   /// Smallest cover worth showing; below this (tiny screen, huge text)
@@ -442,11 +340,11 @@ class PlayerBody extends ConsumerWidget {
 
     return GestureDetector(
       behavior: HitTestBehavior.opaque,
-      // Up: details. Down: the library (the player slides away, E49).
+      // Up: details. Down: close, back to the library (E60).
       onVerticalDragEnd: (details) {
         final velocity = details.primaryVelocity ?? 0;
         if (velocity < -200) onOpenDetails();
-        if (velocity > 200) onOpenLibrary();
+        if (velocity > 200) onClose();
       },
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 24),
@@ -558,7 +456,10 @@ class PlayerBody extends ConsumerWidget {
                   ),
                 ],
                 if (night) const Spacer() else const SizedBox(height: 8),
-                _DetailsHandle(tokens: tokens, onTap: onOpenDetails),
+                _BottomStrip(
+                  handle: _DetailsHandle(tokens: tokens, onTap: onOpenDetails),
+                  sleepTimerButton: sleepTimerButton,
+                ),
               ],
             );
           },
@@ -975,6 +876,118 @@ class _SeekButton extends StatelessWidget {
   }
 }
 
+/// What the moon button shows while a timer runs (decision E61): the
+/// minutes left, rounded up ("12 Min."), or "Kapitelende". Null while no
+/// timer runs.
+String? sleepTimerButtonText(SleepTimerState state) {
+  if (!state.running) return null;
+  if (state.mode == SleepTimerMode.chapterEnd) return AppStrings.sleepTimerChapterEnd;
+  final minutes = (state.remaining.inSeconds + 59) ~/ 60;
+  return AppStrings.sleepTimerMinutes(minutes < 1 ? 1 : minutes);
+}
+
+/// The sleep timer on the player itself (decision E61), day and night: a
+/// moon, and while a timer runs what is left. Opens the choice
+/// ([showSleepTimerSheet]). Follows the shared [SleepTimerController], so
+/// it and the details sheet always agree.
+class SleepTimerButton extends StatelessWidget {
+  final SleepTimerController controller;
+  final FadenTokens tokens;
+  final VoidCallback onPressed;
+
+  const SleepTimerButton({
+    super.key,
+    required this.controller,
+    required this.tokens,
+    required this.onPressed,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return StreamBuilder<SleepTimerState>(
+      stream: controller.stateStream,
+      initialData: controller.state,
+      builder: (context, snap) {
+        final text = sleepTimerButtonText(snap.data ?? controller.state);
+        final color = text == null ? tokens.tinteLeise : tokens.faden;
+        return Semantics(
+          button: true,
+          label: AppStrings.detailsSleepTimer,
+          value: text,
+          excludeSemantics: true,
+          child: TextButton(
+            onPressed: onPressed,
+            style: TextButton.styleFrom(
+              foregroundColor: color,
+              minimumSize: const Size.square(fadenMinTapTarget),
+              padding: const EdgeInsets.symmetric(horizontal: 12),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(text == null ? Icons.bedtime_outlined : Icons.bedtime, size: 26, color: color),
+                if (text != null) ...[
+                  const SizedBox(width: 6),
+                  Flexible(
+                    child: FittedBox(
+                      fit: BoxFit.scaleDown,
+                      child: Text(
+                        text,
+                        maxLines: 1,
+                        style: TextStyle(
+                          color: color,
+                          fontSize: FadenTypeSizes.caption,
+                          fontFeatures: const [FontFeature.tabularFigures()],
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+}
+
+/// The details grip across the full width, with the sleep timer's button
+/// at the right end (E61). The button never reaches the centred grip; a
+/// long label ("Kapitelende" at large text) scales down instead.
+class _BottomStrip extends StatelessWidget {
+  final Widget handle;
+  final Widget? sleepTimerButton;
+
+  const _BottomStrip({required this.handle, required this.sleepTimerButton});
+
+  /// Width of the grip bar plus some air on either side.
+  static const double _gripClearance = 36 + 16;
+
+  @override
+  Widget build(BuildContext context) {
+    final button = sleepTimerButton;
+    if (button == null) return handle;
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final slot = math.max(fadenMinTapTarget, (constraints.maxWidth - _gripClearance) / 2);
+        return Stack(
+          children: [
+            handle,
+            Positioned(
+              top: 0,
+              bottom: 0,
+              right: 0,
+              width: slot,
+              child: Align(alignment: Alignment.centerRight, child: button),
+            ),
+          ],
+        );
+      },
+    );
+  }
+}
+
 /// A visible grip at the bottom: swipe up or tap for the details sheet.
 class _DetailsHandle extends StatelessWidget {
   final FadenTokens tokens;
@@ -1010,17 +1023,27 @@ class _DetailsHandle extends StatelessWidget {
   }
 }
 
-/// Brings the player back to the front (decision E29): pops every route
-/// above [PlayerScreen.route] if it is on the stack; otherwise (the app
-/// started on the library because no book was open yet) replaces the whole
-/// stack with it, so there is only ever one player and it is the root
-/// route (docs/KONZEPT.md "Start ist der Player"). Either way it slides up
-/// (E49).
+/// Shows the one player (decisions E29, E60): brings it back to the front
+/// if it is on the stack, otherwise pushes it on top of the current screen
+/// (the library, or the settings), sliding up (E49). Used by the mini
+/// player and by picking a book, so there is never a second player.
 void showPlayerScreen(NavigatorState navigator) {
-  var found = false;
-  navigator.popUntil((route) {
-    if (route.settings.name == PlayerScreen.routeName) found = true;
-    return found || route.isFirst;
-  });
-  if (!found) navigator.pushAndRemoveUntil(PlayerScreen.route(), (_) => false);
+  final existing = PlayerRoute.activeIn(navigator);
+  if (existing != null) {
+    navigator.popUntil((route) => route == existing);
+    return;
+  }
+  unawaited(navigator.push(PlayerScreen.route()));
+}
+
+/// Closes the player (E60): the down chevron, a swipe down, "Bibliothek"
+/// in the details sheet. It slides down onto the library below. If nothing
+/// is below (should not happen), the library replaces it.
+void closePlayer(BuildContext context) {
+  final navigator = Navigator.of(context);
+  if (navigator.canPop()) {
+    navigator.pop();
+  } else {
+    unawaited(navigator.pushAndRemoveUntil(LibraryScreen.route(), (_) => false));
+  }
 }

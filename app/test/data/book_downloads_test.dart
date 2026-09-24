@@ -42,6 +42,48 @@ ApiClient _api(Map<String, Uint8List> files, {Set<String> failing = const {}, Co
 }
 
 void main() {
+  group('estimateRemainingBytes (E62)', () {
+    test('nothing known yet: no estimate', () {
+      expect(estimateRemainingBytes(doneBytes: 0, doneMs: 0, totalMs: 60000), isNull);
+      expect(estimateRemainingBytes(doneBytes: 0, doneMs: 0, totalMs: 60000, currentBytes: 500, currentMs: 1000),
+          isNull, reason: 'running file without a size');
+    });
+
+    test('from the completed files, over the duration still missing', () {
+      // 2 MB for 1 min done, 3 min to go.
+      expect(estimateRemainingBytes(doneBytes: 2000000, doneMs: 60000, totalMs: 240000), 6000000);
+    });
+
+    test('the running file: its exact rest once its size is known, the rest at the combined rate', () {
+      expect(
+        estimateRemainingBytes(
+          doneBytes: 1000,
+          doneMs: 1000,
+          totalMs: 6000,
+          currentBytes: 500,
+          currentSize: 3000,
+          currentMs: 1000,
+        ),
+        // 2500 of the running file, then 4000 ms at 4000 bytes / 2000 ms.
+        2500 + 8000,
+      );
+    });
+
+    test('the running file without a size is estimated at the known rate', () {
+      expect(
+        estimateRemainingBytes(doneBytes: 1000, doneMs: 1000, totalMs: 3000, currentBytes: 400, currentMs: 1000),
+        600 + 1000,
+      );
+    });
+
+    test('never negative', () {
+      expect(
+        estimateRemainingBytes(doneBytes: 1000, doneMs: 1000, totalMs: 2000, currentBytes: 5000, currentMs: 1000),
+        0,
+      );
+    });
+  });
+
   late Directory dir;
   setUp(() async => dir = await Directory.systemTemp.createTemp('faden-book-downloads'));
   tearDown(() => dir.delete(recursive: true));
@@ -71,6 +113,9 @@ void main() {
     expect(state.bytesOnDisk, 4000);
     expect(seen.where((s) => s.isDownloading).map((s) => s.fraction), contains(closeTo(0.25, 0.001)));
     expect(seen.where((s) => s.isDownloading).any((s) => s.receivedBytes > 0), isTrue);
+    // After the first file (1000 bytes for 1000 ms): 3000 ms to go at that rate (E62).
+    expect(seen.where((s) => s.isDownloading).map((s) => s.remainingBytes), contains(3000));
+    expect(state.remainingBytes, isNull, reason: 'only while downloading');
     expect(await downloads.totalBytesOnDisk(), 4000);
   });
 

@@ -12,6 +12,7 @@ import 'format.dart';
 import 'mini_player.dart';
 import 'player_screen.dart';
 import 'providers.dart';
+import 'routes.dart';
 import 'settings_screen.dart';
 import 'theme.dart';
 
@@ -19,11 +20,15 @@ import 'theme.dart';
 /// on top (the last books heard, from the journal, E33), then all books
 /// with search and a chosen order; each row has a cover thumbnail, the
 /// author, the book's progress as a thin thread with the time left (or
-/// "neu"/"gehört"), and a quiet download state. Reached from the player
-/// via a small icon or a swipe down; shows the mini player at the bottom
-/// while a book is open (decision E29).
+/// "neu"/"gehört"), and a quiet download state. The app's base (decision
+/// E60): the root route, no back button; the player is pushed on top of
+/// it and closes back onto it. Shows the mini player at the bottom while a
+/// book is open (decision E29).
 class LibraryScreen extends ConsumerStatefulWidget {
   const LibraryScreen({super.key});
+
+  /// The library as the root of the stack (E60), without a transition.
+  static Route<void> route() => BaseRoute<void>(builder: (_) => const LibraryScreen());
 
   @override
   ConsumerState<LibraryScreen> createState() => _LibraryScreenState();
@@ -64,6 +69,8 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen> {
     return Scaffold(
       bottomNavigationBar: const MiniPlayer(),
       appBar: AppBar(
+        // The base of the app (E60): nothing to go back to.
+        automaticallyImplyLeading: false,
         title: Text(AppStrings.libraryTitle),
         actions: [
           if (controller.books.isNotEmpty)
@@ -470,8 +477,7 @@ class BookRow extends ConsumerWidget {
       messenger.showSnackBar(SnackBar(content: Text(AppStrings.libraryOpenFailed)));
       return;
     }
-    // Back to the one root player instead of stacking a new one on top
-    // (decision E29).
+    // The one player slides up over the library (E29, E60).
     showPlayerScreen(Navigator.of(context));
   }
 }
@@ -503,7 +509,15 @@ class _StatusLine extends StatelessWidget {
       return Text(AppStrings.libraryDownloadFailed, style: small.copyWith(color: tokens.fehler));
     }
     if (download.isDownloading) {
-      return Text(AppStrings.downloadProgress(formatBytes(download.receivedBytes)), style: small);
+      // What is left, not what arrived (E62); "Lädt …" until a first
+      // file size gives the estimate a basis.
+      final rest = download.remainingBytes;
+      return Text(
+        rest == null ? AppStrings.libraryDownloading : AppStrings.downloadRemaining(formatRemainingBytes(rest)),
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+        style: small,
+      );
     }
     final fraction = progress?.fraction;
     String text;
@@ -573,16 +587,8 @@ class _DownloadControl extends StatelessWidget {
           child: IconButton(
             tooltip: AppStrings.downloadCancel,
             onPressed: () => controller.cancelDownload(book.bookId),
-            icon: Stack(
-              alignment: Alignment.center,
-              children: [
-                SizedBox.square(
-                  dimension: 26,
-                  child: CircularProgressIndicator(value: download.fraction, strokeWidth: 2.5),
-                ),
-                Icon(Icons.stop_rounded, size: 14, color: tokens.faden),
-              ],
-            ),
+            // The status line says what is left (E62); the button only stops.
+            icon: Icon(Icons.stop_circle_outlined, size: 26, color: tokens.faden),
           ),
         );
       case BookDownloadStatus.failed:

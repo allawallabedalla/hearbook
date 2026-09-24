@@ -41,6 +41,11 @@ class BookDownloadState {
   /// Why the last download failed (not meant for display as is).
   final String? error;
 
+  /// While downloading: an estimate of the bytes still to fetch
+  /// ([estimateRemainingBytes], decision E62); null before there is a
+  /// basis for it (no file size known yet) and when not downloading.
+  final int? remainingBytes;
+
   const BookDownloadState({
     required this.status,
     this.filesDone = 0,
@@ -49,6 +54,7 @@ class BookDownloadState {
     this.fraction = 0,
     this.bytesOnDisk = 0,
     this.error,
+    this.remainingBytes,
   });
 
   static const unknown = BookDownloadState(status: BookDownloadStatus.none);
@@ -56,6 +62,32 @@ class BookDownloadState {
   bool get isDownloaded => status == BookDownloadStatus.done;
   bool get isDownloading => status == BookDownloadStatus.downloading;
   bool get hasFailed => status == BookDownloadStatus.failed;
+}
+
+/// Bytes still to download for a book (decision E62). The manifest has
+/// durations but no file sizes, so the rest is extrapolated from the sizes
+/// known so far -- the completed files ([doneBytes] over [doneMs]) plus the
+/// running file once its size ([currentSize], 0 if the server sent none) is
+/// known -- over the duration still missing ([totalMs]). The running
+/// file's own rest is exact when its size is known. Null while nothing
+/// gives a byte rate yet. Pure, so it is unit-tested on its own.
+int? estimateRemainingBytes({
+  required int doneBytes,
+  required int doneMs,
+  required int totalMs,
+  int currentBytes = 0,
+  int currentSize = 0,
+  int currentMs = 0,
+}) {
+  final sizeKnown = currentSize > 0;
+  final rateBytes = doneBytes + (sizeKnown ? currentSize : 0);
+  final rateMs = doneMs + (sizeKnown ? currentMs : 0);
+  if (rateBytes <= 0 || rateMs <= 0) return null;
+  final bytesPerMs = rateBytes / rateMs;
+  final currentRest = sizeKnown ? currentSize - currentBytes : currentMs * bytesPerMs - currentBytes;
+  final laterMs = totalMs - doneMs - currentMs;
+  final rest = (currentRest < 0 ? 0 : currentRest) + (laterMs < 0 ? 0 : laterMs) * bytesPerMs;
+  return rest.round();
 }
 
 /// Whole-book downloads (decision E34/E35): byte-level progress, cancel,
@@ -164,6 +196,14 @@ class BookDownloads extends ChangeNotifier {
                 receivedBytes: received,
                 fraction: totalMs <= 0 ? 0 : (doneMs + file.durationMs * part) / totalMs,
                 bytesOnDisk: bytes,
+                remainingBytes: estimateRemainingBytes(
+                  doneBytes: bytes,
+                  doneMs: doneMs,
+                  totalMs: totalMs,
+                  currentBytes: got,
+                  currentSize: total,
+                  currentMs: file.durationMs,
+                ),
               ),
             );
           },
@@ -185,6 +225,7 @@ class BookDownloads extends ChangeNotifier {
             receivedBytes: received,
             fraction: totalMs <= 0 ? 0 : doneMs / totalMs,
             bytesOnDisk: bytes,
+            remainingBytes: estimateRemainingBytes(doneBytes: bytes, doneMs: doneMs, totalMs: totalMs),
           ),
         );
       }

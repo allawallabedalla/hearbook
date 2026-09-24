@@ -20,9 +20,9 @@ import 'l10n/strings.dart';
 import 'signals/night.dart';
 import 'signals/screen_brightness.dart';
 import 'ui/library_screen.dart';
+import 'ui/playback_announcer.dart';
 import 'ui/player_screen.dart';
 import 'ui/providers.dart';
-import 'ui/routes.dart';
 import 'ui/theme.dart';
 
 Future<void> main() async {
@@ -184,6 +184,10 @@ class _FadenAppState extends ConsumerState<FadenApp> {
   Widget build(BuildContext context) {
     ref.watch(syncWiringProvider);
     ref.watch(offlineWiringProvider);
+    // E60: the player is a route that closes, so the sleep timer and the
+    // SLEEP_HINT hook live for as long as the app does.
+    ref.watch(sleepTimerProvider);
+    ref.watch(nightWindowHookProvider);
     final tokens = resolveFadenTokens(
       appearance: ref.watch(appearanceProvider),
       platformBrightness: MediaQuery.platformBrightnessOf(context),
@@ -201,15 +205,19 @@ class _FadenAppState extends ConsumerState<FadenApp> {
       // KONZEPT.md "Bewegung": no decorative animation, so a change of
       // look switches at once instead of cross-fading.
       themeAnimationDuration: Duration.zero,
+      // Undo hints and playback errors on whatever screen is in front (E60).
+      builder: (context, child) => PlaybackAnnouncer(child: child!),
       home: const _StartupScreen(),
     );
   }
 }
 
 /// docs/ARCHITEKTUR.md section 11: "App-Start: Resolver ausführen, Player
-/// an der Position pausiert vorbereiten." If a book was open before
-/// (settings_store.dart's `lastOpenedBookId`), reopen it directly in the
-/// player; otherwise land on the library so the user can pick one.
+/// an der Position pausiert vorbereiten." The library is always the base
+/// (decision E60). If a book was open before (settings_store.dart's
+/// `lastOpenedBookId`), the player opens on top of it at once, so the
+/// first screen is still the player (KONZEPT "Start ist der Player") and
+/// closing it lands in the library; otherwise just the library.
 class _StartupScreen extends ConsumerStatefulWidget {
   const _StartupScreen();
 
@@ -239,7 +247,9 @@ class _StartupScreenState extends ConsumerState<_StartupScreen> {
         final result = await ref.read(bookOpenerProvider).open(lastBookId);
         if (result != OpenBookResult.unavailable) {
           if (!mounted) return;
-          Navigator.of(context).pushReplacement(PlayerScreen.route(instant: true));
+          Navigator.of(context)
+            ..pushReplacement(LibraryScreen.route())
+            ..push(PlayerScreen.route(instant: true));
           return;
         }
       } catch (_) {
@@ -251,8 +261,7 @@ class _StartupScreenState extends ConsumerState<_StartupScreen> {
     // E56 at app start (opening the last book above triggers it itself).
     final downloader = ref.read(autoDownloaderProvider);
     if (downloader != null) unawaited(downloader.trigger());
-    Navigator.of(context)
-        .pushReplacement(UnderPlayerRoute<void>(instant: true, builder: (_) => const LibraryScreen()));
+    Navigator.of(context).pushReplacement(LibraryScreen.route());
   }
 
   /// An empty screen in the background colour, no spinner (E47): opening

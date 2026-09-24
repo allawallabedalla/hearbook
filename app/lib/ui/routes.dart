@@ -7,101 +7,69 @@ bool reduceMotion(BuildContext context) => MediaQuery.maybeDisableAnimationsOf(c
 const _duration = Duration(milliseconds: 320);
 const _curve = Curves.easeInOutCubic;
 
-/// Route for the screens that live "under" the player: the library (and
-/// through it the settings). Decision E49: the player is the root route
-/// and stays mounted (its sleep timer lives there, E29), so the motion is
-/// staged from both sides -- the [PlayerRoute] below slides down on this
-/// route's animation while this route shows only the strip the player has
-/// already left. Reversed (mini player tap, back), the player slides up
-/// over the library. With [instant] (app start) there is no transition.
-class UnderPlayerRoute<T> extends PageRoute<T> {
-  final WidgetBuilder builder;
-  final bool instant;
-
-  UnderPlayerRoute({required this.builder, this.instant = false, super.settings});
-
-  @override
-  Color? get barrierColor => null;
-
-  @override
-  String? get barrierLabel => null;
-
-  @override
-  bool get maintainState => true;
-
-  @override
-  bool get opaque => true;
-
-  @override
-  Duration get transitionDuration => instant ? Duration.zero : _duration;
-
-  @override
-  Widget buildPage(BuildContext context, Animation<double> animation, Animation<double> secondaryAnimation) =>
-      builder(context);
-
-  @override
-  Widget buildTransitions(
-    BuildContext context,
-    Animation<double> animation,
-    Animation<double> secondaryAnimation,
-    Widget child,
-  ) {
-    if (reduceMotion(context)) return child;
-    return AnimatedBuilder(
-      animation: animation,
-      builder: (context, child) => ClipRect(
-        clipper: _TopStripClipper(_curve.transform(animation.value)),
-        child: child,
-      ),
-      child: child,
-    );
-  }
+/// Route of the library, the app's base (decision E60): the root of the
+/// stack, never animated. Settings, and the player (a [PlayerRoute]), are
+/// pushed on top of it.
+class BaseRoute<T> extends PageRouteBuilder<T> {
+  BaseRoute({required WidgetBuilder builder, super.settings})
+      : super(
+          transitionDuration: Duration.zero,
+          reverseTransitionDuration: Duration.zero,
+          pageBuilder: (context, _, _) => builder(context),
+        );
 }
 
-/// Clips to the top [fraction] of the box: the strip the sliding player
-/// has uncovered.
-class _TopStripClipper extends CustomClipper<Rect> {
-  final double fraction;
-
-  const _TopStripClipper(this.fraction);
-
-  @override
-  Rect getClip(Size size) => Rect.fromLTWH(0, 0, size.width, size.height * fraction);
-
-  @override
-  bool shouldReclip(_TopStripClipper oldClipper) => oldClipper.fraction != fraction;
-}
-
-/// The player's route (decision E49). Pushed over the library it slides up
-/// from the bottom; while an [UnderPlayerRoute] is pushed over it, it
-/// slides down out of view (and back up when that route pops). Other
-/// routes on top (the Faden screen) get the platform's page transition.
+/// The player's route (decisions E49, E60). Pushed over the library (or
+/// the settings) it slides up from the bottom; closing it (the down
+/// chevron, a swipe down, "Bibliothek" in the details sheet) slides it
+/// back down, revealing the screen below. Routes on top of it (the Faden
+/// screen) get the platform's page transition. With [instant] (app start)
+/// there is no transition; with reduced motion every change is immediate.
 class PlayerRoute extends MaterialPageRoute<void> {
   final bool instant;
-  Route<dynamic>? _above;
+
+  /// Player routes currently installed in a navigator, so
+  /// [PlayerRoute.activeIn] can bring back the one player instead of
+  /// stacking a second.
+  static final Set<PlayerRoute> _live = {};
 
   PlayerRoute({required super.builder, this.instant = false, super.settings});
 
-  @override
-  Duration get transitionDuration => instant ? Duration.zero : _duration;
-
-  @override
-  bool canTransitionTo(TransitionRoute<dynamic> nextRoute) =>
-      nextRoute is UnderPlayerRoute || super.canTransitionTo(nextRoute);
-
-  @override
-  void didChangeNext(Route<dynamic>? nextRoute) {
-    // Null once the route above is gone; the secondary animation is then
-    // dismissed anyway, so the last known one may stay.
-    if (nextRoute != null) _above = nextRoute;
-    super.didChangeNext(nextRoute);
+  /// The player route on [navigator]'s stack, if there is one.
+  static PlayerRoute? activeIn(NavigatorState navigator) {
+    for (final route in _live) {
+      if (route.isActive && route.navigator == navigator) return route;
+    }
+    return null;
   }
 
   @override
-  void didPopNext(Route<dynamic> nextRoute) {
-    _above = nextRoute;
-    super.didPopNext(nextRoute);
+  void install() {
+    super.install();
+    _live.add(this);
   }
+
+  @override
+  void dispose() {
+    _live.remove(this);
+    super.dispose();
+  }
+
+  /// Read from the platform, not a context: the durations are fixed when
+  /// the route is installed.
+  static bool get _motionReduced =>
+      WidgetsBinding.instance.platformDispatcher.accessibilityFeatures.disableAnimations;
+
+  @override
+  Duration get transitionDuration => instant || _motionReduced ? Duration.zero : _duration;
+
+  @override
+  Duration get reverseTransitionDuration => _motionReduced ? Duration.zero : _duration;
+
+  /// No sideways edge swipe (iOS): the player closes downwards, by its
+  /// own swipe or the chevron.
+  @override
+  bool get popGestureEnabled => false;
 
   @override
   Widget buildTransitions(
@@ -115,13 +83,6 @@ class PlayerRoute extends MaterialPageRoute<void> {
       position: animation.drive(Tween(begin: const Offset(0, 1), end: Offset.zero).chain(CurveTween(curve: _curve))),
       child: child,
     );
-    if (_above is UnderPlayerRoute) {
-      return SlideTransition(
-        position: secondaryAnimation
-            .drive(Tween(begin: Offset.zero, end: const Offset(0, 1)).chain(CurveTween(curve: _curve))),
-        child: entering,
-      );
-    }
     return super.buildTransitions(context, kAlwaysCompleteAnimation, secondaryAnimation, entering);
   }
 }

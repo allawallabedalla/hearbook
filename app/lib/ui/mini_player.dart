@@ -33,7 +33,8 @@ MiniPlayerAction miniPlayerAction({required bool playing, required bool sleepSus
 /// Persistent bar at the bottom of the library and settings screens while
 /// a book is open (decision E29; not on the player or the Faden screen).
 /// Meant for `Scaffold.bottomNavigationBar`; renders nothing while no book
-/// is open. Tapping the bar returns to the player; the button plays or
+/// is open. Tapping the bar (or swiping it up) slides the one player up
+/// over the current screen (E60); the button plays or
 /// pauses through the handler's journaled methods (invariant 3). Only the
 /// progress line and the remaining time follow the position (E44).
 class MiniPlayer extends ConsumerWidget {

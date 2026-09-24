@@ -247,9 +247,6 @@
   "libraryPartial": "teilweise geladen",
   "@libraryPartial": { "description": "Einige Dateien sind auf dem Gerät." },
 
-  "downloadProgress": "Lädt … {size}",
-  "@downloadProgress": { "description": "Laufender Download mit empfangener Datenmenge.", "placeholders": { "size": {} } },
-
   "downloadDeleteWithSize": "Download löschen · {size}",
   "@downloadDeleteWithSize": { "description": "Aktion mit Größe des Downloads.", "placeholders": { "size": {} } },
 
@@ -317,5 +314,11 @@
   "@settingsAutoDownloadDescription": { "description": "Erklärung unter dem Schalter settingsAutoDownload (E56)." },
 
   "storageFinishedNote": "Zu Ende gehörte Bücher werden automatisch vom Gerät gelöscht. Der Fortschritt bleibt.",
-  "@storageFinishedNote": { "description": "Hinweis im Speicher-Abschnitt zum automatischen Löschen (E57)." }
+  "@storageFinishedNote": { "description": "Hinweis im Speicher-Abschnitt zum automatischen Löschen (E57)." },
+
+  "downloadRemaining": "noch {size}",
+  "@downloadRemaining": { "description": "Laufender Download in der Bibliothek: was noch zu laden ist (E62), {size} z. B. 240 MB.", "placeholders": { "size": {} } },
+
+  "playerClose": "Zur Bibliothek",
+  "@playerClose": { "description": "Pfeil nach unten oben links im Player: schließt ihn, darunter liegt die Bibliothek (E60)." }
 }

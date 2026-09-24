@@ -4,6 +4,7 @@ import 'dart:typed_data';
 
 import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:flutter/foundation.dart' show ChangeNotifier;
+import 'package:flutter/services.dart' show HapticFeedback;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_riverpod/legacy.dart';
 import 'package:just_audio/just_audio.dart' as ja;
@@ -28,6 +29,7 @@ import '../domain/resolver.dart';
 import '../domain/sleep_onset.dart';
 import '../signals/night.dart';
 import '../signals/screen_brightness.dart';
+import '../signals/sleep_timer.dart';
 
 export '../data/library.dart' show BookSummary, ManifestCandidate, BookDetail;
 
@@ -295,6 +297,80 @@ class SleepTimerDefaultController extends AsyncNotifier<int> {
 
 final sleepTimerDefaultProvider =
     AsyncNotifierProvider<SleepTimerDefaultController, int>(SleepTimerDefaultController.new);
+
+/// The one sleep timer (docs/KONZEPT.md "Nachtmodus", E42), app-wide since
+/// decision E60: the player is a route that closes now, so the timer can
+/// no longer live in its state. The player's button and the details sheet
+/// share this instance. Expiry pauses through the handler (PAUSE plus
+/// SLEEP_HINT, E13); the countdown runs only while playing, "Kapitelende"
+/// follows the chapter actually playing; a headphone button in the last
+/// minute extends it instead of acting (the handler's
+/// `onLastMinuteExtend`). Watched by the app root (main.dart) and the
+/// player.
+final sleepTimerProvider = Provider<SleepTimerController>((ref) {
+  final handler = ref.watch(audioHandlerProvider);
+  final timer = SleepTimerController(
+    onExpire: () => unawaited(handler.pauseForSleepTimerExpiry()),
+    onVolumeChange: (factor) => unawaited(handler.setSleepFadeVolume(factor)),
+    isPlaying: () => handler.playing,
+    chapterRemaining: handler.chapterRemaining,
+  );
+  final sub = handler.chapterAdvanced.listen((_) => timer.onChapterAdvanced());
+  bool extend() {
+    final extended = timer.extendIfInLastMinute();
+    if (extended) unawaited(HapticFeedback.lightImpact());
+    return extended;
+  }
+
+  handler.onLastMinuteExtend = extend;
+  ref.onDispose(() {
+    // The handler outlives this provider (a main.dart singleton).
+    if (handler.onLastMinuteExtend == extend) handler.onLastMinuteExtend = null;
+    unawaited(sub.cancel());
+    timer.dispose();
+  });
+  return timer;
+});
+
+/// docs/ARCHITEKTUR.md section 9: a media/system pause in the night window
+/// writes SLEEP_HINT. The handler asks through `isInNightWindow`, which
+/// reads the window from [nightWindowProvider] on every call, so a change
+/// in the settings applies at once; until the setting has loaded, the
+/// default 20:00-06:00 applies. App-wide since E60 (it used to be set by
+/// the player, which no longer stays mounted). The night window no longer
+/// switches the night view (E54).
+final nightWindowHookProvider = Provider<void>((ref) {
+  final handler = ref.watch(audioHandlerProvider);
+  // Loads the window now and keeps it; listening does not rebuild this.
+  ref.listen(nightWindowProvider, (_, _) {});
+  bool inWindow() {
+    final window = ref.read(nightWindowProvider).value ?? NightWindow.defaults;
+    final now = DateTime.now();
+    return isInNightWindow(
+      nowWallMs: now.millisecondsSinceEpoch,
+      tzMin: now.timeZoneOffset.inMinutes,
+      nightStartMin: window.startMin,
+      nightEndMin: window.endMin,
+    );
+  }
+
+  handler.isInNightWindow = inWindow;
+  ref.onDispose(() {
+    if (handler.isInNightWindow == inWindow) handler.isInNightWindow = null;
+  });
+});
+
+/// Whether the Faden screen (ui/faden_screen.dart) is in front. Undo hints
+/// arriving meanwhile are held back until it closes
+/// (ui/playback_announcer.dart), where a tap means "kenne ich".
+class FadenScreenOpenController extends Notifier<bool> {
+  @override
+  bool build() => false;
+
+  void set(bool open) => state = open;
+}
+
+final fadenScreenOpenProvider = NotifierProvider<FadenScreenOpenController, bool>(FadenScreenOpenController.new);
 
 /// Where the display brightness comes from (decision E54). main.dart
 /// passes the iOS channel; null elsewhere (Android, tests), which keeps the

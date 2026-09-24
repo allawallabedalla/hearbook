@@ -62,6 +62,20 @@ void main() {
     expect(formatBytes(150 * 1000 * 1000 * 1000), '150 GB');
   });
 
+  test("formatRemainingBytes: a download's rest, coarse and rounded up (E62)", () {
+    const mb = 1000 * 1000;
+    expect(formatRemainingBytes(0), '0 MB');
+    expect(formatRemainingBytes(1), '1 MB', reason: 'never "0 MB" while something is left');
+    expect(formatRemainingBytes(3 * mb + 1), '4 MB');
+    expect(formatRemainingBytes(37 * mb), '37 MB');
+    expect(formatRemainingBytes(237 * mb), '240 MB', reason: 'steps of 10 MB from 100 MB');
+    expect(formatRemainingBytes(240 * mb), '240 MB');
+    expect(formatRemainingBytes(995 * mb), '1,0 GB', reason: 'no "1000 MB"');
+    expect(formatRemainingBytes(1230 * mb), '1,3 GB', reason: 'German decimal comma');
+    expect(formatRemainingBytes(9990 * mb), '10 GB');
+    expect(formatRemainingBytes(12300 * mb), '13 GB');
+  });
+
   test('initialsFor', () {
     expect(initialsFor('Der Zauberberg'), 'DZ');
     expect(initialsFor('momo'), 'M');
