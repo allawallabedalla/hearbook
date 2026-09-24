@@ -19,6 +19,7 @@ class AppStrings {
     'fadenModePrompt': 'Kennst du das? Dann tippen.',
     'fadenResultFound': 'Gefunden. Weiter ab hier.',
     'fadenLadderEarlier': 'Früher',
+    'fadenProbeCounter': 'Probe {n} von höchstens {max}',
     'undoHint': 'Zurück zu {chapter}, {time}',
     'undoAction': 'Rückgängig',
     'libraryFolderChanged': 'Ordner geändert: Reihenfolge prüfen',
@@ -78,6 +79,9 @@ class AppStrings {
   static String get fadenModePrompt => _of('fadenModePrompt');
   static String get fadenResultFound => _of('fadenResultFound');
   static String get fadenLadderEarlier => _of('fadenLadderEarlier');
+
+  static String fadenProbeCounter(int n, int max) =>
+      _of('fadenProbeCounter').replaceAll('{n}', '$n').replaceAll('{max}', '$max');
   static String get undoAction => _of('undoAction');
   static String get libraryFolderChanged => _of('libraryFolderChanged');
   static String get offlineNotice => _of('offlineNotice');

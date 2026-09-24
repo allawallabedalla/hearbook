@@ -23,6 +23,12 @@
   "fadenLadderEarlier": "Früher",
   "@fadenLadderEarlier": { "description": "Leiter-Button der Faden-Suche (M5)." },
 
+  "fadenProbeCounter": "Probe {n} von höchstens {max}",
+  "@fadenProbeCounter": {
+    "description": "Probenzähler im Faden-Modus (KONZEPT.md: \"Probe 3 von höchstens 8\").",
+    "placeholders": { "n": {}, "max": {} }
+  },
+
   "undoHint": "Zurück zu {chapter}, {time}",
   "@undoHint": {
     "description": "Undo-Hinweis nach jedem Sprung über 2 Min (KONZEPT.md: \"Zurück zu Kapitel 7, 23:41\"). {chapter} ist bereits der fertig formatierte Kapitel-Text (chapterLabel), {time} eine mm:ss-Zeit.",
