@@ -94,12 +94,12 @@ Hinweis: `flutter analyze` und `flutter test` sind grün (Design-Tokens/Kontrast
 
 ## M5 – App: Faden-Modus (≈ 150 Min)
 
-- [ ] Wach-Belege und `SLEEP_HINT` nach Abschnitt 9
-- [ ] Hauptbutton „Faden aufnehmen“ bei Schlafverdacht, darunter „Ab Stopp weiterhören“
-- [ ] Faden-Screen: Ton, Probe, Antwortfenster, kürzer werdender Faden, Probenzähler; Abbruch per langem Druck
-- [ ] Im Faden-Modus zählt jede Mediataste als „kenne ich“ (iOS und Android mit echten Kopfhörern geprüft)
-- [ ] `PROBE`- und `RESUME`-Events; „Früher“ nutzt die Leiter
-- [ ] Selbsttest aus M0 in der App wiederholt, Ergebnis im Commit notiert
+- [x] Wach-Belege und `SLEEP_HINT` nach Abschnitt 9
+- [x] Hauptbutton „Faden aufnehmen“ bei Schlafverdacht, darunter „Ab Stopp weiterhören“
+- [x] Faden-Screen: Ton, Probe, Antwortfenster, kürzer werdender Faden, Probenzähler; Abbruch per langem Druck
+- [ ] Im Faden-Modus zählt jede Mediataste als „kenne ich“ (iOS und Android mit echten Kopfhörern geprüft) — die Zuordnung selbst ist implementiert und unit-getestet (`app/test/audio/handler_test.dart`: alle sechs von audio_service auf beiden Plattformen erreichbaren Handler-Methoden lösen im Faden-Modus dieselbe „kenne ich“-Antwort aus, nie ihre normale Aktion); die Prüfung „mit echten Kopfhörern“ selbst ist in dieser Sandbox ohne Gerät nicht möglich, daher unabgehakt
+- [x] `PROBE`- und `RESUME`-Events; „Früher“ nutzt die Leiter
+- [ ] Selbsttest aus M0 in der App wiederholt, Ergebnis im Commit notiert — braucht eine echte Hörbuchdatei und einen zuhörenden Menschen, in dieser Sandbox nicht durchführbar
 
 ```text
 /plan Setze Meilenstein M5 aus docs/ROADMAP.md um. Spezifikation: docs/KONZEPT.md (Faden aufnehmen) und docs/ARCHITEKTUR.md Abschnitte 8 und 9. Am Ende Abnahme-Punkte abhaken und committen.
