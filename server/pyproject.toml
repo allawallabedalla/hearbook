@@ -21,7 +21,7 @@ build-backend = "uv_build"
 
 [dependency-groups]
 dev = [
-    "httpx>=0.28.1",
+    "httpx2>=2.13.1",
     "pytest>=9.1.1",
     "ruff>=0.16.8",
 ]
@@ -36,3 +36,8 @@ target-version = "py312"
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B"]
+
+[tool.ruff.lint.flake8-bugbear]
+# FastAPI's dependency injection relies on calling Depends() in argument
+# defaults; that is the documented pattern, not a mutable-default bug.
+extend-immutable-calls = ["fastapi.Depends"]

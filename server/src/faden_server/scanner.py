@@ -189,13 +189,13 @@ def ensure_pauses(
     )
 
 
-def _active_manifest(conn: sqlite3.Connection, book_id: str) -> sqlite3.Row | None:
+def active_manifest(conn: sqlite3.Connection, book_id: str) -> sqlite3.Row | None:
     return conn.execute(
         "SELECT * FROM manifests WHERE book_id = ? AND status = 'active'", (book_id,)
     ).fetchone()
 
 
-def _manifest_hashes(conn: sqlite3.Connection, manifest_id: str) -> list[str]:
+def manifest_hashes(conn: sqlite3.Connection, manifest_id: str) -> list[str]:
     rows = conn.execute(
         "SELECT file_hash FROM manifest_files WHERE manifest_id = ? ORDER BY idx",
         (manifest_id,),
@@ -279,9 +279,9 @@ def scan_book(
             "UPDATE books SET path = ?, title = ?, author = ? WHERE book_id = ?",
             (str(folder.path), title, author, book_id),
         )
-        active_row = _active_manifest(conn, book_id)
+        active_row = active_manifest(conn, book_id)
 
-    active_hashes = _manifest_hashes(conn, active_row["manifest_id"]) if active_row else None
+    active_hashes = manifest_hashes(conn, active_row["manifest_id"]) if active_row else None
     current_hashes = {fe.file_hash for fe in entries}
     missing = (set(active_hashes) - current_hashes) if active_hashes else set()
 
@@ -358,10 +358,10 @@ def scan_library(
 
     # 2) rename detection: same set of file hashes under a new path.
     for book_row in unmatched_books:
-        active = _active_manifest(conn, book_row["book_id"])
+        active = active_manifest(conn, book_row["book_id"])
         if active is None:
             continue
-        active_set = set(_manifest_hashes(conn, active["manifest_id"]))
+        active_set = set(manifest_hashes(conn, active["manifest_id"]))
         for folder in list(remaining_folders):
             hashes = set()
             ok = True
