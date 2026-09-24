@@ -1,0 +1,53 @@
+{
+  "description": "Buchende mit Schlafverdacht -> finished = false. (ARCHITEKTUR.md 7, Fall 8). FINISHED (itself awake-proof per section 5's table) is not the session's last event: two more, non-awake-proof events follow it, ending 600000ms later on SLEEP_HINT. last_awake stays at FINISHED's position, stop moves on with the trailing events, so the gap plus night window/SLEEP_HINT trips sleep_suspected, which rule 7 then uses to override finished back to false even though a FINISHED event is present in the winning session.",
+  "settings": { "night_window": { "start_min": 1200, "end_min": 360 } },
+  "manifest": {
+    "manifest_id": "m1",
+    "files": [
+      { "idx": 0, "file_hash": "f1", "duration_ms": 3600000 },
+      { "idx": 1, "file_hash": "f2", "duration_ms": 1000000 }
+    ]
+  },
+  "events": [
+    {
+      "event_id": "e1", "device_id": "dev-a", "session_id": "s1", "book_id": "book-1",
+      "manifest_id": "m1", "type": "PLAY", "file_hash": "f2", "offset_ms": 0,
+      "hlc": { "pt": 1704236400000, "c": 0 }, "wall_ms": 1704236400000, "tz_min": 0,
+      "source": "ui", "data": {}
+    },
+    {
+      "event_id": "e2", "device_id": "dev-a", "session_id": "s1", "book_id": "book-1",
+      "manifest_id": "m1", "type": "HEARTBEAT", "file_hash": "f2", "offset_ms": 60000,
+      "hlc": { "pt": 1704236460000, "c": 0 }, "wall_ms": 1704236460000, "tz_min": 0,
+      "source": "ui", "data": {}
+    },
+    {
+      "event_id": "e3", "device_id": "dev-a", "session_id": "s1", "book_id": "book-1",
+      "manifest_id": "m1", "type": "FINISHED", "file_hash": "f2", "offset_ms": 70000,
+      "hlc": { "pt": 1704236465000, "c": 0 }, "wall_ms": 1704236465000, "tz_min": 0,
+      "source": "system", "data": {}
+    },
+    {
+      "event_id": "e4", "device_id": "dev-a", "session_id": "s1", "book_id": "book-1",
+      "manifest_id": "m1", "type": "HEARTBEAT", "file_hash": "f2", "offset_ms": 370000,
+      "hlc": { "pt": 1704236765000, "c": 0 }, "wall_ms": 1704236765000, "tz_min": 0,
+      "source": "ui", "data": {}
+    },
+    {
+      "event_id": "e5", "device_id": "dev-a", "session_id": "s1", "book_id": "book-1",
+      "manifest_id": "m1", "type": "SLEEP_HINT", "file_hash": "f2", "offset_ms": 670000,
+      "hlc": { "pt": 1704237065000, "c": 0 }, "wall_ms": 1704237065000, "tz_min": 0,
+      "source": "timer", "data": {}
+    }
+  ],
+  "expect": {
+    "position": { "file_hash": "f2", "offset_ms": 670000 },
+    "global_ms": 4270000,
+    "last_awake": { "file_hash": "f2", "offset_ms": 70000 },
+    "stop": { "file_hash": "f2", "offset_ms": 670000 },
+    "sleep_suspected": true,
+    "history": [],
+    "finished": false,
+    "needs_confirmation": false
+  }
+}
