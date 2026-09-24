@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -516,22 +515,19 @@ class _Cover extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final api = ref.read(apiClientProvider);
+    final bytes = ref.watch(coverProvider(bookId)).when(
+          data: (b) => b,
+          loading: () => null,
+          error: (_, _) => null,
+        );
     return SizedBox(
       width: 220,
       height: 220,
-      child: api == null
+      child: bytes == null
           ? _placeholder()
-          : FutureBuilder<List<int>?>(
-              future: api.cover(bookId),
-              builder: (context, snap) {
-                final bytes = snap.data;
-                if (bytes == null) return _placeholder();
-                return ClipRRect(
-                  borderRadius: BorderRadius.circular(8),
-                  child: Image.memory(_asUint8List(bytes), fit: BoxFit.cover),
-                );
-              },
+          : ClipRRect(
+              borderRadius: BorderRadius.circular(8),
+              child: Image.memory(bytes, fit: BoxFit.cover, gaplessPlayback: true),
             ),
     );
   }
@@ -557,9 +553,6 @@ class _Cover extends ConsumerWidget {
     );
   }
 }
-
-Uint8List _asUint8List(List<int> bytes) =>
-    bytes is Uint8List ? bytes : Uint8List.fromList(bytes);
 
 String _formatDuration(int ms) {
   final totalSeconds = ms ~/ 1000;

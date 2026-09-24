@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:flutter/foundation.dart' show ChangeNotifier;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -38,6 +39,15 @@ final deviceIdProvider = Provider<String>((ref) => throw UnimplementedError('ove
 final apiClientProvider = Provider<ApiClient?>((ref) => null);
 final downloadManagerProvider = Provider<DownloadManager?>((ref) => null);
 final syncClientProvider = Provider<SyncClient?>((ref) => null);
+
+// Fetched once per book; loading it in build() refetched it on every position tick.
+final coverProvider = FutureProvider.family<Uint8List?, String>((ref, bookId) async {
+  final api = ref.watch(apiClientProvider);
+  if (api == null) return null;
+  final bytes = await api.cover(bookId);
+  if (bytes == null) return null;
+  return bytes is Uint8List ? bytes : Uint8List.fromList(bytes);
+});
 
 /// M6 (docs/ARCHITEKTUR.md section 9): null on a platform without a
 /// [SleepDataSource] implementation wired up (there is none yet besides
