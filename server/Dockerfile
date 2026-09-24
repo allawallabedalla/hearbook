@@ -29,6 +29,8 @@ RUN uv sync --frozen --no-dev
 COPY scripts ./scripts
 RUN chmod +x ./scripts/backup.sh
 
+COPY static ./static
+
 ENV PATH="/app/.venv/bin:${PATH}"
 
 EXPOSE 8787

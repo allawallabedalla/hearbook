@@ -11,16 +11,27 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, FastAPI, HTTPException, Request
-from fastapi.responses import StreamingResponse
+from fastapi.responses import FileResponse, StreamingResponse
 
 from . import db
 from .auth import make_auth_dependency
 from .config import Settings
 from .events import PUSH_LIMIT, EventValidationError, is_skewed, validate_event
+from .library_path import (
+    PathTraversalError,
+    effective_library,
+    get_library_path,
+    list_subdirs,
+    resolve_within_root,
+    set_library_path,
+)
 from .metadata import extract_embedded_cover, find_cover_file
 from .scanner import active_manifest, manifest_hashes, scan_library
 
 RANGE_BLOCK = 1024 * 1024
+
+# server/static/, alongside src/ (see Dockerfile's `COPY static ./static`).
+STATIC_DIR = Path(__file__).resolve().parents[2] / "static"
 
 logger = logging.getLogger(__name__)
 
@@ -184,11 +195,21 @@ def create_app(settings: Settings) -> FastAPI:
 
     require_token = make_auth_dependency(settings.token)
 
+    def _effective_library(conn: sqlite3.Connection) -> Path:
+        return effective_library(settings.library, get_library_path(conn))
+
     public = APIRouter()
 
     @public.get("/api/v1/health")
     def health() -> dict:
         return {"status": "ok"}
+
+    @public.get("/setup", include_in_schema=False)
+    def setup_page() -> FileResponse:
+        """The static setup page (section 10, decision E12). It needs no
+        auth itself: the Bearer token is entered in the page and sent only
+        to the /api/v1/setup/* endpoints, which do require it."""
+        return FileResponse(STATIC_DIR / "setup.html")
 
     api = APIRouter(dependencies=[Depends(require_token)])
 
@@ -415,7 +436,7 @@ def create_app(settings: Settings) -> FastAPI:
     def rescan(conn: sqlite3.Connection = Depends(get_conn)) -> dict:
         summary = scan_library(
             conn,
-            library=settings.library,
+            library=_effective_library(conn),
             noise_db=settings.silence_db,
             silence_s=settings.silence_s,
         )
@@ -425,6 +446,47 @@ def create_app(settings: Settings) -> FastAPI:
             "books_renamed": summary.books_renamed,
             "books_missing": summary.books_missing,
         }
+
+    @api.get("/api/v1/setup/browse")
+    def setup_browse(path: str = "", conn: sqlite3.Connection = Depends(get_conn)) -> dict:
+        """Section 10: subdirectory names of FADEN_LIBRARY + `path`, for the
+        setup page's folder picker. Read-only (invariant 8); `path` is
+        resolved and checked against FADEN_LIBRARY by list_subdirs()."""
+        try:
+            dirs = list_subdirs(settings.library, path)
+        except PathTraversalError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        except (FileNotFoundError, NotADirectoryError) as exc:
+            raise HTTPException(status_code=404, detail="path not found") from exc
+        return {"path": path, "dirs": dirs}
+
+    @api.get("/api/v1/setup/library")
+    def setup_get_library(conn: sqlite3.Connection = Depends(get_conn)) -> dict:
+        return {"path": get_library_path(conn)}
+
+    @api.post("/api/v1/setup/library")
+    def setup_set_library(body: dict, conn: sqlite3.Connection = Depends(get_conn)) -> dict:
+        """Section 10: validate `path`, store it as settings.library_path,
+        then rescan immediately with the new effective library path."""
+        path = body.get("path", "")
+        if not isinstance(path, str):
+            raise HTTPException(status_code=422, detail="path must be a string")
+
+        try:
+            target = resolve_within_root(settings.library, path)
+        except PathTraversalError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        if not target.is_dir():
+            raise HTTPException(status_code=404, detail="path not found")
+
+        set_library_path(conn, path)
+        scan_library(
+            conn,
+            library=target,
+            noise_db=settings.silence_db,
+            silence_s=settings.silence_s,
+        )
+        return {"path": path}
 
     app.include_router(public)
     app.include_router(api)

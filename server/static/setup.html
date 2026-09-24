@@ -1,0 +1,284 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Faden – Einrichtung</title>
+<style>
+  :root {
+    --grund: #EEF0F3;
+    --tinte: #1C2130;
+    --tinte-leise: #5E6577;
+    --faden: #3346A8;
+    --fehler: #B3261E;
+    --erfolg: #2E7D32;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0;
+    padding: 0;
+    min-height: 100%;
+    background: var(--grund);
+    color: var(--tinte);
+    font-family: "Atkinson Hyperlegible Next", "Atkinson Hyperlegible", system-ui, sans-serif;
+  }
+  body {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 24px 16px 48px;
+    gap: 20px;
+  }
+  h1 { font-size: 20px; margin: 8px 0 0; text-align: center; }
+  p { font-size: 14px; color: var(--tinte-leise); margin: 0; }
+  .karte {
+    width: 100%;
+    max-width: 480px;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+  }
+  fieldset {
+    border: 1px solid var(--tinte-leise);
+    border-radius: 8px;
+    padding: 14px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+  legend { font-size: 14px; color: var(--tinte-leise); padding: 0 6px; }
+  input[type=password] {
+    font-size: 16px;
+    padding: 10px;
+    border-radius: 6px;
+    border: 1px solid var(--tinte-leise);
+    background: var(--grund);
+    color: var(--tinte);
+    width: 100%;
+  }
+  button {
+    min-height: 44px;
+    font-size: 15px;
+    font-family: inherit;
+    border-radius: 8px;
+    border: 1px solid var(--faden);
+    background: transparent;
+    color: var(--tinte);
+    padding: 8px 14px;
+    cursor: pointer;
+    text-align: left;
+  }
+  button.primary { background: var(--faden); color: #fff; text-align: center; }
+  button:disabled { opacity: 0.4; cursor: default; }
+  .liste {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    max-height: 320px;
+    overflow-y: auto;
+  }
+  .pfad { font-size: 13px; word-break: break-all; color: var(--tinte-leise); }
+  .aktuell { font-size: 13px; }
+  .fehler { color: var(--fehler); font-size: 13px; }
+  .erfolg { color: var(--erfolg); font-size: 13px; }
+  code {
+    background: rgba(0, 0, 0, 0.06);
+    padding: 1px 4px;
+    border-radius: 4px;
+  }
+</style>
+</head>
+<body>
+  <h1>Faden – Bibliotheksordner wählen</h1>
+  <p>
+    Wählt den tatsächlichen Bibliotheksordner unter dem gemounteten,
+    nur lesenden Wurzelverzeichnis (<code>FADEN_LIBRARY</code>).
+  </p>
+
+  <div class="karte">
+    <fieldset id="token-feld">
+      <legend>Zugriff</legend>
+      <input type="password" id="token" placeholder="Bearer-Token" autocomplete="off">
+      <button class="primary" id="verbinden">Verbinden</button>
+      <p id="token-fehler" class="fehler" hidden></p>
+      <p>Der Token wird nur in diesem Browser-Tab gehalten, nicht dauerhaft gespeichert.</p>
+    </fieldset>
+
+    <fieldset id="browse-feld" hidden>
+      <legend>Ordner</legend>
+      <p class="aktuell" id="gewaehlt"></p>
+      <p class="pfad" id="pfad"></p>
+      <div class="liste" id="liste"></div>
+      <button id="hoch">.. (eine Ebene nach oben)</button>
+      <button class="primary" id="waehlen">Diesen Ordner wählen</button>
+      <p id="browse-fehler" class="fehler" hidden></p>
+      <p id="erfolg" class="erfolg" hidden></p>
+    </fieldset>
+  </div>
+
+<script>
+(function () {
+  "use strict";
+
+  var tokenFeld = document.getElementById("token-feld");
+  var browseFeld = document.getElementById("browse-feld");
+  var tokenInput = document.getElementById("token");
+  var tokenFehler = document.getElementById("token-fehler");
+  var browseFehler = document.getElementById("browse-fehler");
+  var erfolg = document.getElementById("erfolg");
+  var liste = document.getElementById("liste");
+  var pfadEl = document.getElementById("pfad");
+  var gewaehltEl = document.getElementById("gewaehlt");
+
+  var currentPath = "";
+
+  function token() {
+    try {
+      return sessionStorage.getItem("faden_token") || "";
+    } catch (e) {
+      return "";
+    }
+  }
+
+  function storeToken(t) {
+    try {
+      sessionStorage.setItem("faden_token", t);
+    } catch (e) {
+      // sessionStorage unavailable (private mode etc.): keep the token in
+      // memory for this page load only, via the closure variable below.
+    }
+  }
+
+  function authFetch(path, options) {
+    options = options || {};
+    options.headers = options.headers || {};
+    options.headers["Authorization"] = "Bearer " + token();
+    return fetch(path, options);
+  }
+
+  function showError(el, message) {
+    el.textContent = message;
+    el.hidden = false;
+  }
+
+  function hideError(el) {
+    el.hidden = true;
+  }
+
+  function describePath(path) {
+    return path ? path : "(Wurzel von FADEN_LIBRARY)";
+  }
+
+  function loadCurrent() {
+    return authFetch("/api/v1/setup/library").then(function (resp) {
+      if (resp.status === 401) throw new Error("unauthorized");
+      if (!resp.ok) throw new Error("Server-Fehler (" + resp.status + ").");
+      return resp.json();
+    }).then(function (data) {
+      gewaehltEl.textContent = "Aktuell gewählt: " + describePath(data.path);
+    });
+  }
+
+  function browse(path) {
+    hideError(browseFehler);
+    liste.textContent = "Lade …";
+    return authFetch("/api/v1/setup/browse?path=" + encodeURIComponent(path)).then(function (resp) {
+      if (resp.status === 401) throw new Error("unauthorized");
+      if (!resp.ok) throw new Error("Ordner nicht lesbar (" + resp.status + ").");
+      return resp.json();
+    }).then(function (data) {
+      currentPath = data.path;
+      pfadEl.textContent = "/" + currentPath;
+      renderList(data.dirs);
+    }).catch(function (err) {
+      if (err.message === "unauthorized") {
+        showError(browseFehler, "Token wird abgelehnt. Seite neu laden und erneut eingeben.");
+      } else {
+        showError(browseFehler, err.message || "Fehler beim Laden.");
+      }
+    });
+  }
+
+  function renderList(dirs) {
+    liste.textContent = "";
+    if (dirs.length === 0) {
+      var leer = document.createElement("p");
+      leer.textContent = "(keine Unterordner)";
+      liste.appendChild(leer);
+      return;
+    }
+    dirs.forEach(function (name) {
+      var btn = document.createElement("button");
+      btn.textContent = name;
+      btn.addEventListener("click", function () {
+        var next = currentPath ? currentPath + "/" + name : name;
+        browse(next);
+      });
+      liste.appendChild(btn);
+    });
+  }
+
+  document.getElementById("verbinden").addEventListener("click", function () {
+    var t = tokenInput.value.trim();
+    if (!t) {
+      showError(tokenFehler, "Bitte Token eingeben.");
+      return;
+    }
+    storeToken(t);
+    hideError(tokenFehler);
+    loadCurrent().then(function () {
+      tokenFeld.hidden = true;
+      browseFeld.hidden = false;
+      return browse("");
+    }).catch(function (err) {
+      if (err.message === "unauthorized") {
+        showError(tokenFehler, "Token wird abgelehnt.");
+      } else {
+        showError(tokenFehler, "Server nicht erreichbar.");
+      }
+    });
+  });
+
+  document.getElementById("hoch").addEventListener("click", function () {
+    if (!currentPath) return;
+    var idx = currentPath.lastIndexOf("/");
+    browse(idx === -1 ? "" : currentPath.slice(0, idx));
+  });
+
+  document.getElementById("waehlen").addEventListener("click", function () {
+    hideError(browseFehler);
+    erfolg.hidden = true;
+    authFetch("/api/v1/setup/library", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ path: currentPath })
+    }).then(function (resp) {
+      if (resp.status === 401) throw new Error("unauthorized");
+      if (!resp.ok) {
+        return resp.json().catch(function () { return {}; }).then(function (body) {
+          throw new Error(body.detail || ("Fehler (" + resp.status + ")."));
+        });
+      }
+      return resp.json();
+    }).then(function () {
+      gewaehltEl.textContent = "Aktuell gewählt: " + describePath(currentPath);
+      erfolg.textContent = "Gespeichert. Die Bibliothek wird gerade neu eingelesen.";
+      erfolg.hidden = false;
+    }).catch(function (err) {
+      if (err.message === "unauthorized") {
+        showError(browseFehler, "Token wird abgelehnt.");
+      } else {
+        showError(browseFehler, err.message);
+      }
+    });
+  });
+
+  // If a token from an earlier connect in this tab is still around, use it.
+  if (token()) {
+    tokenInput.value = token();
+    document.getElementById("verbinden").click();
+  }
+})();
+</script>
+</body>
+</html>
