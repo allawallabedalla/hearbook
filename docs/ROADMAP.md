@@ -37,6 +37,21 @@ Hinweis: Faden-Suche gegen 20.000 simulierte Hörer (alle 5 Eigenschaften aus Ab
 /plan Setze Meilenstein M1 aus docs/ROADMAP.md um. Spezifikation: docs/ARCHITEKTUR.md Abschnitte 2, 3, 4, 10 und 12. Hash, Sortierung und Rescan-Regeln test-first. Am Ende Abnahme-Punkte abhaken und committen.
 ```
 
+## M1b – Setup-Weboberfläche (≈ 45 Min, nachträglich ergänzt)
+
+Ziel: Bibliotheksordner auf dem NAS per Klick wählen statt `docker-compose.yml`/`.env` von Hand zu editieren. Nicht im ursprünglichen KONZEPT/ARCHITEKTUR, siehe `docs/ARCHITEKTUR.md` Abschnitt 13 Entscheidung E12.
+
+- [ ] `settings`-Tabelle (Abschnitt 2); `FADEN_LIBRARY` wird als weiter gefasster, nur lesender Wurzel-Mount dokumentiert
+- [ ] `GET /api/v1/setup/browse?path=`, `GET`/`POST /api/v1/setup/library` (Abschnitt 10); Pfad-Traversal serverseitig auf die Wurzel begrenzt (kein `..`, kein Verlassen von `FADEN_LIBRARY`); Bearer-Auth wie alle anderen Endpunkte
+- [ ] Scanner/Rescan nutzt `FADEN_LIBRARY` + `settings.library_path` als effektiven Bibliothekspfad statt `FADEN_LIBRARY` allein
+- [ ] `server/static/setup.html`: eine Datei, Vanilla JS, Stil wie `prototype/faden.html`; Token einmalig eingeben, Ordner anklicken, bestätigen; danach sofortiger Rescan
+- [ ] Tests: Pfad-Traversal-Schutz, Auswahl wird persistiert und vom Scanner verwendet, 401 ohne Token
+- [ ] `docker-compose.yml`/README-Hinweis aktualisiert: `FADEN_LIBRARY` kann jetzt bewusst weiter gemountet werden als die eigentliche Bibliothek
+
+```text
+/plan Setze Meilenstein M1b aus docs/ROADMAP.md um. Spezifikation: docs/ARCHITEKTUR.md Abschnitte 2, 10, 12 und 13 (E12). Baut auf dem bestehenden server/ aus M1/M2 auf. Am Ende Abnahme-Punkte abhaken und committen.
+```
+
 ## M2 – Server: Events und Sync (≈ 60 Min)
 
 - [x] `POST` und `GET /api/v1/events` nach Abschnitt 6: idempotent, Cursor, Paging
