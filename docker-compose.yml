@@ -1,0 +1,13 @@
+services:
+  faden:
+    build: ./server
+    ports:
+      - "${FADEN_PORT:-8787}:8787"
+    env_file: .env
+    volumes:
+      - ${FADEN_LIBRARY_HOST:-./library}:/library:ro
+      - faden-data:/data
+    restart: unless-stopped
+
+volumes:
+  faden-data:
