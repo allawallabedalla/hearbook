@@ -19,7 +19,10 @@ android {
         applicationId = "de.faden.faden"
         // You can update the following values to match your application needs.
         // For more information, see: https://flutter.dev/to/review-gradle-config.
-        minSdk = flutter.minSdkVersion
+        // M6 (docs/ARCHITEKTUR.md section 9): the `health` package's Health
+        // Connect support requires API 26 (its own example app pins the
+        // same value), above Flutter's own default of 24.
+        minSdk = 26
         targetSdk = flutter.targetSdkVersion
         // Uses the version code from pubspec.yaml. When using split APKs, 1000 * ABI_VERSION
         // is added automatically by Flutter. (https://developer.android.com/studio/build/configure-apk-splits#configure-APK-versions)

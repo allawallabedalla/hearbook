@@ -41,5 +41,16 @@
             <action android:name="android.intent.action.PROCESS_TEXT"/>
             <data android:mimeType="text/plain"/>
         </intent>
+        <!-- M6 (docs/ARCHITEKTUR.md section 9): lets the `health` package
+             check whether the Health Connect app is installed. -->
+        <package android:name="com.google.android.apps.healthdata" />
+        <intent>
+            <action android:name="androidx.health.ACTION_SHOW_PERMISSIONS_RATIONALE" />
+        </intent>
     </queries>
+
+    <!-- M6: read-only access to sleep data (docs/ARCHITEKTUR.md section 9 --
+         only Schlafbeginn/SLEEP_ASLEEP is read, nothing is ever written,
+         CLAUDE.md invariant 7). -->
+    <uses-permission android:name="android.permission.health.READ_SLEEP"/>
 </manifest>

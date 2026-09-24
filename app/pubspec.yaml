@@ -53,6 +53,16 @@ dependencies:
   crypto: ^3.0.7
   convert: ^3.1.2
 
+  # HealthKit (iOS) / Health Connect (Android) sleep-onset reading (M6,
+  # docs/ARCHITEKTUR.md section 9, decision E6). Verified on pub.dev before
+  # adding (CLAUDE.md): verified publisher carp.dk, actively maintained
+  # (13.3.2, published ~40 days before this milestone), 680 likes/160 pub
+  # points, iOS 15+/HealthKit and Android/Health Connect (Google Fit support
+  # dropped as of 11.0.0, which is fine -- this app only ever reads
+  # SLEEP_ASLEEP). Used behind data/sleep_data_source.dart's `SleepDataSource`
+  # interface, never directly from domain/ or ui/.
+  health: ^13.3.2
+
 dev_dependencies:
   flutter_test:
     sdk: flutter

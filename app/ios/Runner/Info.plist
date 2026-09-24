@@ -26,6 +26,14 @@
 	<string>$(FLUTTER_BUILD_NUMBER)</string>
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
+	<!-- M6 (docs/ARCHITEKTUR.md section 9): required by the `health`
+	     package's HealthKit integration; this app only ever reads the
+	     "Schlafbeginn" sample, never writes anything, but HealthKit
+	     requires both keys to be present regardless. -->
+	<key>NSHealthShareUsageDescription</key>
+	<string>Faden liest lokal deinen Schlafbeginn, um die Faden-Suche zu verkürzen. Diese Daten verlassen nie dein Gerät.</string>
+	<key>NSHealthUpdateUsageDescription</key>
+	<string>Faden schreibt keine Gesundheitsdaten; dieser Hinweis ist eine Vorgabe von Apple HealthKit.</string>
 	<key>UIApplicationSceneManifest</key>
 	<dict>
 		<key>UIApplicationSupportsMultipleScenes</key>
