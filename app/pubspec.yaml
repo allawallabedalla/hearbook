@@ -92,3 +92,9 @@ flutter:
         - asset: assets/fonts/AtkinsonHyperlegibleNext-Regular.ttf
         - asset: assets/fonts/AtkinsonHyperlegibleNext-Bold.ttf
           weight: 700
+
+  # Faden-Suche cue tone (docs/KONZEPT.md "Faden aufnehmen": "Ein leiser
+  # Ton, dann eine 4 s lange Hörprobe"), generated locally (no third-party
+  # asset, see docs/ARCHITEKTUR.md section 13).
+  assets:
+    - assets/sounds/ton.wav
