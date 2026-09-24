@@ -844,20 +844,21 @@ class EventRowsCompanion extends UpdateCompanion<EventRow> {
   }
 }
 
-class $SyncCursorsTable extends SyncCursors
-    with TableInfo<$SyncCursorsTable, SyncCursor> {
+class $SyncStateTable extends SyncState
+    with TableInfo<$SyncStateTable, SyncStateData> {
   @override
   final GeneratedDatabase attachedDatabase;
   final String? _alias;
-  $SyncCursorsTable(this.attachedDatabase, [this._alias]);
-  static const VerificationMeta _bookIdMeta = const VerificationMeta('bookId');
+  $SyncStateTable(this.attachedDatabase, [this._alias]);
+  static const VerificationMeta _idMeta = const VerificationMeta('id');
   @override
-  late final GeneratedColumn<String> bookId = GeneratedColumn<String>(
-    'book_id',
+  late final GeneratedColumn<int> id = GeneratedColumn<int>(
+    'id',
     aliasedName,
     false,
-    type: DriftSqlType.string,
-    requiredDuringInsert: true,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+    defaultValue: const Constant(0),
   );
   static const VerificationMeta _sinceSeqMeta = const VerificationMeta(
     'sinceSeq',
@@ -872,26 +873,21 @@ class $SyncCursorsTable extends SyncCursors
     defaultValue: const Constant(0),
   );
   @override
-  List<GeneratedColumn> get $columns => [bookId, sinceSeq];
+  List<GeneratedColumn> get $columns => [id, sinceSeq];
   @override
   String get aliasedName => _alias ?? actualTableName;
   @override
   String get actualTableName => $name;
-  static const String $name = 'sync_cursors';
+  static const String $name = 'sync_state';
   @override
   VerificationContext validateIntegrity(
-    Insertable<SyncCursor> instance, {
+    Insertable<SyncStateData> instance, {
     bool isInserting = false,
   }) {
     final context = VerificationContext();
     final data = instance.toColumns(true);
-    if (data.containsKey('book_id')) {
-      context.handle(
-        _bookIdMeta,
-        bookId.isAcceptableOrUnknown(data['book_id']!, _bookIdMeta),
-      );
-    } else if (isInserting) {
-      context.missing(_bookIdMeta);
+    if (data.containsKey('id')) {
+      context.handle(_idMeta, id.isAcceptableOrUnknown(data['id']!, _idMeta));
     }
     if (data.containsKey('since_seq')) {
       context.handle(
@@ -903,14 +899,14 @@ class $SyncCursorsTable extends SyncCursors
   }
 
   @override
-  Set<GeneratedColumn> get $primaryKey => {bookId};
+  Set<GeneratedColumn> get $primaryKey => {id};
   @override
-  SyncCursor map(Map<String, dynamic> data, {String? tablePrefix}) {
+  SyncStateData map(Map<String, dynamic> data, {String? tablePrefix}) {
     final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
-    return SyncCursor(
-      bookId: attachedDatabase.typeMapping.read(
-        DriftSqlType.string,
-        data['${effectivePrefix}book_id'],
+    return SyncStateData(
+      id: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}id'],
       )!,
       sinceSeq: attachedDatabase.typeMapping.read(
         DriftSqlType.int,
@@ -920,37 +916,34 @@ class $SyncCursorsTable extends SyncCursors
   }
 
   @override
-  $SyncCursorsTable createAlias(String alias) {
-    return $SyncCursorsTable(attachedDatabase, alias);
+  $SyncStateTable createAlias(String alias) {
+    return $SyncStateTable(attachedDatabase, alias);
   }
 }
 
-class SyncCursor extends DataClass implements Insertable<SyncCursor> {
-  final String bookId;
+class SyncStateData extends DataClass implements Insertable<SyncStateData> {
+  final int id;
   final int sinceSeq;
-  const SyncCursor({required this.bookId, required this.sinceSeq});
+  const SyncStateData({required this.id, required this.sinceSeq});
   @override
   Map<String, Expression> toColumns(bool nullToAbsent) {
     final map = <String, Expression>{};
-    map['book_id'] = Variable<String>(bookId);
+    map['id'] = Variable<int>(id);
     map['since_seq'] = Variable<int>(sinceSeq);
     return map;
   }
 
-  SyncCursorsCompanion toCompanion(bool nullToAbsent) {
-    return SyncCursorsCompanion(
-      bookId: Value(bookId),
-      sinceSeq: Value(sinceSeq),
-    );
+  SyncStateCompanion toCompanion(bool nullToAbsent) {
+    return SyncStateCompanion(id: Value(id), sinceSeq: Value(sinceSeq));
   }
 
-  factory SyncCursor.fromJson(
+  factory SyncStateData.fromJson(
     Map<String, dynamic> json, {
     ValueSerializer? serializer,
   }) {
     serializer ??= driftRuntimeOptions.defaultSerializer;
-    return SyncCursor(
-      bookId: serializer.fromJson<String>(json['bookId']),
+    return SyncStateData(
+      id: serializer.fromJson<int>(json['id']),
       sinceSeq: serializer.fromJson<int>(json['sinceSeq']),
     );
   }
@@ -958,100 +951,84 @@ class SyncCursor extends DataClass implements Insertable<SyncCursor> {
   Map<String, dynamic> toJson({ValueSerializer? serializer}) {
     serializer ??= driftRuntimeOptions.defaultSerializer;
     return <String, dynamic>{
-      'bookId': serializer.toJson<String>(bookId),
+      'id': serializer.toJson<int>(id),
       'sinceSeq': serializer.toJson<int>(sinceSeq),
     };
   }
 
-  SyncCursor copyWith({String? bookId, int? sinceSeq}) => SyncCursor(
-    bookId: bookId ?? this.bookId,
-    sinceSeq: sinceSeq ?? this.sinceSeq,
-  );
-  SyncCursor copyWithCompanion(SyncCursorsCompanion data) {
-    return SyncCursor(
-      bookId: data.bookId.present ? data.bookId.value : this.bookId,
+  SyncStateData copyWith({int? id, int? sinceSeq}) =>
+      SyncStateData(id: id ?? this.id, sinceSeq: sinceSeq ?? this.sinceSeq);
+  SyncStateData copyWithCompanion(SyncStateCompanion data) {
+    return SyncStateData(
+      id: data.id.present ? data.id.value : this.id,
       sinceSeq: data.sinceSeq.present ? data.sinceSeq.value : this.sinceSeq,
     );
   }
 
   @override
   String toString() {
-    return (StringBuffer('SyncCursor(')
-          ..write('bookId: $bookId, ')
+    return (StringBuffer('SyncStateData(')
+          ..write('id: $id, ')
           ..write('sinceSeq: $sinceSeq')
           ..write(')'))
         .toString();
   }
 
   @override
-  int get hashCode => Object.hash(bookId, sinceSeq);
+  int get hashCode => Object.hash(id, sinceSeq);
   @override
   bool operator ==(Object other) =>
       identical(this, other) ||
-      (other is SyncCursor &&
-          other.bookId == this.bookId &&
+      (other is SyncStateData &&
+          other.id == this.id &&
           other.sinceSeq == this.sinceSeq);
 }
 
-class SyncCursorsCompanion extends UpdateCompanion<SyncCursor> {
-  final Value<String> bookId;
+class SyncStateCompanion extends UpdateCompanion<SyncStateData> {
+  final Value<int> id;
   final Value<int> sinceSeq;
-  final Value<int> rowid;
-  const SyncCursorsCompanion({
-    this.bookId = const Value.absent(),
+  const SyncStateCompanion({
+    this.id = const Value.absent(),
     this.sinceSeq = const Value.absent(),
-    this.rowid = const Value.absent(),
   });
-  SyncCursorsCompanion.insert({
-    required String bookId,
+  SyncStateCompanion.insert({
+    this.id = const Value.absent(),
     this.sinceSeq = const Value.absent(),
-    this.rowid = const Value.absent(),
-  }) : bookId = Value(bookId);
-  static Insertable<SyncCursor> custom({
-    Expression<String>? bookId,
+  });
+  static Insertable<SyncStateData> custom({
+    Expression<int>? id,
     Expression<int>? sinceSeq,
-    Expression<int>? rowid,
   }) {
     return RawValuesInsertable({
-      if (bookId != null) 'book_id': bookId,
+      if (id != null) 'id': id,
       if (sinceSeq != null) 'since_seq': sinceSeq,
-      if (rowid != null) 'rowid': rowid,
     });
   }
 
-  SyncCursorsCompanion copyWith({
-    Value<String>? bookId,
-    Value<int>? sinceSeq,
-    Value<int>? rowid,
-  }) {
-    return SyncCursorsCompanion(
-      bookId: bookId ?? this.bookId,
+  SyncStateCompanion copyWith({Value<int>? id, Value<int>? sinceSeq}) {
+    return SyncStateCompanion(
+      id: id ?? this.id,
       sinceSeq: sinceSeq ?? this.sinceSeq,
-      rowid: rowid ?? this.rowid,
     );
   }
 
   @override
   Map<String, Expression> toColumns(bool nullToAbsent) {
     final map = <String, Expression>{};
-    if (bookId.present) {
-      map['book_id'] = Variable<String>(bookId.value);
+    if (id.present) {
+      map['id'] = Variable<int>(id.value);
     }
     if (sinceSeq.present) {
       map['since_seq'] = Variable<int>(sinceSeq.value);
-    }
-    if (rowid.present) {
-      map['rowid'] = Variable<int>(rowid.value);
     }
     return map;
   }
 
   @override
   String toString() {
-    return (StringBuffer('SyncCursorsCompanion(')
-          ..write('bookId: $bookId, ')
-          ..write('sinceSeq: $sinceSeq, ')
-          ..write('rowid: $rowid')
+    return (StringBuffer('SyncStateCompanion(')
+          ..write('id: $id, ')
+          ..write('sinceSeq: $sinceSeq')
           ..write(')'))
         .toString();
   }
@@ -1061,12 +1038,12 @@ abstract class _$AppDatabase extends GeneratedDatabase {
   _$AppDatabase(QueryExecutor e) : super(e);
   $AppDatabaseManager get managers => $AppDatabaseManager(this);
   late final $EventRowsTable eventRows = $EventRowsTable(this);
-  late final $SyncCursorsTable syncCursors = $SyncCursorsTable(this);
+  late final $SyncStateTable syncState = $SyncStateTable(this);
   @override
   Iterable<TableInfo<Table, Object?>> get allTables =>
       allSchemaEntities.whereType<TableInfo<Table, Object?>>();
   @override
-  List<DatabaseSchemaEntity> get allSchemaEntities => [eventRows, syncCursors];
+  List<DatabaseSchemaEntity> get allSchemaEntities => [eventRows, syncState];
 }
 
 typedef $$EventRowsTableCreateCompanionBuilder = EventRowsCompanion Function({
@@ -1462,30 +1439,26 @@ typedef $$EventRowsTableProcessedTableManager =
       EventRow,
       PrefetchHooks Function()
     >;
-typedef $$SyncCursorsTableCreateCompanionBuilder =
-    SyncCursorsCompanion Function({
-      required String bookId,
-      Value<int> sinceSeq,
-      Value<int> rowid,
-    });
-typedef $$SyncCursorsTableUpdateCompanionBuilder =
-    SyncCursorsCompanion Function({
-      Value<String> bookId,
-      Value<int> sinceSeq,
-      Value<int> rowid,
-    });
+typedef $$SyncStateTableCreateCompanionBuilder = SyncStateCompanion Function({
+  Value<int> id,
+  Value<int> sinceSeq,
+});
+typedef $$SyncStateTableUpdateCompanionBuilder = SyncStateCompanion Function({
+  Value<int> id,
+  Value<int> sinceSeq,
+});
 
-class $$SyncCursorsTableFilterComposer
-    extends Composer<_$AppDatabase, $SyncCursorsTable> {
-  $$SyncCursorsTableFilterComposer({
+class $$SyncStateTableFilterComposer
+    extends Composer<_$AppDatabase, $SyncStateTable> {
+  $$SyncStateTableFilterComposer({
     required super.$db,
     required super.$table,
     super.joinBuilder,
     super.$addJoinBuilderToRootComposer,
     super.$removeJoinBuilderFromRootComposer,
   });
-  ColumnFilters<String> get bookId => $composableBuilder(
-    column: $table.bookId,
+  ColumnFilters<int> get id => $composableBuilder(
+    column: $table.id,
     builder: (column) => ColumnFilters(column),
   );
 
@@ -1495,17 +1468,17 @@ class $$SyncCursorsTableFilterComposer
   );
 }
 
-class $$SyncCursorsTableOrderingComposer
-    extends Composer<_$AppDatabase, $SyncCursorsTable> {
-  $$SyncCursorsTableOrderingComposer({
+class $$SyncStateTableOrderingComposer
+    extends Composer<_$AppDatabase, $SyncStateTable> {
+  $$SyncStateTableOrderingComposer({
     required super.$db,
     required super.$table,
     super.joinBuilder,
     super.$addJoinBuilderToRootComposer,
     super.$removeJoinBuilderFromRootComposer,
   });
-  ColumnOrderings<String> get bookId => $composableBuilder(
-    column: $table.bookId,
+  ColumnOrderings<int> get id => $composableBuilder(
+    column: $table.id,
     builder: (column) => ColumnOrderings(column),
   );
 
@@ -1515,76 +1488,64 @@ class $$SyncCursorsTableOrderingComposer
   );
 }
 
-class $$SyncCursorsTableAnnotationComposer
-    extends Composer<_$AppDatabase, $SyncCursorsTable> {
-  $$SyncCursorsTableAnnotationComposer({
+class $$SyncStateTableAnnotationComposer
+    extends Composer<_$AppDatabase, $SyncStateTable> {
+  $$SyncStateTableAnnotationComposer({
     required super.$db,
     required super.$table,
     super.joinBuilder,
     super.$addJoinBuilderToRootComposer,
     super.$removeJoinBuilderFromRootComposer,
   });
-  GeneratedColumn<String> get bookId =>
-      $composableBuilder(column: $table.bookId, builder: (column) => column);
+  GeneratedColumn<int> get id =>
+      $composableBuilder(column: $table.id, builder: (column) => column);
 
   GeneratedColumn<int> get sinceSeq =>
       $composableBuilder(column: $table.sinceSeq, builder: (column) => column);
 }
 
-class $$SyncCursorsTableTableManager
+class $$SyncStateTableTableManager
     extends
         RootTableManager<
           _$AppDatabase,
-          $SyncCursorsTable,
-          SyncCursor,
-          $$SyncCursorsTableFilterComposer,
-          $$SyncCursorsTableOrderingComposer,
-          $$SyncCursorsTableAnnotationComposer,
-          $$SyncCursorsTableCreateCompanionBuilder,
-          $$SyncCursorsTableUpdateCompanionBuilder,
+          $SyncStateTable,
+          SyncStateData,
+          $$SyncStateTableFilterComposer,
+          $$SyncStateTableOrderingComposer,
+          $$SyncStateTableAnnotationComposer,
+          $$SyncStateTableCreateCompanionBuilder,
+          $$SyncStateTableUpdateCompanionBuilder,
           (
-            SyncCursor,
-            BaseReferences<_$AppDatabase, $SyncCursorsTable, SyncCursor>,
+            SyncStateData,
+            BaseReferences<_$AppDatabase, $SyncStateTable, SyncStateData>,
           ),
-          SyncCursor,
+          SyncStateData,
           PrefetchHooks Function()
         > {
-  $$SyncCursorsTableTableManager(_$AppDatabase db, $SyncCursorsTable table)
+  $$SyncStateTableTableManager(_$AppDatabase db, $SyncStateTable table)
     : super(
         TableManagerState(
           db: db,
           table: table,
           createFilteringComposer: () =>
-              $$SyncCursorsTableFilterComposer($db: db, $table: table),
+              $$SyncStateTableFilterComposer($db: db, $table: table),
           createOrderingComposer: () =>
-              $$SyncCursorsTableOrderingComposer($db: db, $table: table),
+              $$SyncStateTableOrderingComposer($db: db, $table: table),
           createComputedFieldComposer: () =>
-              $$SyncCursorsTableAnnotationComposer($db: db, $table: table),
-          updateCompanionCallback:
-              ({
-                Value<String> bookId = const Value.absent(),
-                Value<int> sinceSeq = const Value.absent(),
-                Value<int> rowid = const Value.absent(),
-              }) => SyncCursorsCompanion(
-                bookId: bookId,
-                sinceSeq: sinceSeq,
-                rowid: rowid,
-              ),
-          createCompanionCallback:
-              ({
-                required String bookId,
-                Value<int> sinceSeq = const Value.absent(),
-                Value<int> rowid = const Value.absent(),
-              }) => SyncCursorsCompanion.insert(
-                bookId: bookId,
-                sinceSeq: sinceSeq,
-                rowid: rowid,
-              ),
+              $$SyncStateTableAnnotationComposer($db: db, $table: table),
+          updateCompanionCallback: ({
+            Value<int> id = const Value.absent(),
+            Value<int> sinceSeq = const Value.absent(),
+          }) => SyncStateCompanion(id: id, sinceSeq: sinceSeq),
+          createCompanionCallback: ({
+            Value<int> id = const Value.absent(),
+            Value<int> sinceSeq = const Value.absent(),
+          }) => SyncStateCompanion.insert(id: id, sinceSeq: sinceSeq),
           withReferenceMapper: (p0) => p0
               .map(
                 (e) => (
-                  e.readTable<$SyncCursorsTable, SyncCursor>(table),
-                  BaseReferences<_$AppDatabase, $SyncCursorsTable, SyncCursor>(
+                  e.readTable<$SyncStateTable, SyncStateData>(table),
+                  BaseReferences<_$AppDatabase, $SyncStateTable, SyncStateData>(
                     db,
                     table,
                     e,
@@ -1597,21 +1558,21 @@ class $$SyncCursorsTableTableManager
       );
 }
 
-typedef $$SyncCursorsTableProcessedTableManager =
+typedef $$SyncStateTableProcessedTableManager =
     ProcessedTableManager<
       _$AppDatabase,
-      $SyncCursorsTable,
-      SyncCursor,
-      $$SyncCursorsTableFilterComposer,
-      $$SyncCursorsTableOrderingComposer,
-      $$SyncCursorsTableAnnotationComposer,
-      $$SyncCursorsTableCreateCompanionBuilder,
-      $$SyncCursorsTableUpdateCompanionBuilder,
+      $SyncStateTable,
+      SyncStateData,
+      $$SyncStateTableFilterComposer,
+      $$SyncStateTableOrderingComposer,
+      $$SyncStateTableAnnotationComposer,
+      $$SyncStateTableCreateCompanionBuilder,
+      $$SyncStateTableUpdateCompanionBuilder,
       (
-        SyncCursor,
-        BaseReferences<_$AppDatabase, $SyncCursorsTable, SyncCursor>,
+        SyncStateData,
+        BaseReferences<_$AppDatabase, $SyncStateTable, SyncStateData>,
       ),
-      SyncCursor,
+      SyncStateData,
       PrefetchHooks Function()
     >;
 
@@ -1620,6 +1581,6 @@ class $AppDatabaseManager {
   $AppDatabaseManager(this._db);
   $$EventRowsTableTableManager get eventRows =>
       $$EventRowsTableTableManager(_db, _db.eventRows);
-  $$SyncCursorsTableTableManager get syncCursors =>
-      $$SyncCursorsTableTableManager(_db, _db.syncCursors);
+  $$SyncStateTableTableManager get syncState =>
+      $$SyncStateTableTableManager(_db, _db.syncState);
 }

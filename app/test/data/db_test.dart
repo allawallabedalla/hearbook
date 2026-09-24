@@ -57,13 +57,22 @@ void main() {
     expect(rows, hasLength(1));
   });
 
-  test('sync cursor defaults to 0 and can be upserted per book', () async {
-    await db.into(db.syncCursors).insertOnConflictUpdate(
-          SyncCursorsCompanion.insert(bookId: 'book-1', sinceSeq: const Value(42)),
+  test('sync cursor is a single global row that can be upserted', () async {
+    // id must be passed explicitly as 0: SQLite treats a bare `INTEGER
+    // PRIMARY KEY` as a rowid alias and auto-assigns it (ignoring any
+    // column-level default) whenever it is left out of the INSERT.
+    await db.into(db.syncState).insertOnConflictUpdate(
+          SyncStateCompanion.insert(id: const Value(0), sinceSeq: const Value(42)),
         );
-    final row = await (db.select(db.syncCursors)
-          ..where((t) => t.bookId.equals('book-1')))
-        .getSingle();
+    final row = await db.select(db.syncState).getSingle();
+    expect(row.id, 0);
     expect(row.sinceSeq, 42);
+
+    await db.into(db.syncState).insertOnConflictUpdate(
+          SyncStateCompanion.insert(id: const Value(0), sinceSeq: const Value(99)),
+        );
+    final rows = await db.select(db.syncState).get();
+    expect(rows, hasLength(1)); // still a single row, updated in place
+    expect(rows.single.sinceSeq, 99);
   });
 }

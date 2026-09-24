@@ -34,17 +34,24 @@ class EventRows extends Table {
   Set<Column> get primaryKey => {eventId};
 }
 
-/// The local pull cursor per book (section 6: "Cursor lokal speichern"),
-/// the highest server `seq` this device has already pulled.
-class SyncCursors extends Table {
-  TextColumn get bookId => text()();
+/// The local pull cursor (section 6: "Cursor lokal speichern"): the
+/// highest server `seq` this device has already pulled. `seq` is a single
+/// autoincrement counter across all books on the server (section 2), and
+/// `GET /api/v1/events?since=` is not scoped to a book either, so this is
+/// one global value per device, not one per book. Always exactly one row
+/// (id 0). Callers must pass `id: Value(0)` explicitly on every write:
+/// SQLite treats a bare `INTEGER PRIMARY KEY` as a rowid alias and
+/// auto-assigns it (ignoring the column's declared default) whenever it is
+/// left out of the INSERT.
+class SyncState extends Table {
+  IntColumn get id => integer().withDefault(const Constant(0))();
   IntColumn get sinceSeq => integer().withDefault(const Constant(0))();
 
   @override
-  Set<Column> get primaryKey => {bookId};
+  Set<Column> get primaryKey => {id};
 }
 
-@DriftDatabase(tables: [EventRows, SyncCursors])
+@DriftDatabase(tables: [EventRows, SyncState])
 class AppDatabase extends _$AppDatabase {
   AppDatabase(super.executor);
 
