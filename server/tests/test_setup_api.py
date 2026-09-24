@@ -17,7 +17,7 @@ from faden_server.library_path import get_library_path
 
 from .conftest import requires_ffmpeg
 
-TOKEN = "test-token-123"
+TOKEN = "test-token-1234567890"
 
 
 @pytest.fixture

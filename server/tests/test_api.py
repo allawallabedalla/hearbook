@@ -8,6 +8,7 @@ import pytest
 from fastapi.testclient import TestClient
 from mutagen.id3 import APIC, ID3, ID3NoHeaderError
 
+import faden_server.api
 from faden_server.api import create_app
 from faden_server.config import Settings
 from faden_server.db import connect
@@ -15,7 +16,7 @@ from faden_server.scanner import scan_library
 
 from .conftest import requires_ffmpeg
 
-TOKEN = "test-token-123"
+TOKEN = "test-token-1234567890"
 
 
 @pytest.fixture
@@ -185,6 +186,31 @@ def test_cover_from_folder_file(make_mp3, settings, auth_headers):
 @requires_ffmpeg
 def test_cover_from_embedded_image(make_mp3, settings, auth_headers):
     _seed_book(make_mp3, settings, embedded_cover=True)
+    client = TestClient(create_app(settings))
+    book_id = client.get("/api/v1/books", headers=auth_headers).json()[0]["book_id"]
+    resp = client.get(f"/api/v1/books/{book_id}/cover", headers=auth_headers)
+    assert resp.status_code == 200
+    assert resp.content == b"\xff\xd8fake"
+
+
+@requires_ffmpeg
+def test_oversized_folder_cover_is_skipped(make_mp3, settings, auth_headers, monkeypatch):
+    """A cover file over the cap must not be read into memory; with no
+    smaller fallback available, the request 404s instead of erroring."""
+    monkeypatch.setattr(faden_server.api, "MAX_COVER_BYTES", 10)
+    _seed_book(make_mp3, settings, with_cover=True)  # cover.jpg is well over 10 bytes
+    client = TestClient(create_app(settings))
+    book_id = client.get("/api/v1/books", headers=auth_headers).json()[0]["book_id"]
+    resp = client.get(f"/api/v1/books/{book_id}/cover", headers=auth_headers)
+    assert resp.status_code == 404
+
+
+@requires_ffmpeg
+def test_oversized_folder_cover_falls_through_to_embedded(
+    make_mp3, settings, auth_headers, monkeypatch
+):
+    monkeypatch.setattr(faden_server.api, "MAX_COVER_BYTES", 10)
+    _seed_book(make_mp3, settings, with_cover=True, embedded_cover=True)
     client = TestClient(create_app(settings))
     book_id = client.get("/api/v1/books", headers=auth_headers).json()[0]["book_id"]
     resp = client.get(f"/api/v1/books/{book_id}/cover", headers=auth_headers)

@@ -17,6 +17,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends sqlite3 \
 
 RUN pip install --no-cache-dir uv
 
+# Dedicated non-root user (fixed uid/gid for reproducibility). The library
+# mount stays read-only (invariant 8) regardless of who reads it; this is
+# about not running the process itself as root.
+RUN groupadd --system --gid 10001 faden \
+    && useradd --system --uid 10001 --gid faden --no-create-home --home-dir /app faden
+
 WORKDIR /app
 
 # Install dependencies first (better layer caching), then the project itself.
@@ -31,8 +37,19 @@ RUN chmod +x ./scripts/backup.sh
 
 COPY static ./static
 
+# /data is only ever a named volume (faden-data, see docker-compose.yml),
+# never a host bind mount; creating it here, owned by faden, means Docker
+# initializes a fresh volume with that ownership on first use. An existing
+# volume created by an older, root-run image keeps its root ownership and
+# needs a one-off `chown -R 10001:10001` (e.g. via a throwaway root
+# container mounting it) before this image can write to it.
+RUN mkdir -p /data \
+    && chown -R faden:faden /app /data
+
 ENV PATH="/app/.venv/bin:${PATH}"
 
 EXPOSE 8787
+
+USER faden
 
 CMD ["faden-server"]

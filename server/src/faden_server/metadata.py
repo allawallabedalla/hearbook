@@ -10,6 +10,11 @@ from mutagen.id3 import ID3
 
 COVER_FILENAMES = ("cover.jpg", "cover.jpeg", "cover.png", "folder.jpg")
 
+# Anything on the read-only library share can be arbitrarily large; cap how
+# much a cover request will materialize in memory, whether it is a folder
+# cover file or an embedded APIC frame.
+MAX_COVER_BYTES = 10 * 1024 * 1024
+
 # "Autor - Titel"
 _FOLDER_PATTERN = re.compile(r"^\s*(?P<author>.+?)\s*-\s*(?P<title>.+?)\s*$")
 
@@ -92,7 +97,9 @@ def find_cover_file(folder: Path) -> Path | None:
     return None
 
 
-def extract_embedded_cover(path: Path) -> EmbeddedCover | None:
+def extract_embedded_cover(
+    path: Path, *, max_bytes: int = MAX_COVER_BYTES
+) -> EmbeddedCover | None:
     tags = _read_id3(path)
     if tags is None:
         return None
@@ -100,4 +107,6 @@ def extract_embedded_cover(path: Path) -> EmbeddedCover | None:
     if not frames:
         return None
     frame = frames[0]
+    if len(frame.data) > max_bytes:
+        return None
     return EmbeddedCover(mime=frame.mime or "image/jpeg", data=bytes(frame.data))

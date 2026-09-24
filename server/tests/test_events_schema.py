@@ -7,7 +7,7 @@ import copy
 
 import pytest
 
-from faden_server.events import EventValidationError, is_skewed, validate_event
+from faden_server.events import MAX_DATA_BYTES, EventValidationError, is_skewed, validate_event
 
 VALID_EVENT = {
     "event_id": "018f2f3a-0000-7000-8000-000000000001",
@@ -89,6 +89,24 @@ def test_all_event_types_accepted():
 def test_body_must_be_object():
     with pytest.raises(EventValidationError):
         validate_event(["not", "a", "dict"])
+
+
+# --- data size cap -------------------------------------------------------
+
+
+def test_data_within_cap_accepted():
+    body = copy.deepcopy(VALID_EVENT)
+    # leave headroom for JSON quoting/braces so the serialized size stays
+    # comfortably under the cap.
+    body["data"] = {"note": "x" * (MAX_DATA_BYTES - 100)}
+    validate_event(body)  # must not raise
+
+
+def test_data_over_cap_rejected():
+    body = copy.deepcopy(VALID_EVENT)
+    body["data"] = {"note": "x" * MAX_DATA_BYTES}
+    with pytest.raises(EventValidationError):
+        validate_event(body)
 
 
 # --- skew --------------------------------------------------------------

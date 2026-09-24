@@ -75,6 +75,12 @@ CREATE TABLE IF NOT EXISTS settings (
 """
 
 
+# How long a connection waits for a write lock held by another connection
+# before raising "database is locked" (sqlite3's default is 5000ms, which a
+# multi-minute library scan can easily outlast for a concurrent writer).
+BUSY_TIMEOUT_MS = 30_000
+
+
 def connect(db_path: Path) -> sqlite3.Connection:
     """Open a WAL-mode connection and make sure the schema exists."""
     db_path.parent.mkdir(parents=True, exist_ok=True)
@@ -82,6 +88,7 @@ def connect(db_path: Path) -> sqlite3.Connection:
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA journal_mode=WAL")
     conn.execute("PRAGMA foreign_keys=ON")
+    conn.execute(f"PRAGMA busy_timeout={BUSY_TIMEOUT_MS}")
     conn.executescript(SCHEMA)
     conn.commit()
     return conn

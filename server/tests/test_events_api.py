@@ -12,7 +12,7 @@ from faden_server.api import create_app
 from faden_server.config import Settings
 from faden_server.events import PUSH_LIMIT
 
-TOKEN = "test-token-123"
+TOKEN = "test-token-1234567890"
 
 
 @pytest.fixture
@@ -76,11 +76,68 @@ def test_events_require_auth(client):
 # --- push: validation ----------------------------------------------------
 
 
-def test_push_rejects_invalid_event_body(client, auth_headers):
+def test_push_reports_invalid_event_instead_of_422(client, auth_headers):
+    """A well-formed request body containing one invalid event is not
+    rejected wholesale (a device would otherwise retry the same batch
+    forever and never sync again); it is reported per-event instead."""
     bad = make_event()
     bad["type"] = "NOT_A_TYPE"
     resp = client.post("/api/v1/events", json=[bad], headers=auth_headers)
-    assert resp.status_code == 422
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["accepted"] == 0
+    assert body["duplicates"] == 0
+    assert body["max_seq"] is None
+    assert body["rejected"] == [
+        {"index": 0, "event_id": bad["event_id"], "error": body["rejected"][0]["error"]}
+    ]
+    assert "type" in body["rejected"][0]["error"]
+
+    # and nothing was stored
+    pulled = client.get("/api/v1/events", headers=auth_headers).json()
+    assert pulled["events"] == []
+
+
+def test_push_rejected_event_id_null_when_not_a_string(client, auth_headers):
+    bad = make_event()
+    bad["event_id"] = 12345  # not a string, so it fails the UUID check too
+    resp = client.post("/api/v1/events", json=[bad], headers=auth_headers)
+    assert resp.status_code == 200
+    assert resp.json()["rejected"][0]["event_id"] is None
+
+
+def test_push_mixed_valid_and_invalid_batch_stores_the_valid_ones(client, auth_headers):
+    good1 = make_event(seq_hint=1)
+    bad = make_event(seq_hint=2)
+    bad["type"] = "NOT_A_TYPE"
+    good2 = make_event(seq_hint=3)
+
+    resp = client.post("/api/v1/events", json=[good1, bad, good2], headers=auth_headers)
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["accepted"] == 2
+    assert body["duplicates"] == 0
+    assert len(body["rejected"]) == 1
+    assert body["rejected"][0] == {
+        "index": 1,
+        "event_id": bad["event_id"],
+        "error": body["rejected"][0]["error"],
+    }
+    assert body["max_seq"] is not None
+
+    pulled = client.get("/api/v1/events", headers=auth_headers).json()
+    pulled_ids = {e["event_id"] for e in pulled["events"]}
+    assert pulled_ids == {good1["event_id"], good2["event_id"]}
+
+
+def test_push_rejects_data_payload_over_4kb(client, auth_headers):
+    bad = make_event(data={"blob": "x" * 5000})
+    resp = client.post("/api/v1/events", json=[bad], headers=auth_headers)
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["accepted"] == 0
+    assert len(body["rejected"]) == 1
+    assert body["rejected"][0]["index"] == 0
 
 
 def test_push_rejects_more_than_limit(client, auth_headers):
@@ -105,10 +162,10 @@ def test_push_accepts_events_and_reports_counts(client, auth_headers):
 def test_push_duplicate_event_id_is_ignored(client, auth_headers):
     event = make_event()
     resp1 = client.post("/api/v1/events", json=[event], headers=auth_headers)
-    assert resp1.json() == {"accepted": 1, "duplicates": 0, "max_seq": 1}
+    assert resp1.json() == {"accepted": 1, "duplicates": 0, "rejected": [], "max_seq": 1}
 
     resp2 = client.post("/api/v1/events", json=[event], headers=auth_headers)
-    assert resp2.json() == {"accepted": 0, "duplicates": 1, "max_seq": 1}
+    assert resp2.json() == {"accepted": 0, "duplicates": 1, "rejected": [], "max_seq": 1}
 
     # only one row landed in the pull, not two
     pulled = client.get("/api/v1/events", headers=auth_headers).json()

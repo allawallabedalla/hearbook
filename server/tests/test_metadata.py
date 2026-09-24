@@ -105,3 +105,13 @@ def test_extract_embedded_cover(make_mp3):
 def test_extract_embedded_cover_none_when_absent(make_mp3):
     p = make_mp3()
     assert extract_embedded_cover(p) is None
+
+
+@requires_ffmpeg
+def test_extract_embedded_cover_skipped_when_over_cap(make_mp3):
+    p = make_mp3()
+    _tag(p, apic=APIC(mime="image/jpeg", data=b"x" * 200))
+    # a tiny max_bytes stands in for the real 10MB cap without inflating a
+    # 200-byte fixture frame to actually exceed it.
+    assert extract_embedded_cover(p, max_bytes=100) is None
+    assert extract_embedded_cover(p, max_bytes=200) is not None

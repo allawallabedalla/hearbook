@@ -4,11 +4,13 @@ and the ordering (3.2) integration with real files."""
 from __future__ import annotations
 
 import shutil
+import threading
+from pathlib import Path
 
 import pytest
 from mutagen.id3 import ID3, TRCK
 
-from faden_server import db
+from faden_server import db, scanner
 from faden_server.scanner import detect_book_folders, scan_library
 
 from .conftest import requires_ffmpeg
@@ -261,3 +263,50 @@ def test_ambiguous_order_needs_review_no_active_manifest(make_mp3, tmp_path, con
         (book["book_id"],),
     ).fetchone()["c"]
     assert needs_review == 2
+
+
+# --- concurrency: commit per book, not only at the very end -----------------
+
+
+@requires_ffmpeg
+def test_scan_library_commits_per_book_not_only_at_end(make_mp3, tmp_path, conn, monkeypatch):
+    """A rescan holds its write lock only for the duration of one book, so a
+    concurrent reader/writer on another connection can see an already-scanned
+    book while a later book in the same run is still being processed."""
+    library = tmp_path / "library"
+    _make_book(make_mp3, library, "Mort", 1)
+    _make_book(make_mp3, library, "Ozean", 1)
+
+    original_scan_book = scanner.scan_book
+    reached_second_book = threading.Event()
+    release_second_book = threading.Event()
+
+    def patched_scan_book(conn_, folder, **kwargs):
+        if folder.path.name == "Ozean":
+            reached_second_book.set()
+            assert release_second_book.wait(timeout=5), "test deadlocked"
+        return original_scan_book(conn_, folder, **kwargs)
+
+    monkeypatch.setattr(scanner, "scan_book", patched_scan_book)
+
+    thread = threading.Thread(
+        target=scan_library,
+        args=(conn,),
+        kwargs={"library": library, "noise_db": -35, "silence_s": 0.35},
+    )
+    thread.start()
+    try:
+        assert reached_second_book.wait(timeout=5), "scan never reached the second book"
+
+        # A second connection must already see "Mort" as committed, even
+        # though the overall scan_library() call has not returned yet.
+        db_path = Path(conn.execute("PRAGMA database_list").fetchone()[2])
+        other_conn = db.connect(db_path)
+        try:
+            titles = {r["title"] for r in other_conn.execute("SELECT title FROM books")}
+        finally:
+            other_conn.close()
+        assert titles == {"Mort"}
+    finally:
+        release_second_book.set()
+        thread.join(timeout=5)

@@ -9,6 +9,7 @@ a resolver.
 
 from __future__ import annotations
 
+import json
 import uuid
 
 EVENT_TYPES = frozenset(
@@ -30,6 +31,8 @@ SOURCES = frozenset({"ui", "media_button", "timer", "system", "faden"})
 SKEW_TOLERANCE_MS = 10 * 60 * 1000  # section 6: hlc.pt > server time + 10 min
 
 PUSH_LIMIT = 500  # section 6: up to 500 events per push/pull request
+
+MAX_DATA_BYTES = 4096  # per-event `data` payload cap (serialized, UTF-8)
 
 _UUID_FIELDS = ("event_id", "device_id", "session_id", "book_id")
 _HEX_FIELDS = ("manifest_id", "file_hash")
@@ -109,6 +112,8 @@ def validate_event(body: object) -> None:
     data = body.get("data", {})
     if not isinstance(data, dict):
         raise EventValidationError("data must be an object")
+    if len(json.dumps(data).encode("utf-8")) > MAX_DATA_BYTES:
+        raise EventValidationError(f"data must be at most {MAX_DATA_BYTES} bytes serialized")
 
 
 def is_skewed(hlc_pt_ms: int, server_now_ms: int) -> bool:

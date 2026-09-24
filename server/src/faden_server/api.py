@@ -6,7 +6,10 @@ import json
 import logging
 import mimetypes
 import sqlite3
+import threading
 import time
+from collections.abc import Callable
+from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -25,10 +28,15 @@ from .library_path import (
     resolve_within_root,
     set_library_path,
 )
-from .metadata import extract_embedded_cover, find_cover_file
-from .scanner import active_manifest, manifest_hashes, scan_library
+from .metadata import MAX_COVER_BYTES, extract_embedded_cover, find_cover_file
+from .scanner import ScanSummary, active_manifest, manifest_hashes, scan_library
 
 RANGE_BLOCK = 1024 * 1024
+
+# Section 12: how long the periodic background rescan waits after startup
+# before its first run, so a fresh container's first request isn't racing
+# an immediate scan.
+INITIAL_RESCAN_DELAY_S = 5.0
 
 # server/static/, alongside src/ (see Dockerfile's `COPY static ./static`).
 STATIC_DIR = Path(__file__).resolve().parents[2] / "static"
@@ -107,8 +115,13 @@ def _resolve_cover(
     if folder.is_dir():
         cover_path = find_cover_file(folder)
         if cover_path is not None:
-            mime = mimetypes.guess_type(str(cover_path))[0] or "application/octet-stream"
-            return mime, cover_path.read_bytes()
+            try:
+                oversized = cover_path.stat().st_size > MAX_COVER_BYTES
+            except OSError:
+                oversized = True
+            if not oversized:
+                mime = mimetypes.guess_type(str(cover_path))[0] or "application/octet-stream"
+                return mime, cover_path.read_bytes()
 
     active = active_manifest(conn, book_row["book_id"])
     if active is None:
@@ -182,9 +195,103 @@ def _stream_range(path: Path, start: int, end: int):
             yield chunk
 
 
+def _run_periodic_rescan_tick(
+    *,
+    scan_lock: threading.Lock,
+    db_path: Path,
+    effective_library: Callable[[sqlite3.Connection], Path],
+    noise_db: float,
+    silence_s: float,
+) -> None:
+    """One tick of the periodic background rescan (section 12): the same
+    scan_library() call POST /api/v1/rescan makes, under the same
+    `scan_lock` so a manual scan and the periodic one never run at once.
+    Skips (does not block) if a scan is already in progress, and never lets
+    an exception escape -- one bad tick must not kill the loop."""
+    if not scan_lock.acquire(blocking=False):
+        logger.info("periodic rescan: skipped, a scan is already in progress")
+        return
+    try:
+        conn = db.connect(db_path)
+        try:
+            library = effective_library(conn)
+            scan_library(conn, library=library, noise_db=noise_db, silence_s=silence_s)
+        finally:
+            conn.close()
+    except Exception:
+        logger.exception("periodic rescan tick failed")
+    finally:
+        scan_lock.release()
+
+
+def _periodic_rescan_loop(
+    stop_event: threading.Event,
+    *,
+    interval_s: float,
+    initial_delay_s: float,
+    tick: Callable[[], None],
+) -> None:
+    """Calls `tick()` once after `initial_delay_s`, then every `interval_s`,
+    until `stop_event` is set. `Event.wait(timeout)` doubles as a
+    cancellable sleep, so shutdown does not have to wait out an interval."""
+    if stop_event.wait(initial_delay_s):
+        return
+    tick()
+    while not stop_event.wait(interval_s):
+        tick()
+
+
 def create_app(settings: Settings) -> FastAPI:
-    app = FastAPI(title="Faden")
+    # Section 12: a background thread rescans the library every
+    # `rescan_min` minutes (0 disables it), started on startup and stopped
+    # cleanly on shutdown via the lifespan below, so a fresh container picks
+    # up the library without a manual POST /api/v1/rescan. Each tick
+    # acquires `app.state.scan_lock` (set up just below) itself, so it never
+    # runs at the same time as a manual rescan.
+    rescan_stop_event = threading.Event()
+
+    @asynccontextmanager
+    async def lifespan(app: FastAPI):
+        thread: threading.Thread | None = None
+        if settings.rescan_min > 0:
+
+            def tick() -> None:
+                _run_periodic_rescan_tick(
+                    scan_lock=app.state.scan_lock,
+                    db_path=settings.db_path,
+                    effective_library=_effective_library,
+                    noise_db=settings.silence_db,
+                    silence_s=settings.silence_s,
+                )
+
+            thread = threading.Thread(
+                target=_periodic_rescan_loop,
+                args=(rescan_stop_event,),
+                kwargs={
+                    "interval_s": settings.rescan_min * 60,
+                    "initial_delay_s": INITIAL_RESCAN_DELAY_S,
+                    "tick": tick,
+                },
+                daemon=True,
+                name="faden-periodic-rescan",
+            )
+            thread.start()
+        try:
+            yield
+        finally:
+            rescan_stop_event.set()
+            if thread is not None:
+                thread.join(timeout=5)
+
+    app = FastAPI(title="Faden", lifespan=lifespan)
     app.state.settings = settings
+    # Serializes scan_library() calls (POST /api/v1/rescan, POST
+    # /api/v1/setup/library, and the periodic background rescan below): a
+    # scan holds a write lock on the db for its duration, so running two at
+    # once just serializes them anyway while both fight over sqlite's
+    # busy_timeout. A non-blocking acquire here instead rejects a manual
+    # request with 409 immediately, and makes the periodic tick skip.
+    app.state.scan_lock = threading.Lock()
 
     def get_conn():
         conn = db.connect(settings.db_path)
@@ -192,6 +299,16 @@ def create_app(settings: Settings) -> FastAPI:
             yield conn
         finally:
             conn.close()
+
+    def run_scan(conn: sqlite3.Connection, library: Path) -> ScanSummary:
+        if not app.state.scan_lock.acquire(blocking=False):
+            raise HTTPException(status_code=409, detail="a scan is already in progress")
+        try:
+            return scan_library(
+                conn, library=library, noise_db=settings.silence_db, silence_s=settings.silence_s
+            )
+        finally:
+            app.state.scan_lock.release()
 
     require_token = make_auth_dependency(settings.token)
 
@@ -348,25 +465,41 @@ def create_app(settings: Settings) -> FastAPI:
     def post_events(
         events: list[dict], conn: sqlite3.Connection = Depends(get_conn)
     ) -> dict:
-        """Section 6: push up to 500 events, idempotent on event_id."""
+        """Section 6: push up to 500 events, idempotent on event_id.
+
+        Only a malformed request body (not a JSON array, or more than
+        `PUSH_LIMIT` events) is rejected wholesale with 422. Each event in
+        an otherwise well-formed batch is validated and stored
+        independently: an invalid event is reported in `rejected` rather
+        than failing the whole request, so one bad event does not stop a
+        device from ever syncing the rest of the batch again.
+        """
         if len(events) > PUSH_LIMIT:
             raise HTTPException(
                 status_code=422, detail=f"at most {PUSH_LIMIT} events per request"
             )
 
-        for body in events:
-            try:
-                validate_event(body)
-            except EventValidationError as exc:
-                raise HTTPException(status_code=422, detail=str(exc)) from exc
-
         server_now_ms = int(time.time() * 1000)
         received_at = _now()
         accepted = 0
         duplicates = 0
-        max_seq = 0
+        rejected: list[dict] = []
+        max_seq: int | None = None
 
-        for body in events:
+        for index, body in enumerate(events):
+            try:
+                validate_event(body)
+            except EventValidationError as exc:
+                raw_event_id = body.get("event_id") if isinstance(body, dict) else None
+                rejected.append(
+                    {
+                        "index": index,
+                        "event_id": raw_event_id if isinstance(raw_event_id, str) else None,
+                        "error": str(exc),
+                    }
+                )
+                continue
+
             skewed = is_skewed(body["hlc"]["pt"], server_now_ms)
             if skewed:
                 logger.warning(
@@ -392,17 +525,22 @@ def create_app(settings: Settings) -> FastAPI:
             )
             if cur.rowcount:
                 accepted += 1
-                max_seq = max(max_seq, cur.lastrowid)
+                max_seq = cur.lastrowid if max_seq is None else max(max_seq, cur.lastrowid)
             else:
                 duplicates += 1
                 row = conn.execute(
                     "SELECT seq FROM events WHERE event_id = ?", (body["event_id"],)
                 ).fetchone()
-                max_seq = max(max_seq, row["seq"])
+                max_seq = row["seq"] if max_seq is None else max(max_seq, row["seq"])
 
         # Invariant 3 / section 6: committed before being reported as accepted.
         conn.commit()
-        return {"accepted": accepted, "duplicates": duplicates, "max_seq": max_seq}
+        return {
+            "accepted": accepted,
+            "duplicates": duplicates,
+            "rejected": rejected,
+            "max_seq": max_seq,
+        }
 
     @api.get("/api/v1/events")
     def get_events(
@@ -434,12 +572,7 @@ def create_app(settings: Settings) -> FastAPI:
 
     @api.post("/api/v1/rescan")
     def rescan(conn: sqlite3.Connection = Depends(get_conn)) -> dict:
-        summary = scan_library(
-            conn,
-            library=_effective_library(conn),
-            noise_db=settings.silence_db,
-            silence_s=settings.silence_s,
-        )
+        summary = run_scan(conn, _effective_library(conn))
         return {
             "books_scanned": summary.books_scanned,
             "books_new": summary.books_new,
@@ -480,12 +613,7 @@ def create_app(settings: Settings) -> FastAPI:
             raise HTTPException(status_code=404, detail="path not found")
 
         set_library_path(conn, path)
-        scan_library(
-            conn,
-            library=target,
-            noise_db=settings.silence_db,
-            silence_s=settings.silence_s,
-        )
+        run_scan(conn, target)
         return {"path": path}
 
     app.include_router(public)

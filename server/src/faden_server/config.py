@@ -33,6 +33,11 @@ def load_settings(env: dict[str, str] | None = None) -> Settings:
     token = src.get("FADEN_TOKEN")
     if not token:
         raise RuntimeError("FADEN_TOKEN is required (see .env.example)")
+    if token == "change-me" or len(token) < 16:
+        raise RuntimeError(
+            "FADEN_TOKEN must not be the 'change-me' placeholder and must be at "
+            "least 16 characters long (see .env.example, e.g. `openssl rand -hex 32`)"
+        )
 
     return Settings(
         token=token,

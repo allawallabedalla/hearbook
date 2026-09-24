@@ -341,6 +341,12 @@ def scan_library(
     books_renamed = 0
 
     # 1) books whose folder path still exists: rescan in place.
+    #
+    # Committed per book (not only once at the end) so the write lock this
+    # connection holds is released between books; a scan of a large library
+    # can run for minutes, and a long-held single transaction would starve
+    # concurrent writers (event pushes, manifest confirms) for that whole
+    # time even with a generous busy_timeout.
     for row in existing:
         if row["path"] in folders_by_path:
             scan_book(
@@ -352,6 +358,7 @@ def scan_library(
             )
             matched.add(row["book_id"])
             books_scanned += 1
+            conn.commit()
 
     remaining_folders = [f for f in folders if str(f.path) not in existing_paths]
     unmatched_books = [r for r in existing if r["book_id"] not in matched]
@@ -383,6 +390,7 @@ def scan_library(
                 remaining_folders.remove(folder)
                 books_renamed += 1
                 books_scanned += 1
+                conn.commit()
                 break
 
     # 3) remaining folders are new books.
@@ -390,6 +398,7 @@ def scan_library(
         scan_book(conn, folder, book_id=None, noise_db=noise_db, silence_s=silence_s)
         books_new += 1
         books_scanned += 1
+        conn.commit()
 
     # 4) books whose folder vanished entirely (not matched, not renamed).
     books_missing = 0
