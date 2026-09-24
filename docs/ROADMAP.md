@@ -25,13 +25,13 @@ Hinweis: Faden-Suche gegen 20.000 simulierte Hörer (alle 5 Eigenschaften aus Ab
 
 ## M1 – Server: Import, Manifest, Dateien (≈ 120 Min)
 
-- [ ] `server/` mit uv, FastAPI, pytest, ruff; `.env.example`
-- [ ] Audio-Hash nach Abschnitt 3.4 mit allen dort genannten Pflicht-Tests
-- [ ] Buch-Erkennung, Reihenfolge und Rescan-Regeln nach 3.1–3.3; ein Test pro Tabellenfall
-- [ ] Dauer (3.5), Metadaten und Cover (3.6), Pausen-Index (4); alles per Hash gecacht
-- [ ] API aus Abschnitt 10 ohne Events; Token-Auth; HTTP-Range für Dateien getestet
-- [ ] `Dockerfile` und `docker-compose.yml` (Ordner nur lesend); nach `docker compose up -d --build` antwortet `/api/v1/health`
-- [ ] Test-Audio wird in Tests per ffmpeg erzeugt (Sinus mit Stille-Lücken, verschiedene Tags)
+- [x] `server/` mit uv, FastAPI, pytest, ruff; `.env.example`
+- [x] Audio-Hash nach Abschnitt 3.4 mit allen dort genannten Pflicht-Tests
+- [x] Buch-Erkennung, Reihenfolge und Rescan-Regeln nach 3.1–3.3; ein Test pro Tabellenfall
+- [x] Dauer (3.5), Metadaten und Cover (3.6), Pausen-Index (4); alles per Hash gecacht
+- [x] API aus Abschnitt 10 ohne Events; Token-Auth; HTTP-Range für Dateien getestet
+- [x] `Dockerfile` und `docker-compose.yml` (Ordner nur lesend); nach `docker compose up -d --build` antwortet `/api/v1/health`
+- [x] Test-Audio wird in Tests per ffmpeg erzeugt (Sinus mit Stille-Lücken, verschiedene Tags)
 
 ```text
 /plan Setze Meilenstein M1 aus docs/ROADMAP.md um. Spezifikation: docs/ARCHITEKTUR.md Abschnitte 2, 3, 4, 10 und 12. Hash, Sortierung und Rescan-Regeln test-first. Am Ende Abnahme-Punkte abhaken und committen.
