@@ -107,9 +107,9 @@ Hinweis: `flutter analyze` und `flutter test` sind grün (Design-Tokens/Kontrast
 
 ## M6 – Schlafdaten (≈ 90 Min)
 
-- [ ] Opt-in in den Einstellungen; Lesen aus HealthKit (iOS) und Health Connect (Android)
-- [ ] Schlafbeginn nach Abschnitt 9: `hi` kürzen, `prior` setzen, `lo` nie aus Gesundheitsdaten
-- [ ] Keine Gesundheitsdaten in Events, Logs oder Sync; ohne Berechtigung verhält sich alles wie vorher
+- [ ] Opt-in in den Einstellungen; Lesen aus HealthKit (iOS) und Health Connect (Android) — Opt-in-Schalter (`data/settings_store.dart`, `ui/settings_screen.dart`) implementiert und getestet (`app/test/data/settings_store_test.dart`: Default aus, Round-Trip); das Paket `health` (13.3.2, siehe Entscheidung E21) ist eingebunden, hinter einer eigenen `SleepDataSource`-Schnittstelle (`data/sleep_data_source.dart`), iOS-/Android-Projektkonfiguration (Info.plist, Entitlements, AndroidManifest, `minSdk`, `MainActivity`) ist gesetzt — das eigentliche Lesen aus einem echten HealthKit/Health-Connect-Dialog ist in dieser Sandbox ohne Gerät/Xcode/Android Studio nicht ausführbar, daher unabgehakt
+- [x] Schlafbeginn nach Abschnitt 9: `hi` kürzen, `prior` setzen, `lo` nie aus Gesundheitsdaten — `domain/sleep_onset.dart` (rein, `app/test/domain/sleep_onset_test.dart`: Wanduhr→Position-Umrechnung, `hi`/`prior`-Formel inkl. aller Randfälle aus dem Auftrag), durchgereicht bis `domain/faden_search.dart`s `prior`-Parameter (`ui/faden_search_controller.dart`, `ui/faden_screen.dart`, `ui/player_screen.dart`); `lo` hat in `SleepPriorAdjustment`/der ganzen M6-Kette keinerlei Schreibpfad
+- [x] Keine Gesundheitsdaten in Events, Logs oder Sync; ohne Berechtigung verhält sich alles wie vorher — `app/test/ui/player_session_sleep_test.dart` prüft explizit CLAUDE.md Invariante 7 (Journal-Inhalt vor/nach `sleepOnsetAdjustment` byte-identisch) sowie jeden Gate (Opt-in aus, keine Datenquelle, nicht unterstützte Plattform, Berechtigung verweigert) einzeln gegen „Ergebnis `null`, also `hi = stop`, `prior = null`ˮ, identisch zu M5
 
 ```text
 /plan Setze Meilenstein M6 aus docs/ROADMAP.md um. Spezifikation: docs/ARCHITEKTUR.md Abschnitte 8, 9 und 13 (E6). Am Ende Abnahme-Punkte abhaken und committen.
