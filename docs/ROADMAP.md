@@ -50,12 +50,12 @@ Hinweis: Faden-Suche gegen 20.000 simulierte Hörer (alle 5 Eigenschaften aus Ab
 
 ## M3 – App-Kern ohne Oberfläche (≈ 150 Min)
 
-- [ ] Flutter-Projekt `app/` für iOS und Android
-- [ ] `domain/`: Position, Manifest-Mapping (global ↔ Hash und Offset), HLC, Events, Resolver, Faden-Suche; pur, ohne Flutter-Imports
-- [ ] `spec/vectors/`: die 8 Fälle aus Abschnitt 7 als JSON; die Resolver-Tests laden alle Dateien
-- [ ] Faden-Suche: die 5 Eigenschafts-Tests aus Abschnitt 8 mit simuliertem Hörer, mindestens 10.000 Zufallsfälle
-- [ ] Audio-Hash in Dart mit denselben Testfällen wie der Server
-- [ ] `data/`: drift-Journal (Event vor Aktion, in einer Transaktion), Sync-Client nach Abschnitt 6, API-Client
+- [x] Flutter-Projekt `app/` für iOS und Android
+- [x] `domain/`: Position, Manifest-Mapping (global ↔ Hash und Offset), HLC, Events, Resolver, Faden-Suche; pur, ohne Flutter-Imports
+- [x] `spec/vectors/`: die 8 Fälle aus Abschnitt 7 als JSON; die Resolver-Tests laden alle Dateien
+- [x] Faden-Suche: die 5 Eigenschafts-Tests aus Abschnitt 8 mit simuliertem Hörer, mindestens 10.000 Zufallsfälle
+- [x] Audio-Hash in Dart mit denselben Testfällen wie der Server
+- [x] `data/`: drift-Journal (Event vor Aktion, in einer Transaktion), Sync-Client nach Abschnitt 6, API-Client
 
 ```text
 /plan Setze Meilenstein M3 aus docs/ROADMAP.md um. Spezifikation: docs/ARCHITEKTUR.md Abschnitte 5 bis 8 und 11. domain/ strikt test-first. Am Ende Abnahme-Punkte abhaken und committen.
