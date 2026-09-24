@@ -184,6 +184,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     final window = ref.watch(nightWindowProvider).value ?? NightWindow.defaults;
     final appearance = ref.watch(appearanceProvider);
     final sleepDefault = ref.watch(sleepTimerDefaultProvider).value ?? 30;
+    final autoDownload = ref.watch(autoDownloadSettingProvider).value ?? true;
     final secondary = TextStyle(color: tokens.tinteLeise, fontSize: FadenTypeSizes.caption);
     final ios = Theme.of(context).platform == TargetPlatform.iOS;
 
@@ -277,6 +278,15 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
           Text(AppStrings.settingsAppearanceNightNote, style: secondary),
           const SizedBox(height: 32),
           const _StorageSection(),
+          const SizedBox(height: 8),
+          // Decision E56: the open and the next "Weiterhören" book, Wi-Fi only.
+          SwitchListTile.adaptive(
+            contentPadding: EdgeInsets.zero,
+            value: autoDownload,
+            onChanged: (on) => ref.read(autoDownloadSettingProvider.notifier).set(on),
+            title: Text(AppStrings.settingsAutoDownload),
+            subtitle: Text(AppStrings.settingsAutoDownloadDescription, style: secondary),
+          ),
           const SizedBox(height: 32),
           SwitchListTile.adaptive(
             contentPadding: EdgeInsets.zero,
@@ -421,6 +431,9 @@ class _StorageSectionState extends ConsumerState<_StorageSection> {
               },
             ),
           ),
+        // Decision E57: finished books leave the device by themselves.
+        const SizedBox(height: 4),
+        Text(AppStrings.storageFinishedNote, style: TextStyle(color: tokens.tinteLeise, fontSize: FadenTypeSizes.caption)),
       ],
     );
   }

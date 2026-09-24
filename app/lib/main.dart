@@ -132,7 +132,10 @@ class _FadenAppState extends ConsumerState<FadenApp> {
   @override
   void initState() {
     super.initState();
-    _lifecycle = AppLifecycleListener(onResume: _syncNow);
+    _lifecycle = AppLifecycleListener(onResume: () {
+      _syncNow();
+      _autoDownload();
+    });
     try {
       final connectivity = Connectivity();
       unawaited(connectivity
@@ -150,8 +153,17 @@ class _FadenAppState extends ConsumerState<FadenApp> {
     _lastConnectivity = results;
     // The first report (or checkConnectivity) is the baseline; only a change is a trigger.
     if (previous == null || _sameResults(previous, results)) return;
+    // E56: to Wi-Fi starts auto-downloads, anything else stops them.
+    ref.read(autoDownloaderProvider)?.onNetworkChanged(results);
     if (results.every((r) => r == ConnectivityResult.none)) return;
     _syncNow();
+  }
+
+  /// Decision E56: keep the open and the next "Weiterhören" book on the
+  /// device (Wi-Fi only, in the background).
+  void _autoDownload() {
+    final downloader = ref.read(autoDownloaderProvider);
+    if (downloader != null) unawaited(downloader.trigger());
   }
 
   static bool _sameResults(List<ConnectivityResult> a, List<ConnectivityResult> b) =>
@@ -171,6 +183,7 @@ class _FadenAppState extends ConsumerState<FadenApp> {
   @override
   Widget build(BuildContext context) {
     ref.watch(syncWiringProvider);
+    ref.watch(offlineWiringProvider);
     final tokens = resolveFadenTokens(
       appearance: ref.watch(appearanceProvider),
       platformBrightness: MediaQuery.platformBrightnessOf(context),
@@ -217,6 +230,9 @@ class _StartupScreenState extends ConsumerState<_StartupScreen> {
   Future<void> _bootstrap() async {
     final settings = ref.read(settingsStoreProvider);
     final lastBookId = await settings.lastOpenedBookId();
+    // E57: finished books leave the device before anything is loaded into
+    // the player (a loaded book keeps its files). Local work only, fast.
+    await ref.read(finishedCleanupProvider)?.cleanAll();
 
     if (lastBookId != null) {
       try {
@@ -232,6 +248,9 @@ class _StartupScreenState extends ConsumerState<_StartupScreen> {
       }
     }
     if (!mounted) return;
+    // E56 at app start (opening the last book above triggers it itself).
+    final downloader = ref.read(autoDownloaderProvider);
+    if (downloader != null) unawaited(downloader.trigger());
     Navigator.of(context)
         .pushReplacement(UnderPlayerRoute<void>(instant: true, builder: (_) => const LibraryScreen()));
   }

@@ -90,6 +90,11 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
     _subs.add(handler.undoHints.listen(_showUndoHint));
     _subs.add(handler.chapterAdvanced.listen((_) => _sleepTimer.onChapterAdvanced()));
     _subs.add(handler.statusStream.listen(_onStatus));
+    // An error from opening the book before this screen existed (app
+    // start) would otherwise never be announced.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) unawaited(_onStatus(handler.status));
+    });
     // docs/ARCHITEKTUR.md section 9: a hardware/system media button in the
     // sleep timer's last minute extends it instead of acting, and counts as
     // an awake-proof; a media/system pause while in the night window writes
@@ -124,7 +129,10 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
   /// E39: a playback error shows once as "Kann nicht abspielen" with a
   /// retry; the next play reloads the playlist (audio/handler.dart). The
   /// root ScaffoldMessenger shows it on whatever screen is in front.
-  void _onStatus(PlaybackStatus status) {
+  ///
+  /// E58: if the failing chapter is not downloaded and the server does not
+  /// answer (the NAS is off at night), it says exactly that instead.
+  Future<void> _onStatus(PlaybackStatus status) async {
     final error = status.error;
     if (error == null) {
       _shownError = null;
@@ -132,9 +140,15 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
     }
     if (error == _shownError || !mounted || _fadenOpen) return;
     _shownError = error;
-    ScaffoldMessenger.of(context).showSnackBar(
+    final messenger = ScaffoldMessenger.of(context);
+    var text = AppStrings.playbackError;
+    if (error.notDownloaded && !await ref.read(serverReachableProvider)()) {
+      text = AppStrings.offlineNotDownloaded;
+    }
+    if (!mounted || _shownError != error) return;
+    messenger.showSnackBar(
       SnackBar(
-        content: Text(AppStrings.playbackError),
+        content: Text(text),
         action: SnackBarAction(
           label: AppStrings.libraryRetry,
           onPressed: () => unawaited(_handler.playFrom(EventSource.ui)),

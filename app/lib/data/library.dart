@@ -124,6 +124,26 @@ class LibraryCache {
     await _write(file, detail);
   }
 
+  File? _pausesFile(String bookId) {
+    if (!_safeId.hasMatch(bookId) || bookId.startsWith('.')) return null;
+    return File('${dir.path}/pauses-$bookId.json');
+  }
+
+  /// The last pause index fetched for [bookId] (decision E55), as
+  /// `{"manifest_id": ..., "pauses": {file_hash: [offsets_ms]}}`.
+  Future<Map<String, dynamic>?> loadPauses(String bookId) async {
+    final file = _pausesFile(bookId);
+    if (file == null) return null;
+    final raw = await _read(file);
+    return raw is Map<String, dynamic> ? raw : null;
+  }
+
+  Future<void> savePauses(String bookId, String manifestId, Map<String, dynamic> pauses) async {
+    final file = _pausesFile(bookId);
+    if (file == null) return;
+    await _write(file, {'manifest_id': manifestId, 'pauses': pauses});
+  }
+
   Future<Object?> _read(File file) async {
     try {
       if (!await file.exists()) return null;
@@ -221,4 +241,35 @@ class LibraryRepository {
       return cachedDetail(bookId);
     }
   }
+
+  /// The pause index of [bookId] (docs/ARCHITEKTUR.md section 4) from the
+  /// server, cached together with [manifestId] (decision E55). Throws when
+  /// no server is configured or it cannot be reached.
+  Future<Map<String, List<int>>> fetchPauseIndex(String bookId, {required String manifestId}) async {
+    final client = api;
+    if (client == null) throw StateError('no server configured');
+    final raw = await client.pauses(bookId);
+    final parsed = parsePauseIndex(raw);
+    await cache?.savePauses(bookId, manifestId, raw);
+    return parsed;
+  }
+
+  /// The cached pause index of [bookId], but only if it was fetched for
+  /// the manifest [manifestId] -- offsets of another manifest could snap
+  /// to the wrong places (decision E55). Null otherwise; never throws.
+  Future<Map<String, List<int>>?> cachedPauseIndex(String bookId, {required String manifestId}) async {
+    final cached = await cache?.loadPauses(bookId);
+    if (cached == null || cached['manifest_id'] != manifestId) return null;
+    try {
+      return parsePauseIndex(cached['pauses'] as Map<String, dynamic>);
+    } catch (_) {
+      return null;
+    }
+  }
 }
+
+/// `GET /api/v1/books/{id}/pauses` as `{file_hash: [offsets_ms]}`. Throws
+/// on a malformed answer.
+Map<String, List<int>> parsePauseIndex(Map<String, dynamic> raw) => {
+      for (final e in raw.entries) e.key: [for (final v in e.value as List) v as int],
+    };

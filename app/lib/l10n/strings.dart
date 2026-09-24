@@ -137,6 +137,11 @@ class AppStrings {
     'sleepTimerUntilChapterEnd': 'bis Kapitelende · {time}',
     'speedLabel': '{n}×',
     'scrubberRemaining': '−{time}',
+    'offlineNotDownloaded': 'Nicht geladen – der Server ist gerade nicht erreichbar.',
+    'libraryOnlineOnly': '{status} · nur online',
+    'settingsAutoDownload': 'Aktuelle Bücher automatisch laden',
+    'settingsAutoDownloadDescription': 'Lädt im WLAN das offene Buch und das nächste aus „Weiterhören“, solange der Server erreichbar ist. Nie über Mobilfunk.',
+    'storageFinishedNote': 'Zu Ende gehörte Bücher werden automatisch vom Gerät gelöscht. Der Fortschritt bleibt.',
   };
 
   static String _of(String key) {
@@ -230,6 +235,10 @@ class AppStrings {
   static String get libraryNoMatches => _of('libraryNoMatches');
   static String get libraryEmptyHint => _of('libraryEmptyHint');
   static String get offlineBanner => _of('offlineBanner');
+  static String get offlineNotDownloaded => _of('offlineNotDownloaded');
+  static String get settingsAutoDownload => _of('settingsAutoDownload');
+  static String get settingsAutoDownloadDescription => _of('settingsAutoDownloadDescription');
+  static String get storageFinishedNote => _of('storageFinishedNote');
   static String get setupTitle => _of('setupTitle');
   static String get setupBody => _of('setupBody');
   static String get setupAction => _of('setupAction');
@@ -308,4 +317,7 @@ class AppStrings {
 
   static String scrubberRemaining(String time) =>
       _of('scrubberRemaining').replaceAll('{time}', time);
+
+  /// A library status line plus "nur online" (E58).
+  static String libraryOnlineOnly(String status) => _of('libraryOnlineOnly').replaceAll('{status}', status);
 }

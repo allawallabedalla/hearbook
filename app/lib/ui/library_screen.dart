@@ -174,10 +174,8 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen> {
   }
 
   /// "Weiterhören": the most recently played books that are not finished.
-  List<BookSummary> continueListening(LibraryController controller) => [
-        for (final b in controller.recentlyPlayed)
-          if (b.serverStatus == 'ok' && !isFinished(controller.progressByBook[b.bookId])) b,
-      ].take(continueCount).toList();
+  List<BookSummary> continueListening(LibraryController controller) =>
+      controller.continueListening.take(continueCount).toList();
 }
 
 String librarySortLabel(LibrarySort sort) => switch (sort) {
@@ -185,9 +183,6 @@ String librarySortLabel(LibrarySort sort) => switch (sort) {
       LibrarySort.title => AppStrings.librarySortTitle,
       LibrarySort.author => AppStrings.librarySortAuthor,
     };
-
-/// A book counts as heard to the end from 99.5 % on.
-bool isFinished(BookProgress? progress) => (progress?.fraction ?? 0) >= 0.995;
 
 /// Filters [books] by [query] (title or author, case- and umlaut-folding)
 /// and orders them by [sort]. Pure, so it is tested without widgets.
@@ -326,6 +321,11 @@ class BookRow extends ConsumerWidget {
 
   bool get _unavailable => book.serverStatus == 'incomplete' || book.serverStatus == 'empty';
 
+  /// Decision E58: while the server is unreachable, a book that is not
+  /// fully downloaded cannot play; the row is dimmed and says "nur online".
+  static bool onlineOnly(LibraryController controller, BookSummary book, BookDownloadState download) =>
+      controller.offline && book.serverStatus == 'ok' && !download.isDownloaded;
+
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final controller = ref.watch(libraryControllerProvider);
@@ -334,6 +334,7 @@ class BookRow extends ConsumerWidget {
     final progress = controller.progressByBook[book.bookId];
     final author = book.author?.trim();
     final canDelete = download.bytesOnDisk > 0;
+    final dimmed = _unavailable || onlineOnly(controller, book, download);
 
     Widget row = InkWell(
       onTap: () => _onTap(context, ref, controller),
@@ -343,7 +344,7 @@ class BookRow extends ConsumerWidget {
         child: Row(
           children: [
             Opacity(
-              opacity: _unavailable ? 0.5 : 1,
+              opacity: dimmed ? 0.5 : 1,
               child: BookCover(
                 bookId: book.bookId,
                 title: book.title,
@@ -363,7 +364,7 @@ class BookRow extends ConsumerWidget {
                     overflow: TextOverflow.ellipsis,
                     style: TextStyle(
                       fontSize: FadenTypeSizes.body,
-                      color: _unavailable ? tokens.tinteLeise : tokens.tinte,
+                      color: dimmed ? tokens.tinteLeise : tokens.tinte,
                     ),
                   ),
                   if (author != null && author.isNotEmpty)
@@ -374,7 +375,13 @@ class BookRow extends ConsumerWidget {
                       style: TextStyle(fontSize: FadenTypeSizes.caption, color: tokens.tinteLeise),
                     ),
                   const SizedBox(height: 4),
-                  _StatusLine(book: book, progress: progress, download: download, tokens: tokens),
+                  _StatusLine(
+                    book: book,
+                    progress: progress,
+                    download: download,
+                    tokens: tokens,
+                    onlineOnly: onlineOnly(controller, book, download),
+                  ),
                 ],
               ),
             ),
@@ -474,8 +481,15 @@ class _StatusLine extends StatelessWidget {
   final BookProgress? progress;
   final BookDownloadState download;
   final FadenTokens tokens;
+  final bool onlineOnly;
 
-  const _StatusLine({required this.book, required this.progress, required this.download, required this.tokens});
+  const _StatusLine({
+    required this.book,
+    required this.progress,
+    required this.download,
+    required this.tokens,
+    this.onlineOnly = false,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -492,7 +506,7 @@ class _StatusLine extends StatelessWidget {
       return Text(AppStrings.downloadProgress(formatBytes(download.receivedBytes)), style: small);
     }
     final fraction = progress?.fraction;
-    final String text;
+    String text;
     double? thread;
     if (progress == null || fraction == null || fraction <= 0) {
       text = AppStrings.libraryStatusNew;
@@ -505,6 +519,7 @@ class _StatusLine extends StatelessWidget {
           ? AppStrings.threadValue((fraction * 100).floor())
           : AppStrings.remainingTime(formatRemaining((total * (1 - fraction)).round(), coarse: true));
     }
+    if (onlineOnly) text = AppStrings.libraryOnlineOnly(text);
     return Row(
       children: [
         if (thread != null) ...[

@@ -302,5 +302,20 @@
   "@speedLabel": { "description": "Tempo, z. B. 1,25×.", "placeholders": { "n": {} } },
 
   "scrubberRemaining": "−{time}",
-  "@scrubberRemaining": { "description": "Restzeit im Kapitel rechts unter dem Schieber.", "placeholders": { "time": {} } }
+  "@scrubberRemaining": { "description": "Restzeit im Kapitel rechts unter dem Schieber.", "placeholders": { "time": {} } },
+
+  "offlineNotDownloaded": "Nicht geladen – der Server ist gerade nicht erreichbar.",
+  "@offlineNotDownloaded": { "description": "Wiedergabefehler eines nicht geladenen Kapitels, während der Server nicht erreichbar ist (E58), als SnackBar statt playbackError." },
+
+  "libraryOnlineOnly": "{status} · nur online",
+  "@libraryOnlineOnly": { "description": "Statuszeile einer Bibliothekszeile, die offline nicht spielen kann (E58), {status} z. B. „noch 5 Std.“.", "placeholders": { "status": {} } },
+
+  "settingsAutoDownload": "Aktuelle Bücher automatisch laden",
+  "@settingsAutoDownload": { "description": "Schalter in den Einstellungen (E56), Standard an." },
+
+  "settingsAutoDownloadDescription": "Lädt im WLAN das offene Buch und das nächste aus „Weiterhören“, solange der Server erreichbar ist. Nie über Mobilfunk.",
+  "@settingsAutoDownloadDescription": { "description": "Erklärung unter dem Schalter settingsAutoDownload (E56)." },
+
+  "storageFinishedNote": "Zu Ende gehörte Bücher werden automatisch vom Gerät gelöscht. Der Fortschritt bleibt.",
+  "@storageFinishedNote": { "description": "Hinweis im Speicher-Abschnitt zum automatischen Löschen (E57)." }
 }

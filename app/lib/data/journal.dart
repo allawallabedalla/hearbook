@@ -117,6 +117,17 @@ class Journal {
     return row?.read(maxWall);
   }
 
+  /// Ids of every book with at least one event of [type] (any device).
+  /// The start-up cleanup of finished books (decision E57) only resolves
+  /// books with a `FINISHED` event.
+  Future<Set<String>> bookIdsWithEvent(EventType type) async {
+    final query = db.selectOnly(db.eventRows, distinct: true)
+      ..addColumns([db.eventRows.bookId])
+      ..where(db.eventRows.type.equals(type.wireName));
+    final rows = await query.get();
+    return {for (final r in rows) r.read(db.eventRows.bookId)!};
+  }
+
   /// Per-book progress for the library (decision E33), for every book with
   /// at least one intent event, in one query instead of a Resolver replay
   /// per row. Mirrors Resolver rules 1-3 (domain/resolver.dart): the

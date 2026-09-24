@@ -40,7 +40,7 @@ void main() {
   test('no raw placeholders or English leftovers in plain texts', () {
     for (final entry in AppStrings.values.entries) {
       final placeholders = RegExp(r'\{(\w+)\}').allMatches(entry.value).map((m) => m.group(1)).toSet();
-      final known = {'n', 'max', 'total', 'chapter', 'time', 'size', 'title', 'h', 'm', 'duration', 'source'};
+      final known = {'n', 'max', 'total', 'chapter', 'time', 'size', 'title', 'h', 'm', 'duration', 'source', 'status'};
       expect(known.containsAll(placeholders), isTrue, reason: '${entry.key}: $placeholders');
       expect(entry.value.contains('Neu starten'), isFalse, reason: entry.key);
     }

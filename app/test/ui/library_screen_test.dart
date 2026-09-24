@@ -151,6 +151,23 @@ void main() {
 
     double top(WidgetTester tester, String text) => tester.getTopLeft(find.text(text).last).dy;
 
+    testWidgets('offline, books that are not downloaded say "nur online" (E58)', (tester) async {
+      final controller = _FixedLibraryController(books: _books, progress: _progressByBook)..offline = true;
+      await pumpLibrary(tester, controller);
+      expect(find.text(AppStrings.libraryOnlineOnly(AppStrings.libraryStatusNew)), findsOneWidget,
+          reason: 'Anonyme Briefe, never played');
+      expect(find.text(AppStrings.libraryStatusIncomplete), findsOneWidget,
+          reason: 'an incomplete book keeps its own explanation');
+      await tearDownLibrary(tester);
+    });
+
+    testWidgets('online, no row says "nur online"', (tester) async {
+      await pumpLibrary(tester, _FixedLibraryController(books: _books, progress: _progressByBook));
+      expect(find.text(AppStrings.libraryOnlineOnly(AppStrings.libraryStatusNew)), findsNothing);
+      expect(find.text(AppStrings.libraryStatusNew), findsOneWidget);
+      await tearDownLibrary(tester);
+    });
+
     testWidgets('"Weiterhören" lists unfinished recent books above all books', (tester) async {
       await pumpLibrary(tester, _FixedLibraryController(books: _books, progress: _progressByBook));
       expect(find.text(AppStrings.libraryContinueSection), findsOneWidget);

@@ -77,6 +77,8 @@ void main() {
     bool sleepSuspected = false,
     String title = 'Der Zauberberg',
     String? author = 'Thomas Mann',
+    bool serverReachable = true,
+    PlaybackFailure? initialError,
   }) async {
     await tester.runAsync(() async {
       db = AppDatabase.memory();
@@ -92,7 +94,7 @@ void main() {
         await store.setNightStartMin((minute + 120) % 1440);
         await store.setNightEndMin((minute + 180) % 1440);
       }
-      handler = FakeAudioHandler(journal);
+      handler = FakeAudioHandler(journal)..fakeError = initialError;
       session = PlayerSessionController(handler: handler, journal: journal);
     });
     session
@@ -123,6 +125,7 @@ void main() {
           appDatabaseProvider.overrideWithValue(db),
           audioHandlerProvider.overrideWithValue(handler),
           playerSessionProvider.overrideWith((ref) => session),
+          serverReachableProvider.overrideWithValue(() async => serverReachable),
         ],
         child: MaterialApp(
           theme: fadenThemeFor(FadenTokens.day),
@@ -304,6 +307,52 @@ void main() {
       await tester.tap(find.text(AppStrings.libraryRetry));
       await tester.pumpAndSettle();
       expect(handler.calls.last, (action: 'play', source: EventSource.ui));
+      await tearDownPlayer(tester);
+    });
+  });
+
+  group('not downloaded while the server is off (E58)', () {
+    testWidgets('says "Nicht geladen – der Server ist gerade nicht erreichbar."', (tester) async {
+      await pumpPlayer(tester, serverReachable: false);
+      handler.emitStatus(error: const PlaybackFailure(code: 1, message: 'No route to host', notDownloaded: true));
+      await tester.pump();
+      await tester.pumpAndSettle();
+      expect(find.text(AppStrings.offlineNotDownloaded), findsOneWidget);
+      expect(find.text(AppStrings.playbackError), findsNothing);
+      handler.emitStatus(buffering: false); // same error again: no second SnackBar
+      await tester.pumpAndSettle();
+      expect(find.text(AppStrings.offlineNotDownloaded), findsOneWidget);
+      await tearDownPlayer(tester);
+    });
+
+    testWidgets('a streamed chapter failing with the server up is a plain playback error', (tester) async {
+      await pumpPlayer(tester, serverReachable: true);
+      handler.emitStatus(error: const PlaybackFailure(code: 1, notDownloaded: true));
+      await tester.pump();
+      await tester.pumpAndSettle();
+      expect(find.text(AppStrings.playbackError), findsOneWidget);
+      expect(find.text(AppStrings.offlineNotDownloaded), findsNothing);
+      await tearDownPlayer(tester);
+    });
+
+    testWidgets('a downloaded chapter failing is a plain playback error, even offline', (tester) async {
+      await pumpPlayer(tester, serverReachable: false);
+      handler.emitStatus(error: const PlaybackFailure(code: 1));
+      await tester.pump();
+      await tester.pumpAndSettle();
+      expect(find.text(AppStrings.playbackError), findsOneWidget);
+      await tearDownPlayer(tester);
+    });
+
+    testWidgets('an error from before the player was shown is announced too', (tester) async {
+      // E.g. the app start opened a book that is not downloaded, at night.
+      await pumpPlayer(
+        tester,
+        serverReachable: false,
+        initialError: const PlaybackFailure(code: 1, notDownloaded: true),
+      );
+      await tester.pumpAndSettle();
+      expect(find.text(AppStrings.offlineNotDownloaded), findsOneWidget);
       await tearDownPlayer(tester);
     });
   });

@@ -194,6 +194,19 @@ void main() {
     await tearDownAll(tester);
   });
 
+  testWidgets('"Aktuelle Bücher automatisch laden" is on by default and stored at once (E56)', (tester) async {
+    await pumpSettings(tester);
+    final tile = find.widgetWithText(SwitchListTile, AppStrings.settingsAutoDownload);
+    expect(tester.widget<SwitchListTile>(tile).value, isTrue);
+    expect(find.text(AppStrings.storageFinishedNote), findsOneWidget);
+
+    await tester.tap(find.text(AppStrings.settingsAutoDownload));
+    await settle(tester);
+    expect(await tester.runAsync(store.autoDownload), isFalse);
+    expect(tester.widget<SwitchListTile>(tile).value, isFalse);
+    await tearDownAll(tester);
+  });
+
   test('formatMinutesOfDay pads hours and minutes', () {
     expect(formatMinutesOfDay(0), '00:00');
     expect(formatMinutesOfDay(6 * 60 + 5), '06:05');

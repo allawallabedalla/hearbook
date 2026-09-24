@@ -17,6 +17,7 @@ import '../domain/position.dart';
 import '../l10n/strings.dart';
 import '../signals/awake.dart';
 import 'playback_status.dart';
+import 'player.dart' show streamsFromServer;
 import 'undo_hint.dart';
 
 /// What the lock screen / Control Center shows for one chapter file: the
@@ -306,9 +307,7 @@ class FadenAudioHandler extends BaseAudioHandler {
       // E.g. a book that is not downloaded, opened offline: it still opens
       // at its position (lock screen, details, history); the UI shows the
       // error, and the next play loads again (E39).
-      _setStatus(_status.copyWith(
-        error: PlaybackFailure(code: e.code, message: e.message, chapterIndex: e.index),
-      ));
+      _setStatus(_status.copyWith(error: _failure(e, fallbackIndex: initialIndex)));
     } on ja.PlayerInterruptedException {
       // Another load replaced this one (a quick second book switch).
     }
@@ -926,15 +925,25 @@ class FadenAudioHandler extends BaseAudioHandler {
   /// that stop is journaled as a PAUSE like any other (no SLEEP_HINT: it
   /// says nothing about the listener).
   void _onPlayerError(ja.PlayerException e) {
-    _setStatus(_status.copyWith(
-      error: PlaybackFailure(code: e.code, message: e.message, chapterIndex: e.index),
-    ));
+    _setStatus(_status.copyWith(error: _failure(e, fallbackIndex: _lastIndex)));
     playbackState.add(playbackState.value.copyWith(
       processingState: AudioProcessingState.error,
       errorCode: e.code,
       errorMessage: e.message,
     ));
     if (playing) unawaited(_pause(EventSource.system, allowSleepHint: false));
+  }
+
+  /// [e] as a [PlaybackFailure], marked `notDownloaded` when its chapter
+  /// streams from the server (decision E58).
+  PlaybackFailure _failure(ja.PlayerException e, {int? fallbackIndex}) {
+    final index = e.index ?? fallbackIndex;
+    return PlaybackFailure(
+      code: e.code,
+      message: e.message,
+      chapterIndex: e.index,
+      notDownloaded: streamsFromServer(_sources, index),
+    );
   }
 
   void _setStatus(PlaybackStatus next) {

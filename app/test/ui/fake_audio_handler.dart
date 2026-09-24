@@ -38,8 +38,25 @@ class FakeAudioHandler extends FadenAudioHandler {
   @override
   Stream<PlaybackStatus> get statusStream => _status.stream;
 
+  /// The book the handler reports as loaded ([bookId]); unset, the real
+  /// handler's (null without `openBook`).
+  String? fakeLoadedBookId;
+
+  @override
+  String? get bookId => fakeLoadedBookId ?? super.bookId;
+
+  final StreamController<Set<String>> _remote = StreamController<Set<String>>.broadcast();
+
+  /// Emits on [remoteEventsPulled] as a sync that pulled other devices'
+  /// events for [bookIds] would.
+  void emitRemoteEvents(Set<String> bookIds) => _remote.add(bookIds);
+
+  @override
+  Stream<Set<String>> get remoteEventsPulled => _remote.stream;
+
   @override
   Future<void> dispose() async {
+    await _remote.close();
     await _status.close();
     await _speed.close();
     await super.dispose();

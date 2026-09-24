@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:io';
 import 'dart:typed_data';
 
+import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:flutter/foundation.dart' show ChangeNotifier;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_riverpod/legacy.dart';
@@ -15,6 +16,7 @@ import '../data/db.dart';
 import '../data/downloads.dart';
 import '../data/journal.dart';
 import '../data/library.dart';
+import '../data/offline_books.dart';
 import '../data/settings_store.dart';
 import '../data/sleep_data_source.dart';
 import '../data/storage.dart';
@@ -376,6 +378,10 @@ class BookProgress {
   });
 }
 
+/// A book counts as heard to the end from 99.5 % on (library display,
+/// E48). The Resolver's `finished` is what counts for deleting files (E57).
+bool isFinished(BookProgress? progress) => (progress?.fraction ?? 0) >= 0.995;
+
 /// Builds [BookProgress] from journal rows and whatever manifests are known.
 Map<String, BookProgress> bookProgressFrom(
   Map<String, BookProgressRow> rows,
@@ -459,6 +465,13 @@ class LibraryController extends ChangeNotifier {
     withProgress.sort((a, b) => progressByBook[b.bookId]!.lastPlayed.compareTo(progressByBook[a.bookId]!.lastPlayed));
     return withProgress;
   }
+
+  /// "Weiterhören" (E48): [recentlyPlayed] books that are fine on the
+  /// server and not heard to the end, newest first.
+  List<BookSummary> get continueListening => [
+        for (final b in recentlyPlayed)
+          if (b.serverStatus == 'ok' && !isFinished(progressByBook[b.bookId])) b,
+      ];
 
   /// Completes when the last [refresh]'s background detail walk is done.
   Future<void> whenIdle() async {
@@ -548,7 +561,8 @@ class LibraryController extends ChangeNotifier {
     }
   }
 
-  Future<Manifest?> _manifestFor(String bookId) async {
+  /// [bookId]'s active manifest: known, else cached, else fetched.
+  Future<Manifest?> manifestFor(String bookId) async {
     final known = manifests[bookId];
     if (known != null) return known;
     final detail = await repository.detailCacheFirst(bookId);
@@ -564,7 +578,7 @@ class LibraryController extends ChangeNotifier {
   Future<bool> downloadBook(String bookId) async {
     final dm = downloads;
     if (dm == null) return false;
-    final manifest = await _manifestFor(bookId);
+    final manifest = await manifestFor(bookId);
     if (manifest == null) return false;
     return dm.download(bookId, manifest);
   }
@@ -577,7 +591,7 @@ class LibraryController extends ChangeNotifier {
   Future<void> deleteDownload(String bookId) async {
     final dm = downloads;
     if (dm == null) return;
-    final manifest = await _manifestFor(bookId);
+    final manifest = await manifestFor(bookId);
     if (manifest == null) return;
     await dm.deleteBook(bookId, manifest);
   }
@@ -655,7 +669,14 @@ class PlayerSessionController extends ChangeNotifier {
   /// server is unreachable or the book has no index yet: Faden-Suche then
   /// simply runs without snapping to sentence starts, same as the prototype
   /// (prototype/faden.html: "ohne Einrasten weiter").
+  ///
+  /// Decision E55: the copy cached for the same manifest is used at once
+  /// (the NAS is off at night), then replaced by the server's answer.
   Map<String, List<int>> pauseIndex = {};
+
+  /// Completes once [openBook]'s server fetch of the pause index is done
+  /// (or failed). Opening never waits for it.
+  Future<void> pauseIndexRefresh = Future.value();
 
   final List<StreamSubscription<Object?>> _subs = [];
   bool _opening = false;
@@ -693,6 +714,7 @@ class PlayerSessionController extends ChangeNotifier {
     required String serverBaseUrl,
     required String serverToken,
     ApiClient? api,
+    LibraryRepository? library,
     String? author,
     Directory? coverDir,
   }) async {
@@ -750,19 +772,29 @@ class PlayerSessionController extends ChangeNotifier {
       loading = false;
     }
 
-    if (api != null) {
-      try {
-        final raw = await api.pauses(bookId);
-        pauseIndex = raw.map((key, value) => MapEntry(key, (value as List).cast<int>()));
-      } catch (_) {
-        // Offline/unreachable: Faden-Suche just runs without snapping.
-      }
-    }
+    // E55: the cached pause index first (the NAS may be off), then the
+    // server's in the background -- opening never waits for the network.
+    final pauses = library ?? LibraryRepository(api: api, cache: null);
+    final cachedPauses = await pauses.cachedPauseIndex(bookId, manifestId: manifest.manifestId);
+    if (cachedPauses != null && this.bookId == bookId) pauseIndex = cachedPauses;
+    pauseIndexRefresh = _fetchPauseIndex(pauses, bookId, manifest.manifestId);
 
     _notify();
     if (_remoteCheckPending) {
       _remoteCheckPending = false;
       unawaited(onRemoteEvents());
+    }
+  }
+
+  Future<void> _fetchPauseIndex(LibraryRepository repository, String bookId, String manifestId) async {
+    try {
+      final fresh = await repository.fetchPauseIndex(bookId, manifestId: manifestId);
+      if (this.bookId != bookId || manifest?.manifestId != manifestId || _disposed) return;
+      pauseIndex = fresh;
+      _notify();
+    } catch (_) {
+      // Offline/unreachable: the cached copy (or none) stays; without one,
+      // Faden-Suche just runs without snapping.
     }
   }
 
@@ -977,9 +1009,26 @@ class BookOpener {
     if (detail == null || manifest == null || manifest.files.isEmpty) return OpenBookResult.unavailable;
 
     await _ref.read(settingsStoreProvider).setLastOpenedBookId(bookId);
+    final previous = handler.bookId;
     await _openWith(detail, manifest);
     if (cached != null) unawaited(_refreshInBackground(bookId, manifest.manifestId));
+    _afterOpen(bookId, previous);
     return OpenBookResult.opened;
+  }
+
+  /// Background work after a book was opened; nothing here is awaited.
+  /// E57: the book loaded before is out of the player now, so if it was
+  /// finished, its files go. E56: keep the open book and the next
+  /// "Weiterhören" book on the device (Wi-Fi only).
+  void _afterOpen(String bookId, String? previous) {
+    try {
+      final cleanup = _ref.read(finishedCleanupProvider);
+      if (cleanup != null && previous != null && previous != bookId) unawaited(cleanup.cleanBook(previous));
+      final autoDownloader = _ref.read(autoDownloaderProvider);
+      if (autoDownloader != null) unawaited(autoDownloader.trigger());
+    } catch (_) {
+      // Housekeeping never affects opening a book.
+    }
   }
 
   Future<void> _openWith(BookDetail detail, Manifest manifest) {
@@ -993,6 +1042,7 @@ class BookOpener {
           serverBaseUrl: api?.baseUrl ?? '',
           serverToken: config.token ?? '',
           api: api,
+          library: _ref.read(libraryRepositoryProvider),
           author: detail.author,
           coverDir: _ref.read(appSupportDirProvider),
         );
@@ -1018,3 +1068,127 @@ class BookOpener {
 }
 
 final bookOpenerProvider = Provider<BookOpener>(BookOpener.new);
+
+/// The phone's current network (decision E56). Overridden in tests.
+final connectivityCheckProvider = Provider<ConnectivityCheck>(
+  (ref) => () => Connectivity().checkConnectivity(),
+);
+
+/// Whether the server answers right now (`/health`, E37 timeouts). False
+/// without a server. Never throws.
+final serverReachableProvider = Provider<Future<bool> Function()>((ref) {
+  final api = ref.watch(apiClientProvider);
+  return () async {
+    if (api == null) return false;
+    try {
+      return await api.health();
+    } catch (_) {
+      return false;
+    }
+  };
+});
+
+/// "Aktuelle Bücher automatisch laden" (decision E56), on by default.
+/// [set] writes the store first, then updates the state; switching it on
+/// starts a pass at once.
+class AutoDownloadSettingController extends AsyncNotifier<bool> {
+  @override
+  Future<bool> build() => ref.watch(settingsStoreProvider).autoDownload();
+
+  Future<void> set(bool on) async {
+    await ref.read(settingsStoreProvider).setAutoDownload(on);
+    if (!ref.mounted) return;
+    state = AsyncData(on);
+    if (on) unawaited(ref.read(autoDownloaderProvider)?.trigger() ?? Future<void>.value());
+  }
+}
+
+final autoDownloadSettingProvider =
+    AsyncNotifierProvider<AutoDownloadSettingController, bool>(AutoDownloadSettingController.new);
+
+/// Deletes the audio of finished books (decision E57). Null without
+/// downloads (tests without an app-support directory).
+final finishedCleanupProvider = Provider<FinishedCleanup?>((ref) {
+  // .notifier: the instance only, so a download-state change does not
+  // rebuild this (see libraryControllerProvider).
+  final downloads = ref.watch(bookDownloadsProvider.notifier);
+  if (downloads == null) return null;
+  final repository = ref.watch(libraryRepositoryProvider);
+  final settings = ref.watch(settingsStoreProvider);
+  final handler = ref.watch(audioHandlerProvider);
+  return FinishedCleanup(
+    journal: ref.watch(journalProvider),
+    downloads: downloads,
+    // The cached detail only: local, fast, also at night (E30). Every book
+    // with downloaded files was opened or listed online before.
+    manifestFor: (bookId) async => (await repository.cachedDetail(bookId))?.activeManifest,
+    resolverSettings: () async => ResolverSettings(
+      nightStartMin: await settings.nightStartMin(),
+      nightEndMin: await settings.nightEndMin(),
+    ),
+    isLoaded: (bookId) => handler.bookId == bookId,
+  );
+});
+
+/// The books auto-download keeps on the device (decision E56), most
+/// important first: the open book, then the next "Weiterhören" book --
+/// neither of them finished (the Resolver's `finished`, which would only
+/// be deleted again, E57, nor heard to 99.5 %).
+Future<List<String>> autoDownloadCandidates({
+  required String? currentBookId,
+  required LibraryController library,
+  required Future<bool> Function(String bookId) isFinishedBook,
+}) async {
+  if (library.books.isEmpty) await library.refresh();
+  await library.refreshProgress();
+  final ids = <String>[];
+  if (currentBookId != null && !await isFinishedBook(currentBookId)) ids.add(currentBookId);
+  for (final book in library.continueListening) {
+    if (book.bookId == currentBookId) continue;
+    if (await isFinishedBook(book.bookId)) continue;
+    ids.add(book.bookId);
+    break;
+  }
+  return ids;
+}
+
+/// Downloads the open and the next "Weiterhören" book on Wi-Fi (decision
+/// E56). Triggered by opening a book (BookOpener), app start, foreground
+/// and a network change (main.dart). Null without downloads.
+final autoDownloaderProvider = Provider<AutoDownloader?>((ref) {
+  // .notifier everywhere: instances only. Watching these ChangeNotifier
+  // providers themselves would rebuild this downloader (and forget its
+  // running pass) on every progress tick.
+  final downloads = ref.watch(bookDownloadsProvider.notifier);
+  if (downloads == null) return null;
+  final library = ref.watch(libraryControllerProvider.notifier);
+  final session = ref.watch(playerSessionProvider.notifier);
+  final settings = ref.watch(settingsStoreProvider);
+  final cleanup = ref.watch(finishedCleanupProvider);
+  return AutoDownloader(
+    enabled: settings.autoDownload,
+    connectivity: ref.watch(connectivityCheckProvider),
+    serverReachable: ref.watch(serverReachableProvider),
+    candidates: () => autoDownloadCandidates(
+      currentBookId: session.bookId,
+      library: library,
+      isFinishedBook: (bookId) async =>
+          cleanup != null && await cleanup.isFinished(bookId, await library.manifestFor(bookId)),
+    ),
+    manifestFor: library.manifestFor,
+    downloads: downloads,
+  );
+});
+
+/// Cleans up a book another device finished (E57) once a sync brings its
+/// events. Watched once by the app root (main.dart).
+final offlineWiringProvider = Provider<void>((ref) {
+  final cleanup = ref.watch(finishedCleanupProvider);
+  if (cleanup == null) return;
+  final sub = ref.watch(audioHandlerProvider).remoteEventsPulled.listen((bookIds) {
+    for (final bookId in bookIds) {
+      unawaited(cleanup.cleanBook(bookId));
+    }
+  });
+  ref.onDispose(() => unawaited(sub.cancel()));
+});

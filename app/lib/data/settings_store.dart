@@ -16,6 +16,7 @@ class SettingsKeys {
   static const lastOpenedBookId = 'last_opened_book_id';
   static const healthDataOptIn = 'health_data_opt_in';
   static const appearance = 'appearance';
+  static const autoDownload = 'auto_download';
 
   /// Prefix of the per-book playback speed (decision E38), one key per
   /// book: `book_speed:<book_id>`.
@@ -128,6 +129,13 @@ class SettingsStore {
 
   Future<void> setAppearance(Appearance appearance) =>
       _set(SettingsKeys.appearance, appearance.name);
+
+  /// "Aktuelle Bücher automatisch laden" (decision E56): on Wi-Fi, the
+  /// open book and the next "Weiterhören" book are downloaded by
+  /// themselves. On by default: an unset key means true.
+  Future<bool> autoDownload() async => await _get(SettingsKeys.autoDownload) != 'false';
+
+  Future<void> setAutoDownload(bool on) => _set(SettingsKeys.autoDownload, on.toString());
 
   /// Playback speed of [bookId] (decision E38), 1.0 when never set or
   /// unreadable. Local only: speed is not an event (docs/ARCHITEKTUR.md

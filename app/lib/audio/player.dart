@@ -41,3 +41,12 @@ Future<List<IndexedAudioSource>> buildPlaylist({
   }
   return sources;
 }
+
+/// Whether the chapter at [index] of [sources] streams from the server
+/// rather than playing a downloaded file (decision E58). False for an
+/// index outside the playlist.
+bool streamsFromServer(List<IndexedAudioSource> sources, int? index) {
+  if (index == null || index < 0 || index >= sources.length) return false;
+  final source = sources[index];
+  return source is UriAudioSource && source.uri.scheme != 'file';
+}

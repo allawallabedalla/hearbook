@@ -46,8 +46,8 @@ Regeln:
 1. **Start ist der Player:** Cover, Titel, Autor, Kapitel, Restzeit in Minuten („noch 3 Std. 45 Min.“), der Faden als Buchfortschritt (nicht ziehbar), großer Button, unten ein Griff zu den Details. Die Bibliothek erreichst du über ein kleines Symbol oder durch Wischen nach unten.
 2. **Details (nach oben wischen oder Griff antippen):** Scrubber für das aktuelle Kapitel mit verstrichener und verbleibender Zeit, Tempo, Sleep-Timer, Verlauf, alle Kapitel mit Titel und Dauer, der Weg zur Bibliothek.
 3. **Faden-Modus:** Vollbild, dunkel, siehe oben.
-4. **Bibliothek:** oben „Weiterhören“ (zuletzt gehört), darunter alle Bücher mit Suche und Sortierung (zuletzt gehört, Titel, Autor). Je Buch Cover, Autor, Fortschritt als dünner Faden mit Restzeit oder „neu“/„gehört“, Download-Status (geladen, lädt mit Abbrechen, Fehler mit „Erneut versuchen“), „Reihenfolge prüfen“. Download löschen per Wischen oder langem Druck. Ohne Server zuerst „Server einrichten“.
-5. **Einstellungen:** Server mit „Verbindung prüfen“, Nachtfenster, Sleep-Timer-Standard, Erscheinungsbild (Wie iPhone, Hell, Dunkel), Speicher (geladene Bücher), Schlafdaten erlauben, Belegung der Kopfhörertasten.
+4. **Bibliothek:** oben „Weiterhören“ (zuletzt gehört), darunter alle Bücher mit Suche und Sortierung (zuletzt gehört, Titel, Autor). Je Buch Cover, Autor, Fortschritt als dünner Faden mit Restzeit oder „neu“/„gehört“, Download-Status (geladen, lädt mit Abbrechen, Fehler mit „Erneut versuchen“), „Reihenfolge prüfen“. Download löschen per Wischen oder langem Druck. Ohne Server zuerst „Server einrichten“. Offline sind nicht geladene Bücher gedimmt und als „nur online“ markiert.
+5. **Einstellungen:** Server mit „Verbindung prüfen“, Nachtfenster, Sleep-Timer-Standard, Erscheinungsbild (Wie iPhone, Hell, Dunkel), Speicher (geladene Bücher; zu Ende gehörte werden automatisch gelöscht), „Aktuelle Bücher automatisch laden“ (im WLAN das offene und das nächste Buch aus „Weiterhören“), Schlafdaten erlauben, Belegung der Kopfhörertasten.
 
 ## Nachtmodus
 
@@ -95,6 +95,7 @@ Tagsüber indigo gefärbtes Garn auf kühlem Weiß. Nachts warmes Bernstein ohne
 | Offline, Bücher bekannt | Offline – geladene Bücher spielen weiter |
 | Restzeit | noch 3 Std. 45 Min. |
 | Wiedergabefehler | Kann nicht abspielen |
+| Nicht geladen, Server aus | Nicht geladen – der Server ist gerade nicht erreichbar. |
 
 ## Nicht im MVP
 

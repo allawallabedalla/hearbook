@@ -44,17 +44,23 @@ class PlaybackFailure {
   /// Playlist index (0-based chapter) the error belongs to, if known.
   final int? chapterIndex;
 
-  const PlaybackFailure({this.code, this.message, this.chapterIndex});
+  /// The chapter was to stream from the server, not play from a download
+  /// (decision E58). With the server unreachable, the UI says so plainly
+  /// instead of "Kann nicht abspielen".
+  final bool notDownloaded;
+
+  const PlaybackFailure({this.code, this.message, this.chapterIndex, this.notDownloaded = false});
 
   @override
   bool operator ==(Object other) =>
       other is PlaybackFailure &&
       other.code == code &&
       other.message == message &&
-      other.chapterIndex == chapterIndex;
+      other.chapterIndex == chapterIndex &&
+      other.notDownloaded == notDownloaded;
 
   @override
-  int get hashCode => Object.hash(code, message, chapterIndex);
+  int get hashCode => Object.hash(code, message, chapterIndex, notDownloaded);
 }
 
 /// Processing states of the main player, mirrored from just_audio's
