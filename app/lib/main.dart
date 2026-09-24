@@ -52,6 +52,9 @@ Future<void> main() async {
       androidNotificationChannelId: 'de.faden.app.channel.audio',
       androidNotificationChannelName: 'Faden Wiedergabe',
       androidNotificationOngoing: true,
+      // Matches the handler's +/-30 s; iOS labels the lock-screen skip buttons with it.
+      fastForwardInterval: Duration(seconds: 30),
+      rewindInterval: Duration(seconds: 30),
     ),
   );
   // just_audio would default to a music session, which ducks under navigation
@@ -143,6 +146,7 @@ class _StartupScreenState extends ConsumerState<_StartupScreen> {
                 serverBaseUrl: serverUrl,
                 serverToken: token,
                 api: api,
+                author: detail['author'] as String?,
               );
           if (!mounted) return;
           Navigator.of(context).pushReplacement(PlayerScreen.route());

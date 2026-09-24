@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart' show ChangeNotifier;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_riverpod/legacy.dart';
 import 'package:just_audio/just_audio.dart' as ja;
+import 'package:path_provider/path_provider.dart';
 
 import '../audio/handler.dart';
 import '../audio/player.dart';
@@ -39,6 +40,25 @@ final deviceIdProvider = Provider<String>((ref) => throw UnimplementedError('ove
 final apiClientProvider = Provider<ApiClient?>((ref) => null);
 final downloadManagerProvider = Provider<DownloadManager?>((ref) => null);
 final syncClientProvider = Provider<SyncClient?>((ref) => null);
+
+/// Keeps a copy of the book's cover on the device for the lock screen, so it
+/// also shows offline; falls back to the last saved copy.
+Future<Uri?> saveCoverForLockScreen(String bookId, ApiClient? api, Directory dir) async {
+  if (!RegExp(r'^[A-Za-z0-9-]+$').hasMatch(bookId)) return null;
+  final file = File('${dir.path}/covers/$bookId');
+  if (api != null) {
+    try {
+      final bytes = await api.cover(bookId);
+      if (bytes != null) {
+        await file.parent.create(recursive: true);
+        await file.writeAsBytes(bytes, flush: true);
+      }
+    } catch (_) {
+      // Offline: keep whatever copy we already have.
+    }
+  }
+  return await file.exists() ? file.uri : null;
+}
 
 // Fetched once per book; loading it in build() refetched it on every position tick.
 final coverProvider = FutureProvider.family<Uint8List?, String>((ref, bookId) async {
@@ -343,6 +363,7 @@ class PlayerSessionController extends ChangeNotifier {
     required String serverBaseUrl,
     required String serverToken,
     ApiClient? api,
+    String? author,
   }) async {
     loading = true;
     notifyListeners();
@@ -366,12 +387,21 @@ class PlayerSessionController extends ChangeNotifier {
         serverToken: serverToken,
       );
       playlistSources = sources;
+      Uri? artUri;
+      try {
+        artUri = await saveCoverForLockScreen(bookId, api, await getApplicationSupportDirectory())
+            .timeout(const Duration(seconds: 3));
+      } catch (_) {
+        // No cover on the lock screen is fine; opening the book must not wait on it.
+      }
       await handler.openBook(
         bookId: bookId,
         manifest: manifest,
         bookTitle: bookTitle,
         sources: sources,
         initialPosition: state.position,
+        author: author,
+        artUri: artUri,
       );
     }
 

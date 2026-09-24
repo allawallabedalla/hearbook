@@ -163,6 +163,7 @@ class _BookRow extends ConsumerWidget {
           serverBaseUrl: serverUrl,
           serverToken: token,
           api: api,
+          author: book.author,
         );
     if (!context.mounted) return;
     // Back to the one root player instead of stacking a new one on top
