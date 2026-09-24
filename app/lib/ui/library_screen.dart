@@ -159,6 +159,7 @@ class _BookRow extends ConsumerWidget {
           downloads: downloads,
           serverBaseUrl: serverUrl,
           serverToken: token,
+          api: api,
         );
     if (!context.mounted) return;
     Navigator.of(context).push(MaterialPageRoute(builder: (_) => const PlayerScreen()));

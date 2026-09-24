@@ -117,6 +117,7 @@ class _StartupScreenState extends ConsumerState<_StartupScreen> {
                 downloads: ref.read(downloadManagerProvider),
                 serverBaseUrl: serverUrl,
                 serverToken: token,
+                api: api,
               );
           if (!mounted) return;
           Navigator.of(context)

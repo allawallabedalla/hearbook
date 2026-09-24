@@ -5,12 +5,14 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../audio/undo_hint.dart';
-import '../domain/event.dart' show EventSource;
+import '../domain/pause_index.dart';
 import '../domain/position.dart';
+import '../domain/resolver.dart' show BookState;
 import '../l10n/strings.dart';
 import '../signals/night.dart';
 import '../signals/sleep_timer.dart';
 import 'details_sheet.dart';
+import 'faden_screen.dart';
 import 'library_screen.dart';
 import 'providers.dart';
 import 'theme.dart';
@@ -40,12 +42,23 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
     super.initState();
     _lock = ScreenLockController();
     _sleepTimer = SleepTimerController(
-      onExpire: () => ref.read(audioHandlerProvider).pauseFrom(EventSource.timer),
+      // docs/ARCHITEKTUR.md section 9: "SLEEP_HINT entsteht beim Ablauf des
+      // Sleep-Timers" -- M5 adds this on top of M4's plain PAUSE (see
+      // decision E13 in docs/ARCHITEKTUR.md section 13).
+      onExpire: () => ref.read(audioHandlerProvider).pauseForSleepTimerExpiry(),
       onVolumeChange: (factor) => ref.read(audioHandlerProvider).setSleepFadeVolume(factor),
     );
     _lock.lockedStream.listen((_) => setState(() {}));
     _sleepTimer.stateStream.listen((_) => setState(() {}));
-    _undoHintSub = ref.read(audioHandlerProvider).undoHints.listen(_showUndoHint);
+    final handler = ref.read(audioHandlerProvider);
+    _undoHintSub = handler.undoHints.listen(_showUndoHint);
+    // docs/ARCHITEKTUR.md section 9: a hardware/system media button in the
+    // sleep timer's last minute extends it instead of acting, and counts as
+    // an awake-proof; a media/system pause while in the night window writes
+    // SLEEP_HINT. Both hooks read live state (the closures capture `this`),
+    // so no re-wiring is needed as `_sleepTimer`/the night window change.
+    handler.onLastMinuteExtend = () => _sleepTimer.extendIfInLastMinute();
+    handler.isInNightWindow = () => _inNightWindowNow;
     _loadNightWindow();
   }
 
@@ -76,30 +89,77 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
 
   @override
   void dispose() {
+    // The handler outlives this screen (it is a main.dart-owned singleton),
+    // so these hooks must not keep referring to a SleepTimerController that
+    // is about to be disposed right below.
+    final handler = ref.read(audioHandlerProvider);
+    handler.onLastMinuteExtend = null;
+    handler.isInNightWindow = null;
     _undoHintSub?.cancel();
     _lock.dispose();
     _sleepTimer.dispose();
     super.dispose();
   }
 
-  bool get _isNight {
+  /// The device-time night window right now (docs/ARCHITEKTUR.md section 9's
+  /// "im Nachtfenster" for a media/system pause) -- distinct from [_isNight]
+  /// below, which also counts a running sleep timer as "night mode" for the
+  /// UI's own dark styling.
+  bool get _inNightWindowNow {
     final now = DateTime.now();
-    final tzMin = now.timeZoneOffset.inMinutes;
-    final inWindow = isInNightWindow(
+    return isInNightWindow(
       nowWallMs: now.millisecondsSinceEpoch,
-      tzMin: tzMin,
+      tzMin: now.timeZoneOffset.inMinutes,
       nightStartMin: _nightStartMin,
       nightEndMin: _nightEndMin,
     );
-    return isNightModeActive(inNightWindow: inWindow, sleepTimerRunning: _sleepTimer.state.running);
   }
 
-  void _onInteraction() => _lock.onInteraction();
+  bool get _isNight =>
+      isNightModeActive(inNightWindow: _inNightWindowNow, sleepTimerRunning: _sleepTimer.state.running);
+
+  /// docs/ARCHITEKTUR.md section 9: "AWAKE entsteht bei Berührung des
+  /// Player-Screens". Fired on every touch, regardless of lock state
+  /// (rate-limited to at most 1 per 10s inside audio/handler.dart's
+  /// `awake()`, so this is cheap to call unconditionally).
+  void _onInteraction() {
+    _lock.onInteraction();
+    unawaited(ref.read(audioHandlerProvider).awake());
+  }
 
   /// Consumes taps during the sleep timer's last minute as an extend
   /// (docs/KONZEPT.md "Nachtmodus") instead of the tapped control's normal
   /// action. Returns true if the tap was consumed this way.
   bool _maybeExtend() => _sleepTimer.extendIfInLastMinute();
+
+  /// docs/KONZEPT.md "Faden aufnehmen": the main button opens the full-screen
+  /// Faden-Modus (ui/faden_screen.dart) once `sleep_suspected` is true.
+  /// Silently declines (no crash, no navigation) if the book has no
+  /// playlist loaded yet (offline/no server -- rare, but Faden-Suche needs
+  /// real audio to probe) or the window can't be computed, which per
+  /// domain/resolver.dart rule 5 should not happen whenever
+  /// `sleep_suspected` is actually true (see docs/ARCHITEKTUR.md section
+  /// 13 for this belt-and-braces guard).
+  void _openFadenMode(PlayerSessionController session, BookState bookState) {
+    final manifest = session.manifest;
+    final sources = session.playlistSources;
+    if (manifest == null || sources == null) return;
+    final lo = manifest.globalMsFor(bookState.lastAwake);
+    final hi = manifest.globalMsFor(bookState.stop);
+    if (lo == null || hi == null || hi <= lo) return;
+    final pausen = globalPauseOffsets(manifest, session.pauseIndex);
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => FadenScreen(
+          manifest: manifest,
+          lo: lo,
+          hi: hi,
+          pausen: pausen,
+          playlistSources: sources,
+        ),
+      ),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -143,11 +203,25 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
               onUnlockHoldEnd: _lock.cancelUnlockHold,
               onMainButton: () {
                 if (_maybeExtend()) return;
+                final bookState = session.bookState;
+                if (bookState != null && bookState.sleepSuspected) {
+                  _openFadenMode(session, bookState);
+                  return;
+                }
                 ref.read(audioHandlerProvider).playPause();
               },
               onSeek: (delta) {
                 if (_maybeExtend()) return;
                 ref.read(audioHandlerProvider).seekBySeconds(delta);
+              },
+              onResumeFromStop: () {
+                final manifest = session.manifest;
+                final bookState = session.bookState;
+                if (manifest == null || bookState == null) return;
+                final idx = manifest.files.indexWhere((f) => f.fileHash == bookState.stop.fileHash);
+                ref
+                    .read(audioHandlerProvider)
+                    .resumeFromStop(bookState.stop, fileIndex: idx < 0 ? null : idx);
               },
               onOpenDetails: () => showDetailsSheet(context, sleepTimer: _sleepTimer),
             ),
@@ -167,6 +241,7 @@ class _Body extends ConsumerWidget {
   final VoidCallback onUnlockHoldEnd;
   final VoidCallback onMainButton;
   final void Function(int deltaSeconds) onSeek;
+  final VoidCallback onResumeFromStop;
   final VoidCallback onOpenDetails;
 
   const _Body({
@@ -178,6 +253,7 @@ class _Body extends ConsumerWidget {
     required this.onUnlockHoldEnd,
     required this.onMainButton,
     required this.onSeek,
+    required this.onResumeFromStop,
     required this.onOpenDetails,
   });
 
@@ -258,6 +334,7 @@ class _Body extends ConsumerWidget {
                           tokens: tokens,
                           night: night,
                           playing: playing,
+                          sleepSuspected: bookState.sleepSuspected,
                           onPressed: locked ? null : onMainButton,
                         ),
                         const SizedBox(width: 24),
@@ -271,6 +348,24 @@ class _Body extends ConsumerWidget {
                     );
                   },
                 ),
+                // docs/KONZEPT.md "Faden aufnehmen": "Der Hauptbutton heißt
+                // jetzt 'Faden aufnehmen', darunter klein 'Ab Stopp
+                // weiterhören'."
+                if (bookState.sleepSuspected) ...[
+                  const SizedBox(height: 16),
+                  Text(
+                    AppStrings.mainButtonRecordThread,
+                    style: TextStyle(fontSize: FadenTypeSizes.body, color: tokens.tinte),
+                  ),
+                  const SizedBox(height: 4),
+                  GestureDetector(
+                    onTap: locked ? null : onResumeFromStop,
+                    child: Text(
+                      AppStrings.resumeFromStop,
+                      style: TextStyle(fontSize: FadenTypeSizes.caption, color: tokens.tinteLeise),
+                    ),
+                  ),
+                ],
                 if (night && locked)
                   Padding(
                     padding: const EdgeInsets.only(top: 16),
@@ -293,18 +388,23 @@ class _MainButton extends StatelessWidget {
   final FadenTokens tokens;
   final bool night;
   final bool playing;
+  final bool sleepSuspected;
   final VoidCallback? onPressed;
 
   const _MainButton({
     required this.tokens,
     required this.night,
     required this.playing,
+    required this.sleepSuspected,
     required this.onPressed,
   });
 
   @override
   Widget build(BuildContext context) {
-    final icon = playing ? Icons.pause : Icons.play_arrow;
+    // docs/KONZEPT.md "Faden aufnehmen": the button's whole purpose changes
+    // once sleep is suspected, so its icon does too (play/pause no longer
+    // applies -- the main player is paused throughout Faden-Suche anyway).
+    final icon = sleepSuspected ? Icons.route : (playing ? Icons.pause : Icons.play_arrow);
     return SizedBox(
       width: fadenMainButtonSize,
       height: fadenMainButtonSize,

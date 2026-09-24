@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:flutter/foundation.dart' show ChangeNotifier;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_riverpod/legacy.dart';
+import 'package:just_audio/just_audio.dart' as ja;
 
 import '../audio/handler.dart';
 import '../audio/player.dart';
@@ -215,6 +216,24 @@ class PlayerSessionController extends ChangeNotifier {
   BookState? bookState;
   bool loading = false;
 
+  /// The just_audio playlist built for the currently open book (same
+  /// sources handed to [handler]'s main player) -- kept here so
+  /// ui/faden_screen.dart's audio/probe_player.dart can reuse it directly
+  /// for probe playback (docs/ARCHITEKTUR.md section 8: "Proben laufen über
+  /// einen eigenen Player") instead of re-resolving downloads/server URLs
+  /// itself. Null until a book with a configured [DownloadManager] has been
+  /// opened.
+  List<ja.IndexedAudioSource>? playlistSources;
+
+  /// Pause-index offsets (docs/ARCHITEKTUR.md section 4), per `file_hash`,
+  /// exactly as `GET /api/v1/books/{id}/pauses` returns them -- converted
+  /// to the global-ms axis Faden-Suche needs (domain/pause_index.dart) by
+  /// the caller that actually enters Faden mode. Empty (not null) when the
+  /// server is unreachable or the book has no index yet: Faden-Suche then
+  /// simply runs without snapping to sentence starts, same as the prototype
+  /// (prototype/faden.html: "ohne Einrasten weiter").
+  Map<String, List<int>> pauseIndex = {};
+
   PlayerSessionController({required this.handler, required this.journal}) {
     handler.eventsWritten.listen((_) => _refreshBookState());
   }
@@ -228,12 +247,15 @@ class PlayerSessionController extends ChangeNotifier {
     required DownloadManager? downloads,
     required String serverBaseUrl,
     required String serverToken,
+    ApiClient? api,
   }) async {
     loading = true;
     notifyListeners();
     this.bookId = bookId;
     this.bookTitle = bookTitle;
     this.manifest = manifest;
+    playlistSources = null;
+    pauseIndex = {};
 
     final events = await journal.eventsForBook(bookId);
     final state = events.isEmpty
@@ -248,6 +270,7 @@ class PlayerSessionController extends ChangeNotifier {
         serverBaseUrl: serverBaseUrl,
         serverToken: serverToken,
       );
+      playlistSources = sources;
       await handler.openBook(
         bookId: bookId,
         manifest: manifest,
@@ -256,6 +279,16 @@ class PlayerSessionController extends ChangeNotifier {
         initialPosition: state.position,
       );
     }
+
+    if (api != null) {
+      try {
+        final raw = await api.pauses(bookId);
+        pauseIndex = raw.map((key, value) => MapEntry(key, (value as List).cast<int>()));
+      } catch (_) {
+        // Offline/unreachable: Faden-Suche just runs without snapping.
+      }
+    }
+
     loading = false;
     notifyListeners();
   }
