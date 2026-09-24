@@ -12,6 +12,7 @@ import '../domain/event.dart';
 import '../domain/manifest.dart';
 import '../domain/position.dart';
 import '../l10n/strings.dart';
+import '../signals/awake.dart';
 import 'undo_hint.dart';
 
 /// The audio_service integration (docs/ARCHITEKTUR.md section 11:
@@ -23,11 +24,15 @@ import 'undo_hint.dart';
 /// heartbeat (every 5s while playing, invariant 3) and sync triggers
 /// (section 6: start, pause, every 60s while playing) live.
 ///
-/// Scope note (M4): media-button next/previous map to +/-30s, not to a
-/// real "next chapter" skip -- docs/ARCHITEKTUR.md section 9: "Mediatasten:
-/// normal Play/Pause, Weiter = +30 s, Zurück = -30 s." Faden-Suche
-/// (docs/ARCHITEKTUR.md section 8) and AWAKE/SLEEP_HINT events (section 9)
-/// are M5 scope and not produced here.
+/// Scope note (M4, done): media-button next/previous map to +/-30s, not to
+/// a real "next chapter" skip -- docs/ARCHITEKTUR.md section 9: "Mediatasten:
+/// normal Play/Pause, Weiter = +30 s, Zurück = -30 s."
+///
+/// M5 additions live here too: `AWAKE`/`SLEEP_HINT` (section 9), `PROBE`/
+/// `RESUME` for Faden-Suche (section 8) and the Faden-mode media-button
+/// gate ("Im Faden-Modus zählt jede Taste als 'kenne ich'") -- see the
+/// doc comments on [enterFadenMode], [awake], [sleepHint], [probe],
+/// [resumeFromFaden] and [resumeFromStop] below.
 class FadenAudioHandler extends BaseAudioHandler {
   final ja.AudioPlayer _player = ja.AudioPlayer();
   final Journal journal;
@@ -57,7 +62,34 @@ class FadenAudioHandler extends BaseAudioHandler {
   final StreamController<UndoHint> _undoHintController = StreamController<UndoHint>.broadcast();
   final StreamController<void> _eventsWrittenController = StreamController<void>.broadcast();
 
-  FadenAudioHandler({required this.journal, required this.deviceId, this.syncClient, this.clock = const SystemClock()}) {
+  final AwakeGate _awakeGate;
+  bool _fadenModeActive = false;
+  final StreamController<void> _fadenAnswerController = StreamController<void>.broadcast();
+
+  /// Optional hook: signals/sleep_timer.dart's `extendIfInLastMinute`,
+  /// wired from ui/player_screen.dart. Returning true means a media-button
+  /// call this handler just received was consumed as a timer extension
+  /// (docs/KONZEPT.md "Nachtmodus": "In der letzten Minute verlängert jede
+  /// Kopfhörertaste den Timer ... statt zu pausieren, und zählt als
+  /// Wach-Beleg") instead of running its normal transport action. Left
+  /// null (default) when no sleep timer applies (e.g. in tests).
+  bool Function()? onLastMinuteExtend;
+
+  /// Optional hook: signals/night.dart's `isInNightWindow` evaluated for
+  /// "now", wired from ui/player_screen.dart -- decides whether a
+  /// media/system pause also writes `SLEEP_HINT` (docs/ARCHITEKTUR.md
+  /// section 9). Left null (default) in contexts without a night-window
+  /// setting (e.g. tests): such a pause then never counts as a sleep hint,
+  /// which is the safe default (no false suspicion).
+  bool Function()? isInNightWindow;
+
+  FadenAudioHandler({
+    required this.journal,
+    required this.deviceId,
+    this.syncClient,
+    this.clock = const SystemClock(),
+    AwakeGate? awakeGate,
+  }) : _awakeGate = awakeGate ?? AwakeGate() {
     _wireBroadcast();
   }
 
@@ -139,20 +171,44 @@ class FadenAudioHandler extends BaseAudioHandler {
 
   @override
   Future<void> play() async {
+    if (await _interceptMediaButton()) return;
+    await playFrom(EventSource.system);
+  }
+
+  /// Like [play], but lets the caller pick the event `source`. The on-screen
+  /// main button ([playPause]) calls this explicitly with `source: ui`
+  /// rather than going through the ambiguous [play] override, which the
+  /// platform also calls for hardware/system-originated play requests
+  /// (headset button, lock-screen control, ...) with no way to tell those
+  /// apart from here -- see the doc comment on [pauseFrom] for the same
+  /// reasoning on the pause side.
+  Future<void> playFrom(EventSource source) async {
     final position = _currentPosition();
-    final event = _buildEvent(type: EventType.play, position: position, source: EventSource.ui);
+    final event = _buildEvent(type: EventType.play, position: position, source: source);
     await _journal(event, _player.play);
     _startHeartbeat();
     _startPeriodicSync();
   }
 
   @override
-  Future<void> pause() => pauseFrom(EventSource.ui);
+  Future<void> pause() async {
+    if (await _interceptMediaButton()) return;
+    await pauseFrom(EventSource.system);
+  }
 
   /// Like [pause], but lets the caller pick the event `source` -- a sleep
   /// timer expiry (signals/sleep_timer.dart) pauses with `source: timer`,
   /// which docs/ARCHITEKTUR.md section 5 / domain/event.dart deliberately
-  /// does *not* count as an awake-proof, unlike a UI pause.
+  /// does *not* count as an awake-proof, unlike a UI pause. The on-screen
+  /// main button ([playPause]) calls this explicitly with `source: ui`; the
+  /// bare [pause] override (the platform's own entry point -- headset
+  /// button, lock-screen/notification control, an OS-level audio-focus
+  /// interruption, ...) has no way to tell those origins apart, so it uses
+  /// `source: system` uniformly (docs/ARCHITEKTUR.md section 9 explicitly
+  /// anticipates this ambiguity for the AirPods sleep-detection case: "von
+  /// einem bewussten Tastendruck nicht zu unterscheiden"). Either way,
+  /// section 9's "Pause über Mediataste oder System im Nachtfenster" rule
+  /// for `SLEEP_HINT` is evaluated here, right below.
   Future<void> pauseFrom(EventSource source) async {
     final position = _currentPosition();
     final event = _buildEvent(type: EventType.pause, position: position, source: source);
@@ -161,23 +217,167 @@ class FadenAudioHandler extends BaseAudioHandler {
     _stopHeartbeat();
     _stopPeriodicSync();
     unawaited(_sync());
+    if ((source == EventSource.mediaButton || source == EventSource.system) &&
+        (isInNightWindow?.call() ?? false)) {
+      await sleepHint(source: source);
+    }
   }
 
-  Future<void> playPause() => (_player.playing) ? pause() : play();
+  Future<void> playPause() => (_player.playing) ? pauseFrom(EventSource.ui) : playFrom(EventSource.ui);
 
   /// docs/ARCHITEKTUR.md section 9: hardware media buttons "Weiter" /
   /// "Zurück" are +/-30s, not a chapter skip.
   @override
-  Future<void> skipToNext() => seekBySeconds(30, source: EventSource.mediaButton);
+  Future<void> skipToNext() async {
+    if (await _interceptMediaButton()) return;
+    await seekBySeconds(30, source: EventSource.mediaButton);
+  }
 
   @override
-  Future<void> skipToPrevious() => seekBySeconds(-30, source: EventSource.mediaButton);
+  Future<void> skipToPrevious() async {
+    if (await _interceptMediaButton()) return;
+    await seekBySeconds(-30, source: EventSource.mediaButton);
+  }
 
   @override
-  Future<void> fastForward() => seekBySeconds(30, source: EventSource.mediaButton);
+  Future<void> fastForward() async {
+    if (await _interceptMediaButton()) return;
+    await seekBySeconds(30, source: EventSource.mediaButton);
+  }
 
   @override
-  Future<void> rewind() => seekBySeconds(-30, source: EventSource.mediaButton);
+  Future<void> rewind() async {
+    if (await _interceptMediaButton()) return;
+    await seekBySeconds(-30, source: EventSource.mediaButton);
+  }
+
+  /// Faden-Suche mode (docs/ARCHITEKTUR.md sections 8/9). While active,
+  /// every hardware/system media-button call this handler can receive --
+  /// on iOS, the remote command center calls [play]/[pause]/[skipToNext]/
+  /// [skipToPrevious] directly; on Android, a physical headset-hook click
+  /// reaches the very same four through [BaseAudioHandler]'s own default
+  /// `click()` (unmodified here), and a multi-button remote can additionally
+  /// reach [fastForward]/[rewind] -- counts as "kenne ich" instead of
+  /// performing its normal transport action (docs/KONZEPT.md: "Kopfhörertaste
+  /// ... Im Faden-Modus zählt jede [Media-]Taste als 'kenne ich'"). Gating
+  /// all six overrides here is therefore the single choke point both
+  /// platforms' event paths funnel through. ui/faden_screen.dart never
+  /// renders transport controls while this is true, so any call received
+  /// here during Faden mode is, by construction, hardware/system-originated,
+  /// never our own on-screen UI.
+  void enterFadenMode() => _fadenModeActive = true;
+
+  /// Ends Faden mode (search resolved, aborted, or the screen closed).
+  void exitFadenMode() => _fadenModeActive = false;
+
+  bool get fadenModeActive => _fadenModeActive;
+
+  /// Emits once per media-button press received while [fadenModeActive] is
+  /// true. ui/faden_screen.dart listens for this alongside a screen tap to
+  /// resolve each probe's "kennst du das?" question.
+  Stream<void> get fadenModeAnswers => _fadenAnswerController.stream;
+
+  bool _consumeAsFadenAnswer() {
+    if (!_fadenModeActive) return false;
+    _fadenAnswerController.add(null);
+    return true;
+  }
+
+  Future<bool> _consumeAsLastMinuteExtend() async {
+    final extend = onLastMinuteExtend;
+    if (extend == null || !extend()) return false;
+    await awake(source: EventSource.mediaButton);
+    return true;
+  }
+
+  /// Runs the Faden-mode gate, then the last-minute sleep-timer-extend
+  /// hook, in that order (Faden mode and a running sleep timer are not
+  /// expected to overlap in practice, but Faden mode is the more specific
+  /// state). Returns true if either consumed the call, in which case the
+  /// caller must skip its normal transport action.
+  Future<bool> _interceptMediaButton() async {
+    if (_consumeAsFadenAnswer()) return true;
+    return _consumeAsLastMinuteExtend();
+  }
+
+  /// docs/ARCHITEKTUR.md section 5: writes an `AWAKE` event, throttled by
+  /// [_awakeGate] to at most one per 10s combined across every trigger
+  /// (screen touch, volume change, timer extension -- section 9). A no-op
+  /// (returns false) while the cooldown hasn't elapsed yet.
+  Future<bool> awake({EventSource source = EventSource.ui}) async {
+    if (!_awakeGate.shouldEmit(clock.nowMs())) return false;
+    final event = _buildEvent(type: EventType.awake, position: _currentPosition(), source: source);
+    await _journal(event, () async {});
+    return true;
+  }
+
+  /// docs/ARCHITEKTUR.md section 9: writes a `SLEEP_HINT` event. Never
+  /// rate-limited (unlike [awake]) -- section 5's table gives `AWAKE` alone
+  /// the "höchstens 1 pro 10 s" qualifier.
+  Future<void> sleepHint({required EventSource source}) async {
+    final event = _buildEvent(type: EventType.sleepHint, position: _currentPosition(), source: source);
+    await _journal(event, () async {});
+  }
+
+  /// Sleep-timer expiry (signals/sleep_timer.dart's `onExpire`): the plain
+  /// `PAUSE`/`source=timer` M4 already wrote via [pauseFrom], plus the
+  /// `SLEEP_HINT` M5 adds (docs/ARCHITEKTUR.md section 9: "SLEEP_HINT
+  /// entsteht beim Ablauf des Sleep-Timers" -- unconditional, unlike the
+  /// night-window-gated media/system-pause case in [pauseFrom] above).
+  Future<void> pauseForSleepTimerExpiry() async {
+    await pauseFrom(EventSource.timer);
+    await sleepHint(source: EventSource.timer);
+  }
+
+  /// docs/ARCHITEKTUR.md section 8 closing note: "Jede Probe wird als
+  /// PROBE-Event geschrieben". [known] is the listener's answer ("kenne
+  /// ich" / "kenne ich nicht"), stored verbatim in `data.known` per section
+  /// 5. Never touches the main player (the probe itself plays on a separate
+  /// audio/probe_player.dart instance, docs/ARCHITEKTUR.md section 8:
+  /// "Proben laufen über einen eigenen Player") and is never awake-proof or
+  /// session-opening (domain/event.dart's `EventType.probe` already
+  /// excludes it from both `isAwakeProof` and `isIntent`).
+  Future<void> probe({required Position position, required bool known}) async {
+    final event = _buildEvent(
+      type: EventType.probe,
+      position: position,
+      source: EventSource.faden,
+      data: {'known': known},
+    );
+    await _journal(event, () async {});
+  }
+
+  /// docs/ARCHITEKTUR.md section 8 closing note: "das Ergebnis als
+  /// RESUME-Event" -- both the search's own finding and each subsequent
+  /// "Früher" ladder step (docs/KONZEPT.md Texte-Tabelle: "Leiter |
+  /// Früher") call this. [fileIndex] is the caller's already-resolved index
+  /// of [target] in the active manifest (ui/faden_screen.dart already holds
+  /// that `Manifest`, so this stays independent of whether [openBook] ever
+  /// ran -- see docs/ARCHITEKTUR.md section 13 for why). Seeks the main
+  /// player there and starts playback (docs/KONZEPT.md: "Die Wiedergabe
+  /// startet am letzten erkannten Satz.").
+  Future<void> resumeFromFaden(Position target, {required int? fileIndex}) =>
+      _resumeTo(target, fileIndex: fileIndex, source: EventSource.faden);
+
+  /// docs/KONZEPT.md "Faden aufnehmen": "Ab Stopp weiterhören" -- skips the
+  /// search entirely and resumes exactly at the stop point (shown as a
+  /// small line under the main button once `sleep_suspected` is true).
+  Future<void> resumeFromStop(Position target, {required int? fileIndex}) =>
+      _resumeTo(target, fileIndex: fileIndex, source: EventSource.ui);
+
+  Future<void> _resumeTo(
+    Position target, {
+    required int? fileIndex,
+    required EventSource source,
+  }) async {
+    final event = _buildEvent(type: EventType.resume, position: target, source: source);
+    await _journal(event, () async {
+      await _player.seek(Duration(milliseconds: target.offsetMs), index: fileIndex);
+      await _player.play();
+    });
+    _startHeartbeat();
+    _startPeriodicSync();
+  }
 
   /// The on-screen +/-30s buttons (docs/ARCHITEKTUR.md section 11: "+/-30
   /// s") call this with `source: ui`.
@@ -400,6 +600,7 @@ class FadenAudioHandler extends BaseAudioHandler {
     await _positionController.close();
     await _undoHintController.close();
     await _eventsWrittenController.close();
+    await _fadenAnswerController.close();
     await _player.dispose();
   }
 
