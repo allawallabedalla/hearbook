@@ -375,7 +375,8 @@ void main() {
 
       await setBrightness(tester, 0.2);
       expect(find.byType(AppBar), findsNothing);
-      expect(find.byType(CoverMonogram), findsNothing);
+      expect(find.ancestor(of: find.byType(CoverMonogram), matching: find.byType(Opacity)), findsOneWidget,
+          reason: 'night view: cover dimmed (E59)');
       expect(scaffoldColor(tester), FadenTokens.night.grund);
 
       await setBrightness(tester, 0.33);
@@ -417,19 +418,20 @@ void main() {
       await tearDownPlayer(tester);
     });
 
-    testWidgets('shows title and chapter small and dimmed, no cover', (tester) async {
+    testWidgets('shows a dimmed cover, title and chapter small and dimmed', (tester) async {
       await pumpPlayer(tester, night: true);
-      expect(find.byType(CoverMonogram), findsNothing);
-      expect(find.byType(BookCover), findsNothing);
+      final dim = find.ancestor(of: find.byType(BookCover), matching: find.byType(Opacity));
+      expect(dim, findsOneWidget);
+      expect(tester.widget<Opacity>(dim).opacity, lessThan(0.6));
       expect(find.text('Thomas Mann'), findsNothing);
       for (final text in ['Der Zauberberg', 'Kapitel 2: Ein Titel']) {
-        final widget = tester.widget<Text>(find.text(text));
+        final widget = tester.widget<Text>(find.text(text).first);
         expect(widget.style?.color, FadenTokens.night.tinteLeise, reason: text);
         expect(widget.style?.fontSize, inInclusiveRange(FadenTypeSizes.caption, FadenTypeSizes.body), reason: text);
         expect(widget.maxLines, inInclusiveRange(1, 2), reason: text);
       }
       final thread = tester.getTopLeft(find.byType(PlayerThread)).dy;
-      expect(tester.getBottomLeft(find.text('Kapitel 2: Ein Titel')).dy, lessThanOrEqualTo(thread),
+      expect(tester.getBottomLeft(find.text('Kapitel 2: Ein Titel').first).dy, lessThanOrEqualTo(thread),
           reason: 'title and chapter sit above the thread');
       await tearDownPlayer(tester);
     });
@@ -453,7 +455,8 @@ void main() {
       expect(find.byType(DetailsSheetContent), findsOneWidget);
       await tester.pump(const Duration(seconds: 15));
       expect(find.textContaining('Gesperrt'), findsNothing);
-      final gesture = await tester.startGesture(tester.getCenter(find.byType(Slider)));
+      final gesture = await tester.startGesture(tester.getCenter(
+          find.descendant(of: find.byType(DetailsSheetContent), matching: find.byType(Slider))));
       await tester.pump();
       await gesture.moveBy(const Offset(20, 0));
       await tester.pump();
@@ -471,6 +474,21 @@ void main() {
       expect(find.byType(DetailsSheetContent), findsOneWidget);
       await tearDownPlayer(tester);
     });
+  });
+
+  testWidgets('the player itself has a chapter scrubber that seeks through the handler (E59)', (tester) async {
+    await pumpPlayer(tester);
+    final slider = find.descendant(of: find.byType(PlayerBody), matching: find.byType(Slider));
+    expect(slider, findsOneWidget);
+    final gesture = await tester.startGesture(tester.getCenter(slider));
+    await tester.pump();
+    await gesture.moveBy(const Offset(20, 0));
+    await tester.pump();
+    await gesture.up();
+    await tester.pump();
+    expect(handler.seeks, hasLength(1));
+    expect(handler.seeks.single, startsWith('to:'));
+    await tearDownPlayer(tester);
   });
 
   group('details sheet', () {
@@ -501,9 +519,10 @@ void main() {
     testWidgets('scrubbing the chapter seeks through the handler, with a readout', (tester) async {
       await pumpPlayer(tester);
       await openSheet(tester);
-      expect(find.text('Kapitel 2: Ein Titel'), findsOneWidget);
-      expect(find.text(AppStrings.scrubberRemaining(formatClock(21 * 60000 - 5 * 60000))), findsOneWidget);
-      final slider = find.byType(Slider);
+      Finder inSheet(Finder f) => find.descendant(of: find.byType(DetailsSheetContent), matching: f);
+      expect(inSheet(find.text('Kapitel 2: Ein Titel')), findsOneWidget);
+      expect(inSheet(find.text(AppStrings.scrubberRemaining(formatClock(21 * 60000 - 5 * 60000)))), findsOneWidget);
+      final slider = inSheet(find.byType(Slider));
       final gesture = await tester.startGesture(tester.getCenter(slider));
       await tester.pump();
       await gesture.moveBy(const Offset(20, 0));

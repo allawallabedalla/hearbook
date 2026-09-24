@@ -88,7 +88,9 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
       chapterRemaining: () => handler.chapterRemaining(),
     );
     _subs.add(handler.undoHints.listen(_showUndoHint));
-    _subs.add(handler.chapterAdvanced.listen((_) => _sleepTimer.onChapterAdvanced()));
+    _subs.add(
+      handler.chapterAdvanced.listen((_) => _sleepTimer.onChapterAdvanced()),
+    );
     _subs.add(handler.statusStream.listen(_onStatus));
     // An error from opening the book before this screen existed (app
     // start) would otherwise never be announced.
@@ -120,7 +122,10 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(hint.message),
-        action: SnackBarAction(label: AppStrings.undoAction, onPressed: () => _handler.undo(hint.target)),
+        action: SnackBarAction(
+          label: AppStrings.undoAction,
+          onPressed: () => _handler.undo(hint.target),
+        ),
         duration: const Duration(seconds: 8),
       ),
     );
@@ -202,7 +207,8 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
   /// sleep timer -- stays alive below the library and the mini player can
   /// return to it (decision E29). The player slides down to show it (E49).
   void _openLibrary() {
-    Navigator.of(context).push(UnderPlayerRoute<void>(builder: (_) => const LibraryScreen()));
+    Navigator.of(context)
+        .push(UnderPlayerRoute<void>(builder: (_) => const LibraryScreen()));
   }
 
   void _openDetails() {
@@ -213,7 +219,10 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
         context,
         chrome: chrome,
         sleepTimer: _sleepTimer,
-        hooks: DetailsSheetHooks(onInteraction: _onInteraction, onOpenLibrary: _openLibrary),
+        hooks: DetailsSheetHooks(
+          onInteraction: _onInteraction,
+          onOpenLibrary: _openLibrary,
+        ),
       ),
     );
   }
@@ -226,7 +235,10 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
   /// domain/resolver.dart rule 5 should not happen whenever
   /// `sleep_suspected` is actually true (see docs/ARCHITEKTUR.md section
   /// 13 for this belt-and-braces guard).
-  Future<void> _openFadenMode(PlayerSessionController session, BookState bookState) async {
+  Future<void> _openFadenMode(
+    PlayerSessionController session,
+    BookState bookState,
+  ) async {
     final manifest = session.manifest;
     final sources = session.playlistSources;
     if (manifest == null || sources == null) return;
@@ -314,7 +326,9 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
     final theme = fadenThemeFor(tokens);
     _publish(PlayerChrome(theme: theme, night: night));
 
-    if (!session.isOpen || session.manifest == null || session.bookState == null) {
+    if (!session.isOpen ||
+        session.manifest == null ||
+        session.bookState == null) {
       // Opening the book: an empty screen in the right colour, no spinner
       // (it takes a moment at most).
       return Theme(
@@ -326,7 +340,9 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
     return AnnotatedRegion<SystemUiOverlayStyle>(
       // The night player has no app bar to set the status bar: light
       // icons on black, dark icons by day.
-      value: tokens.isDark ? SystemUiOverlayStyle.light : SystemUiOverlayStyle.dark,
+      value: tokens.isDark
+          ? SystemUiOverlayStyle.light
+          : SystemUiOverlayStyle.dark,
       child: Theme(
         data: theme,
         child: GestureDetector(
@@ -369,7 +385,12 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
                     final bookState = session.bookState;
                     if (manifest == null || bookState == null) return;
                     final idx = manifest.indexOf(bookState.stop.fileHash);
-                    unawaited(_handler.resumeFromStop(bookState.stop, fileIndex: idx < 0 ? null : idx));
+                    unawaited(
+                      _handler.resumeFromStop(
+                        bookState.stop,
+                        fileIndex: idx < 0 ? null : idx,
+                      ),
+                    );
                   },
                   onOpenDetails: _openDetails,
                   onOpenLibrary: _openLibrary,
@@ -431,17 +452,24 @@ class PlayerBody extends ConsumerWidget {
         padding: const EdgeInsets.symmetric(horizontal: 24),
         child: LayoutBuilder(
           builder: (context, constraints) {
-            final coverMax = math.min(constraints.maxWidth, constraints.maxHeight * 0.38);
+            final coverMax = math.min(
+              constraints.maxWidth,
+              constraints.maxHeight * 0.38,
+            );
+            // Short screen with large text: tighter gaps so every control fits.
+            final gap = constraints.maxHeight < 640 ? 0.5 : 1.0;
             return Column(
               children: [
                 if (night) ...[
-                  const Spacer(),
-                  _NightBookInfo(
-                    session: session,
-                    manifest: manifest,
-                    handler: handler,
-                    initial: initial,
-                    tokens: tokens,
+                  Expanded(
+                    child: _NightBookInfo(
+                      session: session,
+                      manifest: manifest,
+                      handler: handler,
+                      initial: initial,
+                      tokens: tokens,
+                      coverSize: math.min(coverMax * 0.6, 180).floorToDouble(),
+                    ),
                   ),
                 ] else
                   Expanded(
@@ -454,9 +482,22 @@ class PlayerBody extends ConsumerWidget {
                       coverMax: coverMax,
                     ),
                   ),
-                const SizedBox(height: 24),
-                PlayerThread(manifest: manifest, handler: handler, initial: initial, tokens: tokens),
-                const SizedBox(height: 24),
+                SizedBox(height: 24 * gap),
+                PlayerThread(
+                  manifest: manifest,
+                  handler: handler,
+                  initial: initial,
+                  tokens: tokens,
+                ),
+                SizedBox(height: 12 * gap),
+                // Per the user (E59): scrubbing belongs on the player too,
+                // not only in the details sheet. Journaled seek with undo.
+                ChapterScrubber(
+                  manifest: manifest,
+                  handler: handler,
+                  initial: initial,
+                ),
+                SizedBox(height: 16 * gap),
                 StreamBuilder<PlaybackStatus>(
                   stream: handler.statusStream,
                   initialData: handler.status,
@@ -500,13 +541,18 @@ class PlayerBody extends ConsumerWidget {
                   const SizedBox(height: 8),
                   Text(
                     AppStrings.mainButtonRecordThread,
-                    style: TextStyle(fontSize: FadenTypeSizes.body, color: tokens.tinte),
+                    style: TextStyle(
+                      fontSize: FadenTypeSizes.body,
+                      color: tokens.tinte,
+                    ),
                   ),
                   TextButton(
                     onPressed: onResumeFromStop,
                     style: TextButton.styleFrom(
                       foregroundColor: tokens.faden,
-                      textStyle: const TextStyle(fontSize: FadenTypeSizes.caption),
+                      textStyle: const TextStyle(
+                        fontSize: FadenTypeSizes.caption,
+                      ),
                     ),
                     child: Text(AppStrings.resumeFromStop),
                   ),
@@ -544,7 +590,10 @@ class _BookInfo extends StatelessWidget {
   Widget build(BuildContext context) {
     final title = session.bookTitle ?? '';
     final author = session.bookAuthor?.trim();
-    final secondary = TextStyle(fontSize: FadenTypeSizes.body, color: tokens.tinteLeise);
+    final secondary = TextStyle(
+      fontSize: FadenTypeSizes.body,
+      color: tokens.tinteLeise,
+    );
     return Column(
       mainAxisAlignment: MainAxisAlignment.center,
       children: [
@@ -559,7 +608,12 @@ class _BookInfo extends StatelessWidget {
               if (size < PlayerBody.minCover) return const SizedBox.shrink();
               return Padding(
                 padding: const EdgeInsets.only(bottom: 20),
-                child: BookCover(bookId: session.bookId!, title: title, size: size, radius: 12),
+                child: BookCover(
+                  bookId: session.bookId!,
+                  title: title,
+                  size: size,
+                  radius: 12,
+                ),
               );
             },
           ),
@@ -569,7 +623,11 @@ class _BookInfo extends StatelessWidget {
           textAlign: TextAlign.center,
           maxLines: 2,
           overflow: TextOverflow.ellipsis,
-          style: TextStyle(fontSize: FadenTypeSizes.display, color: tokens.tinte, height: 1.15),
+          style: TextStyle(
+            fontSize: FadenTypeSizes.display,
+            color: tokens.tinte,
+            height: 1.15,
+          ),
         ),
         if (author != null && author.isNotEmpty)
           Padding(
@@ -583,20 +641,17 @@ class _BookInfo extends StatelessWidget {
             ),
           ),
         const SizedBox(height: 8),
+        // The chapter line lives on the chapter scrubber below (E59).
         PositionText(
           handler: handler,
           initial: initial,
-          text: (pos) {
-            final idx = manifest.indexOf(pos.fileHash);
-            return idx < 0 ? '' : AppStrings.chapterOfTotal(idx + 1, manifest.files.length);
-          },
-          style: TextStyle(fontSize: FadenTypeSizes.caption, color: tokens.tinteLeise),
-        ),
-        PositionText(
-          handler: handler,
-          initial: initial,
-          text: (pos) => AppStrings.remainingTime(formatRemaining(remainingMsAt(manifest, pos))),
-          style: TextStyle(fontSize: FadenTypeSizes.caption, color: tokens.tinteLeise),
+          text: (pos) => AppStrings.remainingTime(
+            formatRemaining(remainingMsAt(manifest, pos)),
+          ),
+          style: TextStyle(
+            fontSize: FadenTypeSizes.caption,
+            color: tokens.tinteLeise,
+          ),
         ),
       ],
     );
@@ -619,18 +674,49 @@ class _NightBookInfo extends StatelessWidget {
     required this.handler,
     required this.initial,
     required this.tokens,
+    required this.coverSize,
   });
+
+  final double coverSize;
 
   @override
   Widget build(BuildContext context) {
     return Column(
+      mainAxisAlignment: MainAxisAlignment.end,
       children: [
+        Flexible(
+          child: LayoutBuilder(
+            builder: (context, constraints) {
+              final size = math
+                  .min(coverSize, constraints.maxHeight - 16)
+                  .floorToDouble();
+              if (size < PlayerBody.minCover) return const SizedBox.shrink();
+              return Padding(
+                padding: const EdgeInsets.only(bottom: 16),
+                // Dimmed so it doesn't light up a dark bedroom (E59).
+                child: Opacity(
+                  opacity: 0.45,
+                  child: BookCover(
+                    bookId: session.bookId!,
+                    title: session.bookTitle ?? '',
+                    size: size,
+                    radius: 12,
+                  ),
+                ),
+              );
+            },
+          ),
+        ),
         Text(
           session.bookTitle ?? '',
           textAlign: TextAlign.center,
           maxLines: 2,
           overflow: TextOverflow.ellipsis,
-          style: TextStyle(fontSize: FadenTypeSizes.body, color: tokens.tinteLeise, height: 1.2),
+          style: TextStyle(
+            fontSize: FadenTypeSizes.body,
+            color: tokens.tinteLeise,
+            height: 1.2,
+          ),
         ),
         const SizedBox(height: 4),
         PositionText(
@@ -638,9 +724,16 @@ class _NightBookInfo extends StatelessWidget {
           initial: initial,
           text: (pos) {
             final idx = manifest.indexOf(pos.fileHash);
-            return idx < 0 ? '' : manifest.files[idx].displayTitle(AppStrings.chapterLabel(idx + 1));
+            return idx < 0
+                ? ''
+                : manifest.files[idx].displayTitle(
+                    AppStrings.chapterLabel(idx + 1),
+                  );
           },
-          style: TextStyle(fontSize: FadenTypeSizes.caption, color: tokens.tinteLeise),
+          style: TextStyle(
+            fontSize: FadenTypeSizes.caption,
+            color: tokens.tinteLeise,
+          ),
         ),
       ],
     );
@@ -760,7 +853,10 @@ class _PlayerThreadState extends State<PlayerThread> {
   @override
   Widget build(BuildContext context) {
     final globalMs = widget.manifest.globalMsFor(_pos) ?? 0;
-    final layout = computeThreadLayout(manifest: widget.manifest, globalMs: globalMs);
+    final layout = computeThreadLayout(
+      manifest: widget.manifest,
+      globalMs: globalMs,
+    );
     return Semantics(
       container: true,
       label: AppStrings.threadLabel,
@@ -793,7 +889,9 @@ class PlayerMainButton extends StatelessWidget {
     // docs/KONZEPT.md "Faden aufnehmen": the button's whole purpose changes
     // once sleep is suspected, so its icon does too (play/pause no longer
     // applies -- the main player is paused throughout Faden-Suche anyway).
-    final icon = sleepSuspected ? Icons.route : (playing ? Icons.pause : Icons.play_arrow);
+    final icon = sleepSuspected
+        ? Icons.route
+        : (playing ? Icons.pause : Icons.play_arrow);
     final label = sleepSuspected
         ? AppStrings.mainButtonRecordThread
         : (playing ? AppStrings.pauseAction : AppStrings.playAction);
@@ -803,7 +901,13 @@ class PlayerMainButton extends StatelessWidget {
     final Widget content = buffering && !sleepSuspected
         ? Semantics(
             label: AppStrings.playbackLoading,
-            child: SizedBox.square(dimension: 32, child: CircularProgressIndicator(strokeWidth: 3, color: foreground)),
+            child: SizedBox.square(
+              dimension: 32,
+              child: CircularProgressIndicator(
+                strokeWidth: 3,
+                color: foreground,
+              ),
+            ),
           )
         : Icon(icon, color: foreground, size: 40);
     return Semantics(
@@ -859,7 +963,12 @@ class _SeekButton extends StatelessWidget {
     return SizedBox.square(
       dimension: fadenMinTapTarget,
       child: IconButton(
-        icon: Icon(icon, size: 32, color: night ? tokens.faden : tokens.tinte, semanticLabel: label),
+        icon: Icon(
+          icon,
+          size: 32,
+          color: night ? tokens.faden : tokens.tinte,
+          semanticLabel: label,
+        ),
         onPressed: onPressed,
       ),
     );
