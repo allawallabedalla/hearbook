@@ -38,3 +38,20 @@ Spezifikation fertig. Umsetzung mit Claude Code entlang `docs/ROADMAP.md`.
 ## Betrieb (ab M1)
 
 `docker compose up -d --build`. Der unter `FADEN_LIBRARY` eingebundene Wurzelordner wird nur lesend gemountet und darf bewusst weiter gefasst sein als die eigentliche Bibliothek (z. B. eine ganze NAS-Freigabe); den tatsächlichen Bibliotheksordner darunter per Klick wählen unter `http://<host>:8787/setup` (ab M1b, siehe `docs/ARCHITEKTUR.md` Abschnitte 10, 12, Entscheidung E12). Von unterwegs am besten über ein VPN zugreifen, statt den Port öffentlich freizugeben.
+
+## iOS ohne Bezahl-Account
+
+Mit einer kostenlosen Apple-ID läuft die App mit allen Funktionen (Hintergrundwiedergabe und HealthKit sind laut Apple auch ohne Bezahl-Account erlaubt), die Signatur gilt aber nur 7 Tage. `app/scripts/ios-resign.sh` erneuert sie automatisch vom Mac aus und installiert die App per WLAN neu; die Daten auf dem iPhone bleiben dabei erhalten.
+
+Einmalig einrichten (Mac mit Xcode und Flutter):
+
+1. Xcode → Einstellungen → Accounts: mit der Apple-ID anmelden.
+2. `app/ios/Runner.xcworkspace` öffnen, Target „Runner“ → Signing & Capabilities → Team: dein „Personal Team“. Meldet Xcode, dass die Bundle-ID vergeben ist, eine eigene wählen (z. B. `de.<name>.faden`).
+3. iPhone per Kabel anschließen, Entwicklermodus einschalten (iPhone: Einstellungen → Datenschutz & Sicherheit → Entwicklermodus), in Xcode unter Window → Devices and Simulators „Connect via network“ aktivieren.
+4. `cp app/scripts/ios-resign.env.example app/scripts/ios-resign.env` und `FADEN_DEVICE` eintragen (Kennung aus `xcrun devicectl list devices`), ggf. `BUNDLE_ID` anpassen.
+5. Einmal von Hand starten: `app/scripts/ios-resign.sh --force`. Fragt macOS nach dem Schlüsselbund-Zugriff für `codesign`, „Immer erlauben“ wählen. Auf dem iPhone beim ersten Mal unter Einstellungen → Allgemein → VPN & Geräteverwaltung dem Entwickler vertrauen.
+6. Zeitplan aktivieren: `app/scripts/ios-resign-install.sh` (entfernen mit `--uninstall`).
+
+Danach prüft der Mac täglich um 3 Uhr, oder beim nächsten Aufwachen, ob die letzte Erneuerung mindestens 3 Tage her ist, und erneuert dann. Ergebnis kommt als Mitteilung, Details in `~/Library/Logs/faden-ios-resign.log`. Den Mac also spätestens alle 6 Tage aufklappen, iPhone im selben WLAN.
+
+Ungeprüft, weil hier kein Mac und kein iPhone verfügbar waren: ob das iPhone für die WLAN-Installation entsperrt sein muss.
