@@ -1,11 +1,13 @@
-"""FastAPI app: the endpoints from docs/ARCHITEKTUR.md section 10, except
-the event endpoints (those are M2, per docs/ROADMAP.md M1 scope)."""
+"""FastAPI app: the endpoints from docs/ARCHITEKTUR.md section 10."""
 
 from __future__ import annotations
 
 import json
+import logging
 import mimetypes
 import sqlite3
+import time
+from datetime import UTC, datetime
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, FastAPI, HTTPException, Request
@@ -14,10 +16,17 @@ from fastapi.responses import StreamingResponse
 from . import db
 from .auth import make_auth_dependency
 from .config import Settings
+from .events import PUSH_LIMIT, EventValidationError, is_skewed, validate_event
 from .metadata import extract_embedded_cover, find_cover_file
 from .scanner import active_manifest, manifest_hashes, scan_library
 
 RANGE_BLOCK = 1024 * 1024
+
+logger = logging.getLogger(__name__)
+
+
+def _now() -> str:
+    return datetime.now(UTC).isoformat()
 
 
 def _manifest_files_detail(conn: sqlite3.Connection, manifest_id: str) -> list[dict]:
@@ -313,6 +322,94 @@ def create_app(settings: Settings) -> FastAPI:
             media_type="audio/mpeg",
             headers=headers,
         )
+
+    @api.post("/api/v1/events")
+    def post_events(
+        events: list[dict], conn: sqlite3.Connection = Depends(get_conn)
+    ) -> dict:
+        """Section 6: push up to 500 events, idempotent on event_id."""
+        if len(events) > PUSH_LIMIT:
+            raise HTTPException(
+                status_code=422, detail=f"at most {PUSH_LIMIT} events per request"
+            )
+
+        for body in events:
+            try:
+                validate_event(body)
+            except EventValidationError as exc:
+                raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+        server_now_ms = int(time.time() * 1000)
+        received_at = _now()
+        accepted = 0
+        duplicates = 0
+        max_seq = 0
+
+        for body in events:
+            skewed = is_skewed(body["hlc"]["pt"], server_now_ms)
+            if skewed:
+                logger.warning(
+                    "event %s from device %s flagged skew_flag: hlc.pt=%d, "
+                    "server_now_ms=%d",
+                    body["event_id"],
+                    body["device_id"],
+                    body["hlc"]["pt"],
+                    server_now_ms,
+                )
+            cur = conn.execute(
+                "INSERT OR IGNORE INTO events "
+                "(event_id, book_id, device_id, body, received_at, skew_flag) "
+                "VALUES (?, ?, ?, ?, ?, ?)",
+                (
+                    body["event_id"],
+                    body["book_id"],
+                    body["device_id"],
+                    json.dumps(body),
+                    received_at,
+                    int(skewed),
+                ),
+            )
+            if cur.rowcount:
+                accepted += 1
+                max_seq = max(max_seq, cur.lastrowid)
+            else:
+                duplicates += 1
+                row = conn.execute(
+                    "SELECT seq FROM events WHERE event_id = ?", (body["event_id"],)
+                ).fetchone()
+                max_seq = max(max_seq, row["seq"])
+
+        # Invariant 3 / section 6: committed before being reported as accepted.
+        conn.commit()
+        return {"accepted": accepted, "duplicates": duplicates, "max_seq": max_seq}
+
+    @api.get("/api/v1/events")
+    def get_events(
+        since: int = 0,
+        limit: int = PUSH_LIMIT,
+        conn: sqlite3.Connection = Depends(get_conn),
+    ) -> dict:
+        """Section 6: pull events after `since` (a seq cursor), paged."""
+        if limit <= 0 or limit > PUSH_LIMIT:
+            raise HTTPException(
+                status_code=422, detail=f"limit must be between 1 and {PUSH_LIMIT}"
+            )
+
+        rows = conn.execute(
+            "SELECT seq, body, skew_flag FROM events WHERE seq > ? ORDER BY seq LIMIT ?",
+            (since, limit + 1),
+        ).fetchall()
+        has_more = len(rows) > limit
+        rows = rows[:limit]
+
+        out_events = []
+        for row in rows:
+            body = json.loads(row["body"])
+            body["seq"] = row["seq"]
+            body["skew_flag"] = bool(row["skew_flag"])
+            out_events.append(body)
+
+        return {"events": out_events, "has_more": has_more}
 
     @api.post("/api/v1/rescan")
     def rescan(conn: sqlite3.Connection = Depends(get_conn)) -> dict:
