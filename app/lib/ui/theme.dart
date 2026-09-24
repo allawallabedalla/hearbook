@@ -53,8 +53,9 @@ class FadenTokens extends ThemeExtension<FadenTokens> {
   bool get isDark => grund.computeLuminance() < 0.5;
 
   /// Rest of the thread (KONZEPT.md "Faden": "Rest in tinte-leise mit 40 %
-  /// Deckkraft").
-  Color get tinteLeiseFaden => tinteLeise.withValues(alpha: 0.4);
+  /// Deckkraft"); 60 % at night, where 40 % on black all but vanished
+  /// (decision E53). Opaque, so overlapping edges never add up.
+  Color get tinteLeiseFaden => Color.alphaBlend(tinteLeise.withValues(alpha: isDark ? 0.6 : 0.4), grund);
 
   /// A quiet raised surface (search field, selected segment background,
   /// cover placeholder): a thin veil of [tinte] over [grund], so it stays

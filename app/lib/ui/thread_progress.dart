@@ -43,6 +43,24 @@ ThreadLayout computeThreadLayout({required Manifest manifest, required int globa
 /// indicator that is deliberately *not* draggable (docs/KONZEPT.md
 /// "Start ist der Player": "der Faden als Buchfortschritt (nicht
 /// ziehbar)") -- unlike a scrubber it carries no `GestureDetector`.
+/// Chapter boundaries (px) that get a visible gap: only where the chapters
+/// on both sides are at least [minSegment] wide, so a book with many short
+/// chapters stays one line instead of a dotted one.
+List<double> visibleChapterGaps(List<double> boundariesPx, {required double width, double minSegment = 12}) {
+  final sorted = [...boundariesPx]..sort();
+  final kept = <double>[];
+  var last = 0.0;
+  for (var i = 0; i < sorted.length; i++) {
+    final b = sorted[i];
+    final next = i + 1 < sorted.length ? sorted[i + 1] : width;
+    if (b - last >= minSegment && next - b >= minSegment && width - b >= minSegment) {
+      kept.add(b);
+      last = b;
+    }
+  }
+  return kept;
+}
+
 class ThreadProgress extends StatelessWidget {
   final ThreadLayout layout;
   final FadenTokens tokens;
@@ -78,8 +96,10 @@ class _ThreadPainter extends CustomPainter {
     final unheardPaint = Paint()..color = tokens.tinteLeiseFaden;
     final nodePaint = Paint()..color = tokens.knoten;
 
-    final boundariesPx = layout.chapterBoundaryFractions.map((f) => f * size.width).toList()
-      ..sort();
+    final boundariesPx = visibleChapterGaps(
+      layout.chapterBoundaryFractions.map((f) => f * size.width).toList(),
+      width: size.width,
+    );
     final cutPoints = <double>[0, ...boundariesPx, size.width];
 
     for (var i = 0; i < cutPoints.length - 1; i++) {
