@@ -78,17 +78,19 @@ Ziel: Bibliotheksordner auf dem NAS per Klick wählen statt `docker-compose.yml`
 
 ## M4 – App: Player und Oberfläche (≈ 180 Min)
 
-- [ ] Theme aus den Design-Tokens (Tag und Nacht), Schrift gebündelt, l10n-Datei mit den Texten aus dem Konzept
-- [ ] Bibliothek, Download mit Hash-Prüfung, Status „Reihenfolge prüfen“ mit Auswahl-Dialog
-- [ ] Player nach Abschnitt 11: Playlist, lückenlos, Hintergrund, Sperrbildschirm, ±30 s, Mediatasten
-- [ ] Start = Player mit Faden; Details-Sheet mit Kapiteln, Scrubber, Tempo, Sleep-Timer, Verlauf
-- [ ] Nachtmodus mit Tastensperre; Sleep-Timer mit Ausblenden und Verlängern
-- [ ] Undo-Hinweis nach jedem Sprung über 2 Min
+- [x] Theme aus den Design-Tokens (Tag und Nacht), Schrift gebündelt, l10n-Datei mit den Texten aus dem Konzept
+- [x] Bibliothek, Download mit Hash-Prüfung, Status „Reihenfolge prüfen“ mit Auswahl-Dialog
+- [x] Player nach Abschnitt 11: Playlist, lückenlos, Hintergrund, Sperrbildschirm, ±30 s, Mediatasten
+- [x] Start = Player mit Faden; Details-Sheet mit Kapiteln, Scrubber, Tempo, Sleep-Timer, Verlauf
+- [x] Nachtmodus mit Tastensperre; Sleep-Timer mit Ausblenden und Verlängern
+- [x] Undo-Hinweis nach jedem Sprung über 2 Min
 - [ ] Auf einem echten Gerät: Kill-Test und Zwei-Geräte-Test aus dem Konzept bestanden, Ergebnis im Commit notiert
 
 ```text
 /plan Setze Meilenstein M4 aus docs/ROADMAP.md um. Spezifikation: docs/KONZEPT.md (Screens, Nachtmodus, Design, Texte) und docs/ARCHITEKTUR.md Abschnitte 9 und 11. Am Ende Abnahme-Punkte abhaken und committen.
 ```
+
+Hinweis: `flutter analyze` und `flutter test` sind grün (Design-Tokens/Kontrast, l10n-Abgleich, Faden-Layout, Undo-Hinweis-Text, Nachtmodus-Sperre und Sleep-Timer-Countdown je mit eigenen Tests, letzte zwei mit `fake_async` statt echter Wartezeit). Hintergrundwiedergabe, Sperrbildschirm-Steuerung und echte Kopfhörertasten (audio_service/just_audio) sind gegen die aktuelle Paket-API gebaut, in dieser Sandbox aber ohne Gerät/Emulator nicht startbar und daher nicht selbst beobachtet — das deckt sich mit dem letzten, bewusst offen gelassenen Punkt oben.
 
 ## M5 – App: Faden-Modus (≈ 150 Min)
 
