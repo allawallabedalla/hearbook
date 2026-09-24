@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'package:audio_service/audio_service.dart';
+import 'package:audio_session/audio_session.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:path_provider/path_provider.dart';
@@ -51,6 +52,9 @@ Future<void> main() async {
       androidNotificationOngoing: true,
     ),
   );
+  // just_audio would default to a music session, which ducks under navigation
+  // prompts instead of pausing; its README recommends speech() for audiobooks.
+  await (await AudioSession.instance).configure(const AudioSessionConfiguration.speech());
 
   runApp(
     ProviderScope(

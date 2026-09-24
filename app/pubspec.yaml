@@ -38,6 +38,7 @@ dependencies:
   # Player, background playback and lock-screen controls (M4/M5).
   just_audio: ^0.10.6
   audio_service: ^0.18.19
+  audio_session: ^0.2.4
 
   # Local journal (drift on top of sqlite3) and sync/API client (M3 data/).
   drift: ^2.35.0
