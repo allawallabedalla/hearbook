@@ -8,10 +8,16 @@ void main() {
     expect(id[14], '7');
   });
 
-  test('eventId values sort in generation order (time-ordered)', () {
+  test('eventId values share the UUIDv7 millisecond-timestamp prefix '
+      'when generated back-to-back (the random suffix is not ordered '
+      'within the same millisecond, so this only checks the prefix)', () {
     final a = Ids.eventId();
     final b = Ids.eventId();
-    expect(a.compareTo(b), lessThanOrEqualTo(0));
+    String msPrefix(String id) => id.substring(0, 8) + id.substring(9, 13);
+    // Same millisecond (near-certain back-to-back) -> equal prefixes;
+    // the next millisecond -> a strictly greater prefix. Either way,
+    // never decreasing.
+    expect(msPrefix(a).compareTo(msPrefix(b)), lessThanOrEqualTo(0));
   });
 
   test('uuid returns a version-4 UUID', () {
