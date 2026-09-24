@@ -71,6 +71,12 @@
   "settingsSave": "Speichern",
   "settingsSaved": "Gespeichert. Neu starten, damit es wirkt.",
 
+  "settingsHealthDataOptIn": "Schlafdaten erlauben",
+  "@settingsHealthDataOptIn": { "description": "M6: Opt-in-Schalter, KONZEPT.md Screens-Liste (\"Schlafdaten erlauben\")." },
+
+  "settingsHealthDataOptInDescription": "Liest lokal den Schlafbeginn aus Health/Health Connect, um die Faden-Suche zu verkürzen. Verlässt nie dieses Gerät.",
+  "@settingsHealthDataOptInDescription": { "description": "Erklärtext unter dem Schalter, CLAUDE.md Invariante 7 in eigenen Worten." },
+
   "detailsChapters": "Kapitel",
   "detailsHistory": "Verlauf",
   "detailsSpeed": "Tempo",

@@ -6,10 +6,8 @@ import 'providers.dart';
 import 'theme.dart';
 
 /// docs/KONZEPT.md "Screens": "5. Einstellungen: Server, Nachtfenster,
-/// Schlafdaten erlauben, Belegung der Kopfhörertasten." M4 scope: server
-/// connection and night window only -- health-data consent (M6) and
-/// headphone-button remapping (beyond the fixed +/-30s of section 9) are
-/// out of scope here.
+/// Schlafdaten erlauben, Belegung der Kopfhörertasten." Headphone-button
+/// remapping beyond the fixed +/-30s of section 9 stays out of scope (M7).
 class SettingsScreen extends ConsumerStatefulWidget {
   const SettingsScreen({super.key});
 
@@ -22,6 +20,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   final _tokenController = TextEditingController();
   int _nightStart = 20 * 60;
   int _nightEnd = 6 * 60;
+  bool _healthDataOptIn = false;
   bool _loaded = false;
   bool _saved = false;
 
@@ -39,12 +38,14 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     final token = await settings.serverToken();
     final start = await settings.nightStartMin();
     final end = await settings.nightEndMin();
+    final healthDataOptIn = await settings.healthDataOptIn();
     if (!mounted) return;
     setState(() {
       _urlController.text = url ?? '';
       _tokenController.text = token ?? '';
       _nightStart = start;
       _nightEnd = end;
+      _healthDataOptIn = healthDataOptIn;
     });
   }
 
@@ -54,6 +55,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     await settings.setServerToken(_tokenController.text.trim());
     await settings.setNightStartMin(_nightStart);
     await settings.setNightEndMin(_nightEnd);
+    await settings.setHealthDataOptIn(_healthDataOptIn);
     if (!mounted) return;
     setState(() => _saved = true);
   }
@@ -108,6 +110,17 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
             divisions: 24 * 4,
             label: _hhmm(_nightEnd),
             onChanged: (v) => setState(() => _nightEnd = v.round()),
+          ),
+          const SizedBox(height: 24),
+          SwitchListTile(
+            contentPadding: EdgeInsets.zero,
+            value: _healthDataOptIn,
+            onChanged: (v) => setState(() => _healthDataOptIn = v),
+            title: Text(AppStrings.settingsHealthDataOptIn),
+            subtitle: Text(
+              AppStrings.settingsHealthDataOptInDescription,
+              style: TextStyle(color: tokens.tinteLeise),
+            ),
           ),
           const SizedBox(height: 24),
           FilledButton(

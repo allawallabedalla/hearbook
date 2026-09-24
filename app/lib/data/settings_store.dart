@@ -14,12 +14,13 @@ class SettingsKeys {
   static const nightEndMin = 'night_end_min';
   static const sleepTimerDefaultMin = 'sleep_timer_default_min';
   static const lastOpenedBookId = 'last_opened_book_id';
+  static const healthDataOptIn = 'health_data_opt_in';
 }
 
 /// Typed wrapper around [KeyValueSettings]: server connection, device id
 /// and the small settings docs/KONZEPT.md's "Einstellungen" screen exposes
-/// (server, night window). Health-data consent and headphone-button
-/// mapping are M5/M6 scope and not stored here yet.
+/// (server, night window, health-data opt-in). Headphone-button mapping
+/// beyond the fixed +/-30s of section 9 is out of scope (M7).
 class SettingsStore {
   final AppDatabase db;
 
@@ -89,4 +90,18 @@ class SettingsStore {
 
   Future<void> setLastOpenedBookId(String bookId) =>
       _set(SettingsKeys.lastOpenedBookId, bookId);
+
+  /// docs/KONZEPT.md "Screens": "Schlafdaten erlauben" -- M6's opt-in for
+  /// reading local sleep data (docs/ARCHITEKTUR.md section 9, decision E6).
+  /// Off by default: an unset key must behave exactly like an explicit
+  /// "no", since the whole feature is additive and gated behind this
+  /// setting (ui/providers.dart's `PlayerSessionController.sleepOnsetAdjustment`
+  /// treats `optedIn: false` the same as no [SleepDataSource] at all).
+  Future<bool> healthDataOptIn() async {
+    final v = await _get(SettingsKeys.healthDataOptIn);
+    return v == 'true';
+  }
+
+  Future<void> setHealthDataOptIn(bool optIn) =>
+      _set(SettingsKeys.healthDataOptIn, optIn.toString());
 }

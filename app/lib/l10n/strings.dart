@@ -48,6 +48,9 @@ class AppStrings {
     'settingsNightWindowEnd': 'Nachtfenster Ende',
     'settingsSave': 'Speichern',
     'settingsSaved': 'Gespeichert. Neu starten, damit es wirkt.',
+    'settingsHealthDataOptIn': 'Schlafdaten erlauben',
+    'settingsHealthDataOptInDescription':
+        'Liest lokal den Schlafbeginn aus Health/Health Connect, um die Faden-Suche zu verkürzen. Verlässt nie dieses Gerät.',
     'detailsChapters': 'Kapitel',
     'detailsHistory': 'Verlauf',
     'detailsSpeed': 'Tempo',
@@ -107,6 +110,8 @@ class AppStrings {
   static String get settingsNightWindowEnd => _of('settingsNightWindowEnd');
   static String get settingsSave => _of('settingsSave');
   static String get settingsSaved => _of('settingsSaved');
+  static String get settingsHealthDataOptIn => _of('settingsHealthDataOptIn');
+  static String get settingsHealthDataOptInDescription => _of('settingsHealthDataOptInDescription');
   static String get detailsChapters => _of('detailsChapters');
   static String get detailsHistory => _of('detailsHistory');
   static String get detailsSpeed => _of('detailsSpeed');
