@@ -65,6 +65,13 @@ CREATE TABLE IF NOT EXISTS events (
     received_at TEXT NOT NULL,
     skew_flag   INTEGER NOT NULL DEFAULT 0
 );
+
+-- Small server-side key/value store (section 2). Currently holds only
+-- `library_path` (M1b, decision E12); see library_path.py.
+CREATE TABLE IF NOT EXISTS settings (
+    key   TEXT PRIMARY KEY,
+    value TEXT NOT NULL
+);
 """
 
 
