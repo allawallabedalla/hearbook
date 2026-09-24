@@ -44,9 +44,20 @@ def _disc_number(dirname: str) -> int | None:
     return int(m.group(2))
 
 
+_METADATA_DIRS = frozenset({"#recycle", "__MACOSX"})
+
+
+def _ignored(name: str) -> bool:
+    # macOS AppleDouble files (._01.mp3) look like chapters but are unreadable;
+    # Synology puts an @eaDir in every folder, which would break disc detection.
+    return name.startswith((".", "@")) or name in _METADATA_DIRS
+
+
 def _mp3_files(folder: Path) -> list[Path]:
     return sorted(
-        p for p in folder.iterdir() if p.is_file() and p.suffix.lower() == ".mp3"
+        p
+        for p in folder.iterdir()
+        if p.is_file() and p.suffix.lower() == ".mp3" and not _ignored(p.name)
     )
 
 
@@ -65,7 +76,7 @@ def _walk(folder: Path, out: list[BookFolder]) -> None:
     except OSError:
         return
 
-    subdirs = [e for e in entries if e.is_dir() and not e.name.startswith(".")]
+    subdirs = [e for e in entries if e.is_dir() and not _ignored(e.name)]
 
     mp3s = _mp3_files(folder)
     if mp3s:

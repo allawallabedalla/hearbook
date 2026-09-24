@@ -95,6 +95,31 @@ def test_mixed_subfolders_not_a_book_recurses_for_nested_books(tmp_path):
     assert parent not in paths
 
 
+def test_macos_appledouble_files_are_not_chapters(tmp_path):
+    book = tmp_path / "Mort"
+    book.mkdir()
+    for name in ("01.mp3", "02.mp3", "._01.mp3", "._02.mp3"):
+        (book / name).write_bytes(b"x")
+
+    folders = detect_book_folders(tmp_path)
+    assert len(folders) == 1
+    assert [f.path.name for f in folders[0].files] == ["01.mp3", "02.mp3"]
+
+
+def test_nas_metadata_folders_do_not_break_disc_detection(tmp_path):
+    book = tmp_path / "Mort"
+    for sub in ("CD1", "CD2", "@eaDir", "#recycle", "__MACOSX"):
+        (book / sub).mkdir(parents=True)
+    (book / "CD1" / "01.mp3").write_bytes(b"x")
+    (book / "CD2" / "01.mp3").write_bytes(b"x")
+    (book / "__MACOSX" / "._01.mp3").write_bytes(b"x")
+    (book / "@eaDir" / "01.mp3").mkdir()
+
+    folders = detect_book_folders(tmp_path)
+    assert [f.path for f in folders] == [book]
+    assert sorted(f.disc_from_folder for f in folders[0].files) == [1, 2]
+
+
 def test_empty_folder_is_not_a_book(tmp_path):
     empty = tmp_path / "Empty"
     empty.mkdir()
