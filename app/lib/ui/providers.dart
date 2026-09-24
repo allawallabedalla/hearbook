@@ -143,6 +143,13 @@ final syncWiringProvider = Provider<void>((ref) {
 
 /// Keeps a copy of the book's cover on the device for the lock screen, so it
 /// also shows offline; falls back to the last saved copy.
+/// The saved lock-screen cover of [bookId], without touching the network.
+Uri? cachedCoverUri(String bookId, Directory dir) {
+  if (!RegExp(r'^[A-Za-z0-9-]+$').hasMatch(bookId)) return null;
+  final file = File('${dir.path}/covers/$bookId');
+  return file.existsSync() ? file.uri : null;
+}
+
 Future<Uri?> saveCoverForLockScreen(String bookId, ApiClient? api, Directory dir) async {
   if (!RegExp(r'^[A-Za-z0-9-]+$').hasMatch(bookId)) return null;
   final file = File('${dir.path}/covers/$bookId');
@@ -732,7 +739,14 @@ class PlayerSessionController extends ChangeNotifier {
       // E31: pull what other devices did before resolving, so the player
       // opens where the listener last was on any device. Bounded: offline,
       // the book opens from the local journal right away.
-      await handler.syncNow(timeout: syncBeforeOpenTimeout);
+      if (handler.lastSyncFailed) {
+        // Server known unreachable (the NAS is off at night): open at once,
+        // sync in the background; a newer remote position is still taken
+        // over with an undo hint when it arrives (E31).
+        unawaited(handler.syncNow());
+      } else {
+        await handler.syncNow(timeout: syncBeforeOpenTimeout);
+      }
 
       final events = await journal.eventsForBook(bookId);
       final state = events.isEmpty ? _freshBookState(manifest) : resolve(events, manifest);
@@ -748,10 +762,16 @@ class PlayerSessionController extends ChangeNotifier {
         playlistSources = sources;
         Uri? artUri;
         if (coverDir != null) {
-          try {
-            artUri = await saveCoverForLockScreen(bookId, api, coverDir).timeout(const Duration(seconds: 3));
-          } catch (_) {
-            // No cover on the lock screen is fine; opening the book must not wait on it.
+          artUri = cachedCoverUri(bookId, coverDir);
+          if (artUri != null) {
+            // Saved copy now, fresh copy for next time in the background.
+            unawaited(saveCoverForLockScreen(bookId, api, coverDir).then((_) {}, onError: (_) {}));
+          } else {
+            try {
+              artUri = await saveCoverForLockScreen(bookId, api, coverDir).timeout(const Duration(seconds: 3));
+            } catch (_) {
+              // No cover on the lock screen is fine; opening the book must not wait on it.
+            }
           }
         }
         final speed = await settings?.bookSpeed(bookId);

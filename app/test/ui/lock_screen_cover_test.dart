@@ -49,4 +49,10 @@ void main() {
     expect(await saveCoverForLockScreen('../evil', _Api([1]), dir), isNull);
     expect(dir.listSync(recursive: true), isEmpty);
   });
+  test('cachedCoverUri finds the saved copy without the network', () async {
+    expect(cachedCoverUri('book-1', dir), isNull);
+    await saveCoverForLockScreen('book-1', _Api([1, 2, 3]), dir);
+    expect(File.fromUri(cachedCoverUri('book-1', dir)!).readAsBytesSync(), [1, 2, 3]);
+    expect(cachedCoverUri('../evil', dir), isNull);
+  });
 }

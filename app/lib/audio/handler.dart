@@ -76,6 +76,11 @@ class FadenAudioHandler extends BaseAudioHandler {
   /// changed server setting applies without an app restart (E37).
   SyncClient? _syncClient;
   Future<SyncSummary?>? _inFlightSync;
+  bool _lastSyncFailed = false;
+
+  /// Whether the most recent sync could not reach the server (e.g. the NAS
+  /// is powered off at night); opening a book then doesn't wait for sync.
+  bool get lastSyncFailed => _lastSyncFailed;
 
   Manifest? _manifest;
   List<ja.IndexedAudioSource> _sources = const [];
@@ -873,6 +878,7 @@ class FadenAudioHandler extends BaseAudioHandler {
   Future<SyncSummary?> _runSync(SyncClient client) async {
     try {
       final summary = await client.sync();
+      _lastSyncFailed = false;
       if (summary.pulledBookIds.isNotEmpty && !_remoteEventsController.isClosed) {
         _remoteEventsController.add(summary.pulledBookIds);
       }
@@ -881,6 +887,7 @@ class FadenAudioHandler extends BaseAudioHandler {
       // Offline: docs/KONZEPT.md Texte-Tabelle "Keine Verbindung zum
       // Server. Geladene Bücher spielen weiter." -- sync failures never
       // interrupt playback.
+      _lastSyncFailed = true;
       return null;
     }
   }

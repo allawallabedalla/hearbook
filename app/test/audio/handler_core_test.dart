@@ -304,6 +304,33 @@ void main() {
     expect(written.map((e) => e.type), [EventType.awake, EventType.pause]);
   });
 
+  test('remembers an unreachable server until a sync succeeds again', () async {
+    var reachable = false;
+    final dio = Dio(BaseOptions(baseUrl: 'https://faden.example'));
+    dio.interceptors.add(InterceptorsWrapper(onRequest: (options, h) {
+      if (!reachable) {
+        h.reject(DioException.connectionError(requestOptions: options, reason: 'NAS off'));
+        return;
+      }
+      h.resolve(Response(
+        requestOptions: options,
+        statusCode: 200,
+        data: options.method == 'POST'
+            ? {'accepted': 0, 'duplicates': 0, 'max_seq': null}
+            : {'events': [], 'has_more': false},
+      ));
+    }));
+    await handler.dispose();
+    handler = _Handler(journal: journal, clock: clock, syncClient: SyncClient(db: db, journal: journal, api: ApiClient(dio)));
+
+    expect(handler.lastSyncFailed, isFalse);
+    await handler.syncNow();
+    expect(handler.lastSyncFailed, isTrue);
+    reachable = true;
+    await handler.syncNow();
+    expect(handler.lastSyncFailed, isFalse);
+  });
+
   group('remote take-over (E31)', () {
     test('adoptRemotePosition moves the paused player and offers the way back', () async {
       await openBook();
