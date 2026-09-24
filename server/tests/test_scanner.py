@@ -120,6 +120,21 @@ def test_nas_metadata_folders_do_not_break_disc_detection(tmp_path):
     assert sorted(f.disc_from_folder for f in folders[0].files) == [1, 2]
 
 
+@requires_ffmpeg
+def test_scan_logs_progress(make_mp3, tmp_path, conn, caplog):
+    book = tmp_path / "lib" / "Mort"
+    book.mkdir(parents=True)
+    make_mp3(book / "01.mp3")
+
+    with caplog.at_level("INFO", logger="faden_server.scanner"):
+        scan_library(conn, library=tmp_path / "lib", noise_db=-35, silence_s=0.35)
+
+    messages = [r.getMessage() for r in caplog.records]
+    assert any("1 book folders" in m for m in messages)
+    assert any("new book 1/1: Mort" in m for m in messages)
+    assert any(m.startswith("scan done: 1 books, 1 new") for m in messages)
+
+
 def test_empty_folder_is_not_a_book(tmp_path):
     empty = tmp_path / "Empty"
     empty.mkdir()

@@ -9,6 +9,7 @@ from __future__ import annotations
 import contextlib
 import hashlib
 import json
+import logging
 import re
 import sqlite3
 import uuid
@@ -21,6 +22,8 @@ from .duration import AudioProbeError, probe_duration_ms
 from .manifest_rules import FileEntry, compute_order, diff_rescan
 from .metadata import read_book_tags, read_track_tags, resolve_title_author
 from .pauses import PauseDetectionError, compute_pause_offsets
+
+logger = logging.getLogger(__name__)
 
 _DISC_RE = re.compile(r"^(cd|disc|disk|teil|part)\s*0*(\d+)$", re.IGNORECASE)
 
@@ -341,6 +344,7 @@ def scan_library(
 ) -> ScanSummary:
     """Full rescan of the library folder (section 3.1-3.3)."""
     folders = detect_book_folders(library)
+    logger.info("scan: %d book folders in %s", len(folders), library)
     folders_by_path = {str(f.path): f for f in folders}
 
     existing = conn.execute("SELECT book_id, path FROM books").fetchall()
@@ -405,7 +409,14 @@ def scan_library(
                 break
 
     # 3) remaining folders are new books.
-    for folder in remaining_folders:
+    for i, folder in enumerate(remaining_folders, start=1):
+        logger.info(
+            "scan: new book %d/%d: %s (%d files)",
+            i,
+            len(remaining_folders),
+            folder.path.name,
+            len(folder.files),
+        )
         scan_book(conn, folder, book_id=None, noise_db=noise_db, silence_s=silence_s)
         books_new += 1
         books_scanned += 1
@@ -421,6 +432,13 @@ def scan_library(
             books_missing += 1
 
     conn.commit()
+    logger.info(
+        "scan done: %d books, %d new, %d renamed, %d missing",
+        books_scanned,
+        books_new,
+        books_renamed,
+        books_missing,
+    )
     return ScanSummary(
         books_scanned=books_scanned,
         books_new=books_new,

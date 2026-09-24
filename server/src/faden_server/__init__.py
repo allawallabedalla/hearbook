@@ -1,5 +1,11 @@
 def main() -> None:
+    import logging
+
     import uvicorn
+
+    # uvicorn only configures its own loggers; without this, scan progress
+    # (faden_server.*) never reaches `docker compose logs`.
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s: %(message)s")
 
     from .api import create_app
     from .config import load_settings
