@@ -55,6 +55,19 @@
 			</array>
 		</dict>
 	</dict>
+	<key>UIBackgroundModes</key>
+	<array>
+		<string>audio</string>
+	</array>
+	<!-- The self-hosted server is plain HTTP on a LAN/VPN IP, and just_audio's header
+	     proxy (bearer token) needs it too; see decision E27 in docs/ARCHITEKTUR.md. -->
+	<key>NSAppTransportSecurity</key>
+	<dict>
+		<key>NSAllowsArbitraryLoads</key>
+		<true/>
+	</dict>
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>Faden verbindet sich mit deinem Hörbuch-Server im Heimnetz.</string>
 	<key>UIApplicationSupportsIndirectInputEvents</key>
 	<true/>
 	<key>UILaunchStoryboardName</key>
