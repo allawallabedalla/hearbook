@@ -9,6 +9,12 @@ FROM python:3.12-slim
 COPY --from=ffmpeg /ffmpeg /usr/local/bin/ffmpeg
 COPY --from=ffmpeg /ffprobe /usr/local/bin/ffprobe
 
+# sqlite3 CLI: /data is a named Docker volume (docker-compose.yml), not a
+# host bind mount, so `server/scripts/backup.sh` (section 12) is meant to
+# run inside the container via `docker compose exec faden ...`.
+RUN apt-get update && apt-get install -y --no-install-recommends sqlite3 \
+    && rm -rf /var/lib/apt/lists/*
+
 RUN pip install --no-cache-dir uv
 
 WORKDIR /app
@@ -19,6 +25,9 @@ RUN uv sync --frozen --no-install-project --no-dev
 
 COPY src ./src
 RUN uv sync --frozen --no-dev
+
+COPY scripts ./scripts
+RUN chmod +x ./scripts/backup.sh
 
 ENV PATH="/app/.venv/bin:${PATH}"
 

@@ -11,9 +11,13 @@ import pytest
 
 FFMPEG = shutil.which("ffmpeg")
 FFPROBE = shutil.which("ffprobe")
+SQLITE3_CLI = shutil.which("sqlite3")
 
 requires_ffmpeg = pytest.mark.skipif(
     FFMPEG is None or FFPROBE is None, reason="ffmpeg/ffprobe not installed"
+)
+requires_sqlite3_cli = pytest.mark.skipif(
+    SQLITE3_CLI is None, reason="sqlite3 CLI not installed"
 )
 
 
