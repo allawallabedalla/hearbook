@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:just_audio/just_audio.dart' as ja;
 
+import '../audio/handler.dart';
 import '../audio/probe_player.dart';
 import '../domain/faden_search.dart' as fs;
 import '../domain/manifest.dart';
@@ -39,6 +40,10 @@ class FadenScreen extends ConsumerStatefulWidget {
 
   final List<ja.IndexedAudioSource> playlistSources;
 
+  /// Test seam: a probe player to use instead of a fresh [ProbePlayer]
+  /// (which wraps a real just_audio instance). The screen disposes it.
+  final ProbePlayer? probePlayer;
+
   const FadenScreen({
     super.key,
     required this.manifest,
@@ -47,6 +52,7 @@ class FadenScreen extends ConsumerStatefulWidget {
     required this.pausen,
     this.prior,
     required this.playlistSources,
+    this.probePlayer,
   });
 
   @override
@@ -54,6 +60,9 @@ class FadenScreen extends ConsumerStatefulWidget {
 }
 
 class _FadenScreenState extends ConsumerState<FadenScreen> {
+  /// Captured once in [initState]: the search's callbacks and [dispose] may
+  /// run after this widget is unmounted, where `ref` must not be used.
+  late final FadenAudioHandler _handler;
   late final ProbePlayer _probePlayer;
   late final FadenSearchController _controller;
   StreamSubscription<void>? _mediaAnswerSub;
@@ -63,10 +72,10 @@ class _FadenScreenState extends ConsumerState<FadenScreen> {
   @override
   void initState() {
     super.initState();
-    final handler = ref.read(audioHandlerProvider);
+    final handler = _handler = ref.read(audioHandlerProvider);
     handler.enterFadenMode();
 
-    _probePlayer = ProbePlayer();
+    _probePlayer = widget.probePlayer ?? ProbePlayer();
     _probePlayer.open(widget.playlistSources);
 
     _mediaAnswerSub = handler.fadenModeAnswers.listen((_) => _controller.submitAnswer());
@@ -81,7 +90,12 @@ class _FadenScreenState extends ConsumerState<FadenScreen> {
         final pos = widget.manifest.positionForGlobalMs(p);
         final idx = widget.manifest.files.indexWhere((f) => f.fileHash == pos.fileHash);
         if (idx < 0) return Future.value();
-        return _probePlayer.playProbe(fileIndex: idx, offsetMs: pos.offsetMs, probeLenMs: fs.probeLen);
+        return _probePlayer.playProbe(
+          fileIndex: idx,
+          offsetMs: pos.offsetMs,
+          probeLenMs: fs.probeLen,
+          fileDurationMs: widget.manifest.files[idx].durationMs,
+        );
       },
       stopProbe: _probePlayer.stop,
       onProbeAnswered: (p, known) {
@@ -113,17 +127,17 @@ class _FadenScreenState extends ConsumerState<FadenScreen> {
   /// intermediate "Gefunden" state.
   Future<void> _handleAborted(int globalMs) async {
     await _resumeTo(globalMs);
-    _closeToPlayer();
+    if (mounted) _closeToPlayer();
   }
 
   Future<void> _resumeTo(int globalMs) async {
     final pos = widget.manifest.positionForGlobalMs(globalMs);
     final idx = widget.manifest.files.indexWhere((f) => f.fileHash == pos.fileHash);
-    await ref.read(audioHandlerProvider).resumeFromFaden(pos, fileIndex: idx < 0 ? null : idx);
+    await _handler.resumeFromFaden(pos, fileIndex: idx < 0 ? null : idx);
   }
 
   void _closeToPlayer() {
-    ref.read(audioHandlerProvider).exitFadenMode();
+    _handler.exitFadenMode();
     Navigator.of(context).pop();
   }
 
@@ -146,8 +160,13 @@ class _FadenScreenState extends ConsumerState<FadenScreen> {
 
   @override
   void dispose() {
+    // Also the path for leaving without a result (back gesture / route
+    // pop): end the search silently (no further PROBE, no RESUME, no
+    // playback start), stop the probe, and leave Faden mode so media
+    // buttons act normally again. Idempotent after [_closeToPlayer].
     _mediaAnswerSub?.cancel();
     _controller.dispose();
+    _handler.exitFadenMode();
     unawaited(_probePlayer.dispose());
     super.dispose();
   }

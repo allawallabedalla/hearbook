@@ -89,6 +89,12 @@ class FadenSearchController {
   late List<int> _leiter;
   int _leiterIndex = 0;
   bool _aborted = false;
+
+  /// Set by [dispose]: the screen is gone (back gesture / route pop without
+  /// a result). Unlike a long-press [abort], this must end the search
+  /// silently -- no further `PROBE`, no `RESUME` via [onAborted] or
+  /// [onResumeAt], no playback start.
+  bool _disposed = false;
   Completer<bool>? _pendingAnswer;
 
   FadenSearchController({
@@ -114,20 +120,27 @@ class FadenSearchController {
   /// an abort is reported through [onAborted], not as an exception out of
   /// this method.
   Future<void> start() async {
-    _progressController.add(FadenProgress(lo: lo, hi: hi, probeNr: 0, maxProbes: fs.maxProbes));
+    _emitProgress(0);
     try {
       final result = await fs.fadenSuche(lo, hi, pausen, _frage, prior: prior);
+      if (_disposed) return;
       _leiter = result.leiter;
       _leiterIndex = _leiter.length - 1;
       await onResumeAt(result.start);
     } on FadenAbortedException {
+      if (_disposed) return;
       await onAborted(lo);
     }
   }
 
+  void _emitProgress(int probeNr) {
+    if (_disposed || _progressController.isClosed) return;
+    _progressController.add(FadenProgress(lo: lo, hi: hi, probeNr: probeNr, maxProbes: fs.maxProbes));
+  }
+
   Future<bool> _frage(int p, int probeNr) async {
     if (_aborted) throw const FadenAbortedException();
-    _progressController.add(FadenProgress(lo: lo, hi: hi, probeNr: probeNr, maxProbes: fs.maxProbes));
+    _emitProgress(probeNr);
     await playTone();
     if (_aborted) throw const FadenAbortedException();
 
@@ -164,6 +177,8 @@ class FadenSearchController {
   void abort() {
     if (_aborted) return;
     _aborted = true;
+    // Also reached from [dispose], which set `_disposed` first so that
+    // [start] then skips [onAborted].
     unawaited(stopProbe());
     final pending = _pendingAnswer;
     if (pending != null && !pending.isCompleted) {
@@ -176,13 +191,21 @@ class FadenSearchController {
   /// there (another `RESUME`/`source=faden`, per docs/ARCHITEKTUR.md
   /// section 8's closing note -- every ladder step is its own RESUME).
   Future<void> earlier() async {
-    if (!canGoEarlier) return;
+    if (_disposed || !canGoEarlier) return;
     _leiterIndex = fs.stepEarlier(_leiterIndex);
     final pos = fs.positionAtLeiterIndex(_leiter, _leiterIndex);
     await onResumeAt(pos);
   }
 
+  /// Ends the search for good (the screen was left, with or without a
+  /// result): stops any in-flight probe and makes the running [start]
+  /// return at its next checkpoint without writing another `PROBE`, without
+  /// a `RESUME` and without starting playback. An answer that has not been
+  /// recorded yet is dropped, so `lo` never moves (invariant 9).
   void dispose() {
+    if (_disposed) return;
+    _disposed = true;
+    abort();
     unawaited(_progressController.close());
   }
 }

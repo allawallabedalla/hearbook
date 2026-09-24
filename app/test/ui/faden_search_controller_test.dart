@@ -7,6 +7,8 @@
 // the *orchestration* around it: progress reporting, PROBE/RESUME wiring,
 // abort, and "Früher".
 
+import 'dart:async';
+
 import 'package:fake_async/fake_async.dart';
 import 'package:faden/domain/faden_search.dart' as fs;
 import 'package:faden/ui/faden_search_controller.dart';
@@ -216,6 +218,135 @@ void main() {
           async.flushMicrotasks();
           expect(rec.abortCalls, 1);
           controller.dispose();
+        });
+      });
+    });
+
+    group('dispose (screen left by back gesture / route pop)', () {
+      test('dispose mid-answer-window stops the search: no PROBE, no RESUME, no abort, no error', () {
+        fakeAsync((async) {
+          final rec = _Recorder();
+          final controller = rec.build(lo: 0, hi: 40 * 60000);
+          final progress = <FadenProgress>[];
+          controller.progress.listen(progress.add);
+          controller.start();
+          async.elapse(const Duration(seconds: 1)); // inside probe 1's answer window
+          expect(rec.probesPlayed, hasLength(1));
+
+          controller.dispose();
+          async.elapse(const Duration(minutes: 10));
+
+          expect(rec.probesPlayed, hasLength(1)); // no further probes
+          expect(rec.probeAnswers, isEmpty); // no PROBE event for the interrupted probe
+          expect(rec.resumeCalls, isEmpty); // no RESUME, no playback start
+          expect(rec.abortCalls, 0); // dispose is not a long-press abort
+          expect(rec.stopCount, greaterThanOrEqualTo(1)); // probe playback stopped
+          expect(progress.map((p) => p.probeNr), [0, 1]);
+        });
+      });
+
+      test('dispose while the cue tone plays: the probe never starts, no error', () {
+        fakeAsync((async) {
+          final tone = Completer<void>();
+          final rec = _Recorder();
+          final base = rec.build(lo: 0, hi: 40 * 60000);
+          final controller = FadenSearchController(
+            lo: base.lo,
+            hi: base.hi,
+            pausen: base.pausen,
+            playTone: () => tone.future,
+            playProbe: base.playProbe,
+            stopProbe: base.stopProbe,
+            onProbeAnswered: base.onProbeAnswered,
+            onResumeAt: base.onResumeAt,
+            onAborted: base.onAborted,
+          );
+          controller.start();
+          async.flushMicrotasks();
+          controller.dispose();
+          tone.complete();
+          async.elapse(const Duration(minutes: 10));
+          expect(rec.probesPlayed, isEmpty);
+          expect(rec.probeAnswers, isEmpty);
+          expect(rec.resumeCalls, isEmpty);
+          expect(rec.abortCalls, 0);
+        });
+      });
+
+      test('an answer racing dispose is dropped (lo never moves without a recorded answer)', () {
+        fakeAsync((async) {
+          final rec = _Recorder();
+          final controller = rec.build(lo: 0, hi: 40 * 60000);
+          controller.start();
+          async.elapse(const Duration(seconds: 1));
+          controller.submitAnswer(); // completes the pending answer ...
+          controller.dispose(); // ... but the screen is gone before it is handled
+          async.elapse(const Duration(minutes: 10));
+          expect(rec.probeAnswers, isEmpty);
+          expect(rec.resumeCalls, isEmpty);
+          expect(rec.probesPlayed, hasLength(1));
+        });
+      });
+
+      test('dispose while a PROBE write is in flight: no next probe, no RESUME, no error', () {
+        fakeAsync((async) {
+          final write = Completer<void>();
+          final rec = _Recorder();
+          final base = rec.build(lo: 0, hi: 40 * 60000);
+          final controller = FadenSearchController(
+            lo: base.lo,
+            hi: base.hi,
+            pausen: base.pausen,
+            playTone: base.playTone,
+            playProbe: base.playProbe,
+            stopProbe: base.stopProbe,
+            onProbeAnswered: (p, known) {
+              rec.probeAnswers.add((p: p, known: known));
+              return write.future;
+            },
+            onResumeAt: base.onResumeAt,
+            onAborted: base.onAborted,
+          );
+          controller.start();
+          async.elapse(const Duration(milliseconds: fs.probeLen + fs.answerWindow)); // times out
+          expect(rec.probeAnswers, hasLength(1));
+          controller.dispose();
+          write.complete();
+          async.elapse(const Duration(minutes: 10));
+          expect(rec.probesPlayed, hasLength(1));
+          expect(rec.probeAnswers, hasLength(1));
+          expect(rec.resumeCalls, isEmpty);
+          expect(rec.abortCalls, 0);
+        });
+      });
+
+      test('dispose after the result: "Früher" is a no-op, no error', () {
+        fakeAsync((async) {
+          final rec = _Recorder();
+          final controller = rec.build(lo: 0, hi: fs.target);
+          controller.start();
+          async.flushMicrotasks();
+          expect(rec.resumeCalls, hasLength(1));
+          controller.dispose();
+          controller.earlier();
+          controller.submitAnswer();
+          controller.abort();
+          async.elapse(const Duration(minutes: 1));
+          expect(rec.resumeCalls, hasLength(1));
+          expect(rec.abortCalls, 0);
+        });
+      });
+
+      test('dispose is idempotent', () {
+        fakeAsync((async) {
+          final rec = _Recorder();
+          final controller = rec.build(lo: 0, hi: 40 * 60000);
+          controller.start();
+          async.elapse(const Duration(seconds: 1));
+          controller.dispose();
+          controller.dispose();
+          async.elapse(const Duration(minutes: 1));
+          expect(rec.resumeCalls, isEmpty);
         });
       });
     });

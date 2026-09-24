@@ -54,6 +54,7 @@ class FadenAudioHandler extends BaseAudioHandler {
   Timer? _heartbeatTimer;
   Timer? _syncTimer;
   StreamSubscription<ja.ProcessingState>? _completionSub;
+  final List<StreamSubscription<Object?>> _playerSubs = [];
 
   int? _lastIndex;
   Duration _lastLocalPosition = Duration.zero;
@@ -91,6 +92,19 @@ class FadenAudioHandler extends BaseAudioHandler {
     AwakeGate? awakeGate,
   }) : _awakeGate = awakeGate ?? AwakeGate() {
     _wireBroadcast();
+    // docs/ARCHITEKTUR.md section 5 receive rule: every pulled remote event
+    // advances this device's clock before it is stored locally, so no later
+    // local event can sort before an event this device already knows.
+    syncClient?.onRemoteHlc = observeHlc;
+  }
+
+  /// Applies the HLC receive rule (docs/ARCHITEKTUR.md section 5) for an
+  /// event this device learned about (pulled from the server, or already
+  /// in the local journal), if it is ahead of the local clock. Afterwards
+  /// every locally generated event sorts after [remote].
+  void observeHlc(Hlc remote) {
+    if (remote.compareTo(_hlc) <= 0) return;
+    _hlc = _hlc.receive(remote, clock.nowMs());
   }
 
   /// Current playback position as `(file_hash, offset_ms)` -- null before
@@ -126,7 +140,10 @@ class FadenAudioHandler extends BaseAudioHandler {
     _manifest = manifest;
     _sessionId = null;
     _sessionActive = false;
-    _hlc = await journal.latestHlc(deviceId);
+    // Fold in the newest HLC of every stored event (own and remote), not
+    // just this device's own: never lowers a clock already advanced by a
+    // concurrent sync pull (observeHlc only moves forward).
+    observeHlc(await journal.maxHlc());
 
     var initialIndex = manifest.files.indexWhere((f) => f.fileHash == initialPosition.fileHash);
     if (initialIndex == -1) initialIndex = 0; // needs_confirmation: start at chapter 1
@@ -185,10 +202,17 @@ class FadenAudioHandler extends BaseAudioHandler {
   Future<void> playFrom(EventSource source) async {
     final position = _currentPosition();
     final event = _buildEvent(type: EventType.play, position: position, source: source);
-    await _journal(event, _player.play);
+    await _journal(event, () async => _startPlayback());
     _startHeartbeat();
     _startPeriodicSync();
   }
+
+  /// Starts the main player without awaiting just_audio's `play()` future,
+  /// which only completes once playback is paused or completed again --
+  /// awaiting it would hold back everything after it (heartbeat, periodic
+  /// sync, the undo hint, the Faden screen's result state) for the whole
+  /// playback.
+  void _startPlayback() => unawaited(_player.play());
 
   @override
   Future<void> pause() async {
@@ -370,11 +394,21 @@ class FadenAudioHandler extends BaseAudioHandler {
     required int? fileIndex,
     required EventSource source,
   }) async {
+    // Invariant 6: a RESUME after falling asleep opens a new session, so the
+    // Resolver's history (rule 6, winning session only) never records this
+    // jump -- the undo hint is the one-tap way back to where playback stood.
+    final manifest = _manifest;
+    final from = _currentPosition();
+    final fromGlobalMs = manifest?.globalMsFor(from);
+    final toGlobalMs = manifest?.globalMsFor(target);
     final event = _buildEvent(type: EventType.resume, position: target, source: source);
-    await _journal(event, () async {
-      await _player.seek(Duration(milliseconds: target.offsetMs), index: fileIndex);
-      await _player.play();
-    });
+    await _journal(event, () => _player.seek(Duration(milliseconds: target.offsetMs), index: fileIndex));
+    if (manifest != null && fromGlobalMs != null && toGlobalMs != null) {
+      final hint =
+          undoHintForJump(from: from, fromGlobalMs: fromGlobalMs, toGlobalMs: toGlobalMs, manifest: manifest);
+      if (hint != null) _undoHintController.add(hint);
+    }
+    _startPlayback();
     _startHeartbeat();
     _startPeriodicSync();
   }
@@ -536,7 +570,7 @@ class FadenAudioHandler extends BaseAudioHandler {
   }
 
   void _wireBroadcast() {
-    _player.currentIndexStream.listen((idx) {
+    _playerSubs.add(_player.currentIndexStream.listen((idx) {
       _lastIndex = idx;
       _emitPosition();
       final manifest = _manifest;
@@ -544,12 +578,12 @@ class FadenAudioHandler extends BaseAudioHandler {
         final item = queue.value.length > idx ? queue.value[idx] : null;
         if (item != null) mediaItem.add(item);
       }
-    });
-    _player.positionStream.listen((pos) {
+    }));
+    _playerSubs.add(_player.positionStream.listen((pos) {
       _lastLocalPosition = pos;
       _emitPosition();
-    });
-    _player.playbackEventStream.listen(_broadcastState);
+    }));
+    _playerSubs.add(_player.playbackEventStream.listen(_broadcastState));
   }
 
   void _emitPosition() {
@@ -596,12 +630,19 @@ class FadenAudioHandler extends BaseAudioHandler {
   Future<void> dispose() async {
     _stopHeartbeat();
     _stopPeriodicSync();
+    if (syncClient?.onRemoteHlc == observeHlc) syncClient?.onRemoteHlc = null;
+    // Player listeners first, then the player, and only then the
+    // controllers those listeners (and in-flight actions) add to.
     await _completionSub?.cancel();
+    for (final sub in _playerSubs) {
+      await sub.cancel();
+    }
+    _playerSubs.clear();
+    await _player.dispose();
     await _positionController.close();
     await _undoHintController.close();
     await _eventsWrittenController.close();
     await _fadenAnswerController.close();
-    await _player.dispose();
   }
 
   /// Whether audio is currently playing -- ui/player_screen.dart's main

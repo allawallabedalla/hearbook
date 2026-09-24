@@ -1,3 +1,6 @@
+import 'dart:async';
+
+import 'package:flutter/foundation.dart' show visibleForTesting;
 import 'package:just_audio/just_audio.dart' as ja;
 
 /// The Faden-Suche's own player (docs/ARCHITEKTUR.md section 8: "Proben
@@ -42,7 +45,11 @@ class ProbePlayer {
   /// Plays up to [probeLenMs] of the book at `(fileIndex, offsetMs)`,
   /// stopping at the file's own end if that comes first
   /// (docs/ARCHITEKTUR.md section 8: "Eine Probe endet spätestens am
-  /// Dateiende"). Returns once playback has stopped. Swallows playback
+  /// Dateiende"). [fileDurationMs] is the manifest's duration of that file:
+  /// just_audio does not guarantee `duration` is known right after loading
+  /// (notably for streamed files), so the manifest value is the bound that
+  /// always applies; the player's own duration only tightens it further if
+  /// it is known and shorter. Returns once playback has stopped. Swallows playback
   /// errors -- a failed probe simply plays silence, and the listener then
   /// answers "kenne ich nicht" via the normal answer-window timeout
   /// (ui/faden_search_controller.dart), same as if they had not recognised
@@ -51,6 +58,7 @@ class ProbePlayer {
     required int fileIndex,
     required int offsetMs,
     required int probeLenMs,
+    required int fileDurationMs,
   }) async {
     final sources = _bookSources;
     if (sources == null || fileIndex < 0 || fileIndex >= sources.length) return;
@@ -60,14 +68,21 @@ class ProbePlayer {
         initialIndex: fileIndex,
         initialPosition: Duration(milliseconds: offsetMs),
       );
-      await _player.play();
-      final fileDuration = _player.duration;
-      final maxPlayFor = Duration(milliseconds: probeLenMs);
-      final remainingInFile =
-          fileDuration == null ? maxPlayFor : fileDuration - Duration(milliseconds: offsetMs);
-      final playFor = remainingInFile < maxPlayFor ? remainingInFile : maxPlayFor;
-      await Future.any([
-        Future<void>.delayed(playFor < Duration.zero ? Duration.zero : playFor),
+      final playFor = Duration(
+        milliseconds: probePlayMs(
+          offsetMs: offsetMs,
+          probeLenMs: probeLenMs,
+          fileDurationMs: fileDurationMs,
+          playerDurationMs: _player.duration?.inMilliseconds,
+        ),
+      );
+      // just_audio's play() future completes only once playback is paused
+      // or the whole playlist has completed (or at once if already
+      // playing, e.g. right after the cue tone), so it is started but not
+      // awaited: the probe-length timer alone bounds the probe.
+      unawaited(_player.play().catchError((Object _) {}));
+      await Future.any<void>([
+        Future<void>.delayed(playFor),
         _player.processingStateStream.firstWhere((s) => s == ja.ProcessingState.completed),
       ]);
     } catch (_) {
@@ -75,6 +90,23 @@ class ProbePlayer {
     } finally {
       await stop();
     }
+  }
+
+  /// How long a probe at [offsetMs] may play: [probeLenMs], cut at the end
+  /// of the file (the shorter of the manifest's [fileDurationMs] and the
+  /// player's reported [playerDurationMs], if any), never negative.
+  @visibleForTesting
+  static int probePlayMs({
+    required int offsetMs,
+    required int probeLenMs,
+    required int fileDurationMs,
+    int? playerDurationMs,
+  }) {
+    var fileEnd = fileDurationMs;
+    if (playerDurationMs != null && playerDurationMs < fileEnd) fileEnd = playerDurationMs;
+    final remaining = fileEnd - offsetMs;
+    final playFor = remaining < probeLenMs ? remaining : probeLenMs;
+    return playFor < 0 ? 0 : playFor;
   }
 
   Future<void> stop() async {

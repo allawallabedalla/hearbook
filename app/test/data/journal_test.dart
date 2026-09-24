@@ -102,4 +102,30 @@ void main() {
       expect(events.map((e) => e.eventId), ['remote-1']);
     });
   });
+
+  group('maxHlc', () {
+    test('is Hlc(0, 0) for an empty journal', () async {
+      expect(await journal.maxHlc(), const Hlc(pt: 0, c: 0));
+    });
+
+    test('covers remote events of other devices and other books, not just own ones', () async {
+      await journal.record(_event(id: 'own', pt: 1000), () async {});
+      final remote = Event(
+        eventId: 'remote',
+        deviceId: 'dev-b',
+        sessionId: 's2',
+        bookId: 'book-2',
+        manifestId: 'm2',
+        type: EventType.seek,
+        fileHash: 'f9',
+        offsetMs: 0,
+        hlc: const Hlc(pt: 9000, c: 4),
+        wallMs: 9000,
+        tzMin: 0,
+        source: EventSource.ui,
+      );
+      await journal.storeRemote(remote);
+      expect(await journal.maxHlc(), const Hlc(pt: 9000, c: 4));
+    });
+  });
 }

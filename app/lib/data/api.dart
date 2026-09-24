@@ -4,15 +4,38 @@ import 'package:dio/dio.dart';
 
 import '../domain/event.dart';
 
+/// One entry of `rejected` in the `POST /api/v1/events` response: the
+/// server validates per event and stores the valid ones, reporting each
+/// invalid one by its [index] in the pushed batch.
+class RejectedEvent {
+  final int index;
+  final String? eventId;
+  final String error;
+
+  const RejectedEvent({required this.index, required this.eventId, required this.error});
+
+  factory RejectedEvent.fromJson(Map<String, dynamic> json) => RejectedEvent(
+        index: json['index'] as int,
+        eventId: json['event_id'] as String?,
+        error: json['error'] as String? ?? '',
+      );
+}
+
 /// Response shape of `POST /api/v1/events` (docs/ARCHITEKTUR.md section 6).
 class PushEventsResult {
   final int accepted;
   final int duplicates;
-  final int maxSeq;
+
+  /// Empty when the server sent no `rejected` field (older servers).
+  final List<RejectedEvent> rejected;
+
+  /// Null when the server stored nothing new (e.g. every event rejected).
+  final int? maxSeq;
 
   const PushEventsResult({
     required this.accepted,
     required this.duplicates,
+    this.rejected = const [],
     required this.maxSeq,
   });
 }
@@ -114,7 +137,11 @@ class ApiClient {
     return PushEventsResult(
       accepted: data['accepted'] as int,
       duplicates: data['duplicates'] as int,
-      maxSeq: data['max_seq'] as int,
+      rejected: [
+        for (final r in (data['rejected'] as List?) ?? const [])
+          RejectedEvent.fromJson(r as Map<String, dynamic>),
+      ],
+      maxSeq: data['max_seq'] as int?,
     );
   }
 

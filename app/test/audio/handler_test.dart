@@ -8,12 +8,19 @@
 
 import 'dart:async';
 
+import 'package:dio/dio.dart';
 import 'package:faden/audio/handler.dart';
+import 'package:faden/audio/undo_hint.dart';
 import 'package:faden/core/clock.dart';
+import 'package:faden/core/hlc.dart';
+import 'package:faden/data/api.dart';
 import 'package:faden/data/db.dart';
 import 'package:faden/data/journal.dart';
+import 'package:faden/data/sync.dart';
 import 'package:faden/domain/event.dart';
+import 'package:faden/domain/manifest.dart';
 import 'package:faden/domain/position.dart';
+import 'package:faden/domain/resolver.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -27,6 +34,27 @@ class _FakeClock implements Clock {
   @override
   int tzOffsetMin() => tz;
 }
+
+const _manifest = Manifest(manifestId: 'm1', files: [
+  ManifestFile(idx: 0, fileHash: 'h0', durationMs: 20 * 60000),
+  ManifestFile(idx: 1, fileHash: 'h1', durationMs: 20 * 60000),
+]);
+
+/// A SEEK from another device whose clock runs an hour ahead of this one.
+Event _remoteSeek({required int pt}) => Event(
+      eventId: 'remote-seek',
+      deviceId: 'dev-b',
+      sessionId: 'session-b',
+      bookId: 'book',
+      manifestId: 'm1',
+      type: EventType.seek,
+      fileHash: 'h0',
+      offsetMs: 5000,
+      hlc: Hlc(pt: pt, c: 3),
+      wallMs: pt,
+      tzMin: 60,
+      source: EventSource.ui,
+    );
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -82,6 +110,18 @@ void main() {
     unawaited(action());
     await Future<void>.delayed(const Duration(milliseconds: 50));
   }
+
+  /// `openBook()` with an empty source list: just_audio's `load()` is a
+  /// no-op for an empty playlist, so no platform channel is touched, while
+  /// the handler still gets its manifest and starting position.
+  Future<void> openBook({Position at = const Position(fileHash: 'h1', offsetMs: 10 * 60000)}) =>
+      handler.openBook(
+        bookId: 'book',
+        manifest: _manifest,
+        bookTitle: 'Buch',
+        sources: const [],
+        initialPosition: at,
+      );
 
   group('awake', () {
     test('writes an AWAKE event and rate-limits to 1 per 10s', () async {
@@ -225,6 +265,43 @@ void main() {
       expect(event.source, EventSource.ui);
     });
 
+    test('a Faden RESUME over 2 min away emits an undo hint back to the pre-jump position '
+        '(invariant 6)', () async {
+      await openBook(); // paused at h1 10:00, where the listener fell asleep
+      final hints = <UndoHint>[];
+      final sub = handler.undoHints.listen(hints.add);
+
+      await handler.resumeFromFaden(const Position(fileHash: 'h1', offsetMs: 2 * 60000), fileIndex: 1);
+      await Future<void>.delayed(Duration.zero);
+      await sub.cancel();
+
+      expect(hints, hasLength(1));
+      expect(hints.single.target, const Position(fileHash: 'h1', offsetMs: 10 * 60000));
+      expect(hints.single.message, contains('10:00'));
+      final resume = (await eventsFor('book')).single;
+      expect(resume.type, EventType.resume);
+    });
+
+    test('resumeFromStop over 2 min away also emits an undo hint', () async {
+      await openBook(at: const Position(fileHash: 'h0', offsetMs: 60000));
+      final hints = <UndoHint>[];
+      final sub = handler.undoHints.listen(hints.add);
+      await handler.resumeFromStop(const Position(fileHash: 'h1', offsetMs: 0), fileIndex: 1);
+      await Future<void>.delayed(Duration.zero);
+      await sub.cancel();
+      expect(hints.single.target, const Position(fileHash: 'h0', offsetMs: 60000));
+    });
+
+    test('a RESUME within 2 min emits no undo hint', () async {
+      await openBook();
+      final hints = <UndoHint>[];
+      final sub = handler.undoHints.listen(hints.add);
+      await handler.resumeFromFaden(const Position(fileHash: 'h1', offsetMs: 9 * 60000), fileIndex: 1);
+      await Future<void>.delayed(Duration.zero);
+      await sub.cancel();
+      expect(hints, isEmpty);
+    });
+
     test('RESUME is an intent event (Resolver rule 2/5 dependence)', () {
       expect(EventType.resume.isIntent, isTrue);
     });
@@ -273,6 +350,70 @@ void main() {
       expect(handler.fadenModeActive, isTrue);
       handler.exitFadenMode();
       expect(handler.fadenModeActive, isFalse);
+    });
+  });
+
+  group('HLC receive rule (docs/ARCHITEKTUR.md section 5)', () {
+    test('a stored remote SEEK from a clock running ahead: the next local PLAY still wins', () async {
+      final remotePt = clock.ms + 60 * 60000; // other device is an hour ahead
+      await journal.storeRemote(_remoteSeek(pt: remotePt));
+
+      await openBook();
+      await fireAndWaitForJournal(() => handler.playFrom(EventSource.ui));
+
+      final events = await eventsFor('book');
+      final play = events.singleWhere((e) => e.type == EventType.play);
+      expect(play.hlc.compareTo(Hlc(pt: remotePt, c: 3)), greaterThan(0));
+      final state = resolve(events, _manifest);
+      expect(state.position, const Position(fileHash: 'h1', offsetMs: 10 * 60000));
+    });
+
+    test('a remote SEEK pulled by sync after the book was opened advances the clock too', () async {
+      final remotePt = clock.ms + 60 * 60000;
+      final dio = Dio(BaseOptions(baseUrl: 'https://faden.example'));
+      dio.interceptors.add(
+        InterceptorsWrapper(
+          onRequest: (options, h) => h.resolve(
+            Response(
+              requestOptions: options,
+              statusCode: 200,
+              data: {
+                'events': [
+                  {..._remoteSeek(pt: remotePt).toJson(), 'seq': 1, 'skew_flag': false},
+                ],
+                'has_more': false,
+              },
+            ),
+          ),
+        ),
+      );
+      await handler.dispose();
+      handler = FadenAudioHandler(
+        journal: journal,
+        deviceId: 'dev-a',
+        clock: clock,
+        syncClient: SyncClient(db: db, journal: journal, api: ApiClient(dio)),
+      );
+
+      await openBook(); // also kicks off a sync, which pulls the remote SEEK
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+      expect((await eventsFor('book')).map((e) => e.eventId), ['remote-seek']);
+
+      await fireAndWaitForJournal(() => handler.playFrom(EventSource.ui));
+
+      final events = await eventsFor('book');
+      final state = resolve(events, _manifest);
+      expect(state.position, const Position(fileHash: 'h1', offsetMs: 10 * 60000));
+    });
+
+    test('a remote event behind the local clock never moves it backwards', () async {
+      await handler.awake(); // local event at clock.ms
+      final before = (await eventsFor('')).single.hlc;
+      handler.observeHlc(const Hlc(pt: 10, c: 0));
+      clock.ms += 1;
+      await handler.sleepHint(source: EventSource.ui);
+      final after = (await eventsFor('')).last.hlc;
+      expect(after.compareTo(before), greaterThan(0));
     });
   });
 

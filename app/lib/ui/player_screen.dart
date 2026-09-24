@@ -34,6 +34,13 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
   late final ScreenLockController _lock;
   late final SleepTimerController _sleepTimer;
   StreamSubscription<UndoHint>? _undoHintSub;
+
+  /// True while the Faden screen (ui/faden_screen.dart) is pushed on top of
+  /// this one. Its RESUME's undo hint arrives then, but must not appear
+  /// over the Faden screen (where a tap means "kenne ich"/"close") and
+  /// would likely time out before the listener is back here.
+  bool _fadenOpen = false;
+  UndoHint? _heldUndoHint;
   int _nightStartMin = 20 * 60;
   int _nightEndMin = 6 * 60;
 
@@ -75,6 +82,13 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
 
   void _showUndoHint(UndoHint hint) {
     if (!mounted) return;
+    if (_fadenOpen) {
+      // Keep the first one: it points back to where playback stood before
+      // the search (the pre-sleep position). Later ones only come from
+      // "Früher" steps the listener took on the Faden screen itself.
+      _heldUndoHint ??= hint;
+      return;
+    }
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(hint.message),
@@ -174,18 +188,26 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
     // function loses promotion in a closure literal) -- a final copy fixes
     // that without changing anything about the value itself.
     final resolvedHi = hi;
-    Navigator.of(context).push(
-      MaterialPageRoute(
-        builder: (_) => FadenScreen(
-          manifest: manifest,
-          lo: lo,
-          hi: resolvedHi,
-          pausen: pausen,
-          prior: prior,
-          playlistSources: sources,
+    _fadenOpen = true;
+    try {
+      await Navigator.of(context).push(
+        MaterialPageRoute<void>(
+          builder: (_) => FadenScreen(
+            manifest: manifest,
+            lo: lo,
+            hi: resolvedHi,
+            pausen: pausen,
+            prior: prior,
+            playlistSources: sources,
+          ),
         ),
-      ),
-    );
+      );
+    } finally {
+      _fadenOpen = false;
+    }
+    final held = _heldUndoHint;
+    _heldUndoHint = null;
+    if (held != null) _showUndoHint(held);
   }
 
   @override

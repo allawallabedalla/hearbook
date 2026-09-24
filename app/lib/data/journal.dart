@@ -45,13 +45,13 @@ class Journal {
     return rows.map(_toEvent).toList();
   }
 
-  /// The most advanced `Hlc` this device has locally logged, across every
-  /// book (the clock is per-device, not per-book, docs/ARCHITEKTUR.md
-  /// section 5). `Hlc(pt: 0, c: 0)` if this device has never logged an
-  /// event, in which case `tick(nowMs)` naturally produces `nowMs`.
-  Future<Hlc> latestHlc(String deviceId) async {
+  /// The most advanced `Hlc` of any stored event, local or pulled from
+  /// another device, across every book. The HLC receive rule
+  /// (docs/ARCHITEKTUR.md section 5) folds this into the device clock so a
+  /// new local event always sorts after everything already known.
+  /// `Hlc(pt: 0, c: 0)` for an empty journal.
+  Future<Hlc> maxHlc() async {
     final rows = await (db.select(db.eventRows)
-          ..where((t) => t.deviceId.equals(deviceId))
           ..orderBy([
             (t) => OrderingTerm.desc(t.hlcPt),
             (t) => OrderingTerm.desc(t.hlcC),
