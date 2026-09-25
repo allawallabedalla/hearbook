@@ -13,6 +13,7 @@ import '../data/sync.dart';
 import '../domain/auto_rewind.dart';
 import '../domain/event.dart';
 import '../domain/manifest.dart';
+import '../domain/pause_reason.dart';
 import '../domain/position.dart';
 import '../l10n/strings.dart';
 import '../signals/awake.dart';
@@ -124,6 +125,14 @@ class FadenAudioHandler extends BaseAudioHandler {
   /// Null when nothing should be rewound (explicit positioning since).
   int? _pausedAtWallMs;
 
+  /// Why playback was last paused, for the reason-aware rewind (E80): 30 s
+  /// after a lost connection. Survives an app restart through the journal.
+  PauseReason? _pauseReason;
+
+  /// Whether CarPlay is the audio output right now (E80), from
+  /// [attachAudioSessionEvents]' `carAudio` stream.
+  bool _carRoute = false;
+
   /// Set when an audio-session interruption (a call) paused playback, so
   /// its end resumes it (E36).
   bool _resumeAfterInterruption = false;
@@ -141,14 +150,6 @@ class FadenAudioHandler extends BaseAudioHandler {
   /// Wach-Beleg") instead of running its normal transport action. Left
   /// null (default) when no sleep timer applies (e.g. in tests).
   bool Function()? onLastMinuteExtend;
-
-  /// Optional hook: signals/night.dart's `isInNightWindow` evaluated for
-  /// "now", wired from ui/player_screen.dart -- decides whether a
-  /// media/system pause also writes `SLEEP_HINT` (docs/ARCHITEKTUR.md
-  /// section 9). Left null (default) in contexts without a night-window
-  /// setting (e.g. tests): such a pause then never counts as a sleep hint,
-  /// which is the safe default (no false suspicion).
-  bool Function()? isInNightWindow;
 
   FadenAudioHandler({
     required this.journal,
@@ -176,12 +177,15 @@ class FadenAudioHandler extends BaseAudioHandler {
   }
 
   /// Routes the audio session's interruptions (a call, Siri, an alarm) and
-  /// "becoming noisy" (headphones unplugged) through the journaled
-  /// [pauseFrom]/[playFrom] (decision E36). main.dart passes
+  /// "becoming noisy" (the output went away: headphones unplugged,
+  /// Bluetooth or CarPlay disconnected) through the journaled
+  /// [pauseFrom]/[playFrom] (decision E36), each with its pause reason
+  /// (E80). [carAudio] tells whether CarPlay is the output. main.dart passes
   /// `AudioSession.instance`'s streams; tests pass their own.
   void attachAudioSessionEvents({
     required Stream<AudioInterruptionEvent> interruptions,
     required Stream<void> becomingNoisy,
+    Stream<bool>? carAudio,
   }) {
     for (final sub in _sessionSubs) {
       unawaited(sub.cancel());
@@ -190,6 +194,7 @@ class FadenAudioHandler extends BaseAudioHandler {
       ..clear()
       ..add(interruptions.listen(_onInterruption))
       ..add(becomingNoisy.listen((_) => _onBecomingNoisy()));
+    if (carAudio != null) _sessionSubs.add(carAudio.listen((car) => _carRoute = car));
   }
 
   void _onInterruption(AudioInterruptionEvent event) {
@@ -198,7 +203,7 @@ class FadenAudioHandler extends BaseAudioHandler {
         case AudioInterruptionType.pause:
         case AudioInterruptionType.unknown:
           if (!playing) return;
-          unawaited(pauseFrom(EventSource.system).then((_) {
+          unawaited(pauseFrom(EventSource.system, reason: PauseReason.interruption).then((_) {
             // Set after the pause: a pause always clears it (see pauseFrom).
             // Only a "pause" interruption promises an end event; "unknown"
             // may last forever, so it never resumes by itself.
@@ -216,10 +221,28 @@ class FadenAudioHandler extends BaseAudioHandler {
     }
   }
 
+  /// A route change that made the output go away (E80): a lost
+  /// connection, never a sleep hint; the next play rewinds 30 s. No
+  /// auto-play when it comes back. When a media-button/system pause came
+  /// just before (the headphones' own pause, CarPlay's), the rewind still
+  /// counts it as a lost connection -- in memory only, the event stays.
   void _onBecomingNoisy() {
     _resumeAfterInterruption = false;
-    if (playing) unawaited(pauseFrom(EventSource.system));
+    if (playing) {
+      unawaited(pauseFrom(EventSource.system, reason: PauseReason.routeLost));
+      return;
+    }
+    final pausedAt = _pausedAtWallMs;
+    if (_pauseReason == PauseReason.unconscious &&
+        pausedAt != null &&
+        clock.nowMs() - pausedAt <= routeLostFollowUpMs) {
+      _pauseReason = PauseReason.routeLost;
+    }
   }
+
+  /// How soon after an unconscious pause a lost connection still counts as
+  /// its cause, for the rewind (E80).
+  static const int routeLostFollowUpMs = 10 * 1000;
 
   /// Applies the HLC receive rule (docs/ARCHITEKTUR.md section 5) for an
   /// event this device learned about (pulled from the server, or already
@@ -300,8 +323,10 @@ class FadenAudioHandler extends BaseAudioHandler {
     // just this device's own: never lowers a clock already advanced by a
     // concurrent sync pull (observeHlc only moves forward).
     observeHlc(await journal.maxHlc());
-    // A pause that spans an app restart still rewinds on the next play.
+    // A pause that spans an app restart still rewinds on the next play,
+    // 30 s after a lost connection (E80).
     _pausedAtWallMs = await journal.lastWallMsForBook(bookId);
+    _pauseReason = await journal.lastPauseReasonForBook(bookId);
 
     var initialIndex = manifest.files.indexWhere((f) => f.fileHash == initialPosition.fileHash);
     if (initialIndex == -1) initialIndex = 0; // needs_confirmation: start at chapter 1
@@ -424,7 +449,11 @@ class FadenAudioHandler extends BaseAudioHandler {
     if (manifest != null && pausedAt != null && !playing) {
       final globalMs = manifest.globalMsFor(position);
       if (globalMs != null) {
-        final target = autoRewoundGlobalMs(globalMs: globalMs, pausedForMs: clock.nowMs() - pausedAt);
+        final target = autoRewoundGlobalMs(
+          globalMs: globalMs,
+          pausedForMs: clock.nowMs() - pausedAt,
+          reason: _pauseReason,
+        );
         if (target != globalMs) {
           position = manifest.positionForGlobalMs(target);
           rewindIndex = manifest.indexOf(position.fileHash);
@@ -432,6 +461,7 @@ class FadenAudioHandler extends BaseAudioHandler {
       }
     }
     _pausedAtWallMs = null;
+    _pauseReason = null;
     final event = _buildEvent(type: EventType.play, position: position, source: source);
     final target = position;
     await _journal(event, () async {
@@ -483,30 +513,40 @@ class FadenAudioHandler extends BaseAudioHandler {
   /// does *not* count as an awake-proof, unlike a UI pause. The on-screen
   /// main button ([playPause]) calls this explicitly with `source: ui`; the
   /// bare [pause] override (the platform's own entry point -- headset
-  /// button, lock-screen/notification control, an OS-level audio-focus
-  /// interruption, ...) has no way to tell those origins apart, so it uses
-  /// `source: system` uniformly (docs/ARCHITEKTUR.md section 9 explicitly
-  /// anticipates this ambiguity for the AirPods sleep-detection case: "von
-  /// einem bewussten Tastendruck nicht zu unterscheiden"). Either way,
-  /// section 9's "Pause über Mediataste oder System im Nachtfenster" rule
-  /// for `SLEEP_HINT` is evaluated here, right below.
-  Future<void> pauseFrom(EventSource source) => _pause(source, allowSleepHint: true);
+  /// button, lock-screen/notification control, AirPods sleep detection,
+  /// ...) has no way to tell those origins apart, so it uses `source:
+  /// system` uniformly (section 9: "von einem bewussten Tastendruck nicht
+  /// zu unterscheiden").
+  ///
+  /// [reason] (decision E80) defaults from the source
+  /// (domain/pause_reason.dart); a lost connection and an interruption pass
+  /// their own. It goes into the PAUSE event's `data`, together with the
+  /// car route while CarPlay is the output, and decides whether a
+  /// `SLEEP_HINT` follows: after an unconscious pause at any time of day
+  /// (not in the car), after the sleep timer always, otherwise never.
+  Future<void> pauseFrom(EventSource source, {PauseReason? reason}) =>
+      _pause(source, reason: reason ?? defaultPauseReason(source));
 
-  Future<void> _pause(EventSource source, {required bool allowSleepHint}) async {
+  Future<void> _pause(EventSource source, {required PauseReason reason}) async {
     _resumeAfterInterruption = false;
-    if (playing || _pausedAtWallMs == null) _pausedAtWallMs = clock.nowMs();
+    if (playing || _pausedAtWallMs == null) {
+      _pausedAtWallMs = clock.nowMs();
+      _pauseReason = reason;
+    }
     final position = _currentPosition();
-    final event = _buildEvent(type: EventType.pause, position: position, source: source);
+    final car = _carRoute;
+    final event = _buildEvent(
+      type: EventType.pause,
+      position: position,
+      source: source,
+      data: pauseData(reason, carRoute: car),
+    );
     await _journal(event, _player.pause);
     _sessionActive = false;
     _stopHeartbeat();
     _stopPeriodicSync();
     unawaited(_sync());
-    if (allowSleepHint &&
-        (source == EventSource.mediaButton || source == EventSource.system) &&
-        (isInNightWindow?.call() ?? false)) {
-      await sleepHint(source: source);
-    }
+    if (writesSleepHint(reason, carRoute: car)) await sleepHint(source: source);
   }
 
   Future<void> playPause() => playing ? pauseFrom(EventSource.ui) : playFrom(EventSource.ui);
@@ -590,9 +630,20 @@ class FadenAudioHandler extends BaseAudioHandler {
   /// [_awakeGate] to at most one per 10s combined across every trigger
   /// (screen touch, volume change, timer extension -- section 9). A no-op
   /// (returns false) while the cooldown hasn't elapsed yet.
+  ///
+  /// While nothing plays, the event gets a session of its own (decision
+  /// E83): a touch in the morning proves the listener is awake now, not
+  /// that they heard the end of the session they fell asleep in -- it must
+  /// not clear the sleep suspicion before "Faden aufnehmen" (it still marks
+  /// when they woke up, E79).
   Future<bool> awake({EventSource source = EventSource.ui}) async {
     if (!_awakeGate.shouldEmit(clock.nowMs())) return false;
-    final event = _buildEvent(type: EventType.awake, position: _currentPosition(), source: source);
+    final event = _buildEvent(
+      type: EventType.awake,
+      position: _currentPosition(),
+      source: source,
+      detached: !_sessionActive,
+    );
     await _journal(event, () async {});
     return true;
   }
@@ -605,15 +656,11 @@ class FadenAudioHandler extends BaseAudioHandler {
     await _journal(event, () async {});
   }
 
-  /// Sleep-timer expiry (signals/sleep_timer.dart's `onExpire`): the plain
-  /// `PAUSE`/`source=timer` M4 already wrote via [pauseFrom], plus the
-  /// `SLEEP_HINT` M5 adds (docs/ARCHITEKTUR.md section 9: "SLEEP_HINT
-  /// entsteht beim Ablauf des Sleep-Timers" -- unconditional, unlike the
-  /// night-window-gated media/system-pause case in [pauseFrom] above).
-  Future<void> pauseForSleepTimerExpiry() async {
-    await pauseFrom(EventSource.timer);
-    await sleepHint(source: EventSource.timer);
-  }
+  /// Sleep-timer expiry (signals/sleep_timer.dart's `onExpire`): `PAUSE`/
+  /// `source=timer` plus `SLEEP_HINT` (docs/ARCHITEKTUR.md section 9:
+  /// "SLEEP_HINT entsteht beim Ablauf des Sleep-Timers"), both through
+  /// [pauseFrom] with the timer reason.
+  Future<void> pauseForSleepTimerExpiry() => pauseFrom(EventSource.timer);
 
   /// docs/ARCHITEKTUR.md section 8 closing note: "Jede Probe wird als
   /// PROBE-Event geschrieben". [known] is the listener's answer ("kenne
@@ -844,6 +891,7 @@ class FadenAudioHandler extends BaseAudioHandler {
     required Position position,
     required EventSource source,
     Map<String, dynamic> data = const {},
+    bool detached = false,
   }) {
     if (type.isIntent && !_sessionActive) {
       _sessionId = Ids.uuid();
@@ -854,7 +902,7 @@ class FadenAudioHandler extends BaseAudioHandler {
     return Event(
       eventId: Ids.eventId(),
       deviceId: deviceId,
-      sessionId: _sessionId!,
+      sessionId: detached ? Ids.uuid() : _sessionId!,
       bookId: _bookId ?? '',
       manifestId: _manifestId ?? '',
       type: type,
@@ -980,7 +1028,7 @@ class FadenAudioHandler extends BaseAudioHandler {
       errorCode: e.code,
       errorMessage: e.message,
     ));
-    if (playing) unawaited(_pause(EventSource.system, allowSleepHint: false));
+    if (playing) unawaited(_pause(EventSource.system, reason: PauseReason.error));
   }
 
   /// [e] as a [PlaybackFailure], marked `notDownloaded` when its chapter

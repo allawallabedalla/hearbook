@@ -35,6 +35,7 @@ import 'package:just_audio/just_audio.dart' as ja;
 class _FakeProbePlayer implements ProbePlayer {
   int tones = 0;
   final List<({int fileIndex, int offsetMs, int fileDurationMs})> probes = [];
+  final List<int> probeLengths = [];
   int stops = 0;
   bool disposed = false;
 
@@ -52,6 +53,7 @@ class _FakeProbePlayer implements ProbePlayer {
     required int fileDurationMs,
   }) async {
     probes.add((fileIndex: fileIndex, offsetMs: offsetMs, fileDurationMs: fileDurationMs));
+    probeLengths.add(probeLenMs);
   }
 
   @override
@@ -152,7 +154,8 @@ void main() {
       // Media buttons act normally again: a pause is a PAUSE, not an answer.
       await handler.pause();
       final events = await journal.eventsForBook('');
-      expect(events.single.type, EventType.pause);
+      expect(events.first.type, EventType.pause);
+      expect(events.where((e) => e.type == EventType.probe), isEmpty);
       await handler.dispose();
       await db.close();
     });
@@ -167,7 +170,12 @@ void main() {
     late _RecordingHandler handler;
     late _FakeProbePlayer probePlayer;
 
-    Future<void> pumpFaden(WidgetTester tester, {Size size = proMax, double textScale = 1.0}) async {
+    Future<void> pumpFaden(
+      WidgetTester tester, {
+      Size size = proMax,
+      double textScale = 1.0,
+      int probeLen = fs.defaultProbeLen,
+    }) async {
       await tester.runAsync(() async {
         db = AppDatabase.memory();
         handler = _RecordingHandler(Journal(db));
@@ -204,6 +212,7 @@ void main() {
             pausen: const [],
             playlistSources: const [],
             probePlayer: probePlayer,
+            probeLen: probeLen,
           ),
         ),
       );
@@ -219,6 +228,15 @@ void main() {
         await db.close();
       });
     }
+
+    testWidgets('plays probes of the chosen length and times the window by it (E77)', (tester) async {
+      await pumpFaden(tester, probeLen: 4000);
+      await tester.pump(const Duration(seconds: 1));
+      expect(probePlayer.probeLengths, [4000]);
+      await tester.pump(const Duration(milliseconds: 4000 + fs.answerWindow));
+      expect(handler.probes.single.known, isFalse, reason: 'window = 4 s + 3 s');
+      await tearDownFaden(tester);
+    });
 
     /// Global ms of the [i]-th probe played.
     int probeAt(int i) {
@@ -296,7 +314,7 @@ void main() {
       expect(handler.probes.map((p) => p.known), [false, true]);
 
       // No answer at all: listed as not recognised once the window lapses.
-      await tester.pump(const Duration(milliseconds: fs.probeLen + fs.answerWindow + 100));
+      await tester.pump(const Duration(milliseconds: fs.defaultProbeLen + fs.answerWindow + 100));
       expect(heardRows(), findsNWidgets(3));
       expect(find.text(AppStrings.fadenHeardUnknown), findsNWidgets(2));
       await tearDownFaden(tester);
@@ -304,7 +322,7 @@ void main() {
 
     testWidgets('"Nochmal hören" replays the passage and restarts the answer window', (tester) async {
       await pumpFaden(tester);
-      await tester.pump(const Duration(seconds: 5));
+      await tester.pump(const Duration(seconds: 6));
       final indicator = find.byType(LinearProgressIndicator);
       expect(tester.widget<LinearProgressIndicator>(indicator).value, greaterThan(0.6));
       await tester.tap(find.text(AppStrings.fadenReplay));
@@ -314,8 +332,8 @@ void main() {
       expect(probeAt(1), probeAt(0), reason: 'the same passage again');
       expect(tester.widget<LinearProgressIndicator>(indicator).value, lessThan(0.1));
 
-      // Past the first window (5 s + 6 s), still inside the restarted one.
-      await tester.pump(const Duration(seconds: 6));
+      // Past the first window (6 s + 8 s > 9 s), still inside the restarted one.
+      await tester.pump(const Duration(seconds: 8));
       expect(handler.probes, isEmpty);
       await tester.pump(const Duration(seconds: 1));
       expect(handler.probes.single.known, isFalse, reason: 'still one answer');
@@ -329,7 +347,7 @@ void main() {
       await tester.tapAt(const Offset(40, 140));
       await tester.pump(const Duration(milliseconds: 100));
       expect(handler.probes, isEmpty);
-      await tester.pump(const Duration(milliseconds: fs.probeLen + fs.answerWindow));
+      await tester.pump(const Duration(milliseconds: fs.defaultProbeLen + fs.answerWindow));
       expect(handler.probes.single.known, isFalse, reason: 'the window lapsed: not known');
       await tearDownFaden(tester);
     });

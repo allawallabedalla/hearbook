@@ -11,6 +11,7 @@ import 'package:faden/audio/handler.dart';
 import 'package:faden/audio/playback_status.dart';
 import 'package:faden/data/journal.dart';
 import 'package:faden/domain/event.dart';
+import 'package:faden/domain/pause_reason.dart';
 import 'package:faden/domain/position.dart';
 
 class FakeAudioHandler extends FadenAudioHandler {
@@ -66,7 +67,8 @@ class FakeAudioHandler extends FadenAudioHandler {
   Future<void> playFrom(EventSource source) async => calls.add((action: 'play', source: source));
 
   @override
-  Future<void> pauseFrom(EventSource source) async => calls.add((action: 'pause', source: source));
+  Future<void> pauseFrom(EventSource source, {PauseReason? reason}) async =>
+      calls.add((action: 'pause', source: source));
 
   /// Every journaled seek the UI asked for (global ms or chapter index).
   final List<String> seeks = [];

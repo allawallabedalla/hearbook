@@ -23,6 +23,11 @@ Stand: 25.09.2026 (Nachtrag). Erledigtes durchstreichen oder löschen.
    - Bibliothek: große „Weiterhören“-Karte, Bücher als Karten, Ansicht „Kacheln“ im Sortiermenü
    - Gefällt dir nicht? Notieren: schwebender Mini-Player, eigenes Mobilfunk-Fenster, Wischen auf dem Cover
    - Screenshot vom Player an Claude schicken (Symbole oben rechts / unten rechts sichtbar?)
+   - Faden-Suche lernt mit: Einstellungen → Probenlänge (6 s), „Deine Einschlafzeiten“ nach der ersten Suche
+   - Tagsüber AirPods herausnehmen nach über 3 Min ohne Tippen: „Faden aufnehmen“ erscheint (ein Tipp auf Probe 1 reicht)
+   - Im Auto (CarPlay): Pause am Lenkrad → kein „Faden aufnehmen“; aussteigen, später Play → 30 s früher
+   - Kopfhörer trennen, nach 10 s Play → 30 s früher, nichts startet beim Wiederverbinden von selbst
+   - „Einschlafzeit in Health eintragen“ einschalten: Health fragt nach Erlaubnis; nach der nächsten Suche in Health → Schlaf → „Im Bett“ prüfen
 4. **Genres prüfen** (ca. 2 Min., frühestens 5 Min. nach Schritt 1). Token steht in `/volume1/docker/faden/.env` (`FADEN_TOKEN`):
    ```
    curl -s -H "Authorization: Bearer DEIN_TOKEN" http://192.168.178.114:8787/api/v1/books
@@ -38,15 +43,15 @@ Stand: 25.09.2026 (Nachtrag). Erledigtes durchstreichen oder löschen.
 - Rückmeldungen aus Schritt 3 umsetzen.
 - Kachelansicht: zwei kurze Striche oben links unter der Leiste prüfen (Rest vom großen Titel?).
 
-## Geplant: Faden-Suche lernt mit
+## Erledigt: Faden-Suche lernt mit
 
-Besprochen am 25.09.2026, noch nicht gebaut (ca. 50 Min., Health-Schreiben +20 Min.).
+Besprochen am 25.09.2026, gebaut am 25.09.2026 (E77–E83 in `docs/ARCHITEKTUR.md`).
 
-1. **Einschlaf-Schätzer:** Aus früheren Suchen lernt die App, wie viele Minuten nach der letzten Aktion du typischerweise einschläfst. Ab ca. 5 Suchen liegt die erste Probe dort. Spart 2–3 Proben, ändert nichts an der Sicherheit (Invariante 9).
-2. **Einschlafzeit zurückrechnen:** Gefundene Stelle → Uhrzeit über die Herzschlag-Events (±1–2 Min.). Übersicht „Deine Einschlafzeiten“ in den Einstellungen.
-3. **Nachtfenster-Vorschlag:** Aus den Einschlafzeiten ein persönliches Fenster vorschlagen (z. B. 22:30–01:00) statt fest 20–06 Uhr.
-4. **Verdacht auch tagsüber:** Pausieren die AirPods zu einer Uhrzeit, zu der du laut Daten oft einschläfst, bietet die App die Suche auch am Tag an.
-5. **Probenlänge 4 / 6 / 8 s** in den Einstellungen; ob 4 s zum Wiedererkennen reichen, ist ungetestet.
-6. **Optional an Health schreiben:** „Im Bett“ von der errechneten Einschlafzeit bis zum ersten Tippen am Morgen. Nicht, wenn für die Nacht schon Watch-Daten da sind. Daten bleiben auf dem iPhone (Invariante 7); Schreiben mit dem Paket `health` vor dem Bau in dessen Doku prüfen.
+1. ~~**Einschlaf-Schätzer**~~ erledigt (E78): ab 5 Suchen liegt die zweite Probe beim Median; Probe 1 (Fehlalarm-Test) läuft weiter. Invariante 9 bleibt.
+2. ~~**Einschlafzeit zurückrechnen**~~ erledigt (E79): Übersicht „Deine Einschlafzeiten“ in den Einstellungen.
+3. ~~**Nachtfenster-Vorschlag**~~ erledigt (E81).
+4. ~~**Verdacht auch tagsüber**~~ erledigt, anders als geplant (E80): jede unbewusste Pause (AirPods, Kopfhörertaste, Sperrbildschirm) zu jeder Tageszeit; Verbindungsabriss, Anruf und CarPlay nie, nach Verbindungsabriss 30 s zurück.
+5. ~~**Probenlänge 4 / 6 / 8 s**~~ erledigt (E77), Standard 6 s.
+6. ~~**Optional an Health schreiben**~~ erledigt (E82), nur iPhone, Standard aus.
 
-Grenzen: Die letzte erkannte Stelle ist die letzte Erinnerung, nicht der messbare Einschlafmoment; die Aufwachzeit kennt Faden nicht.
+Grenzen: Die letzte erkannte Stelle ist die letzte Erinnerung, nicht der messbare Einschlafmoment; die Aufwachzeit kennt Faden nicht (für Health gilt die erste Berührung danach als Ende).

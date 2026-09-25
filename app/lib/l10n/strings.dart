@@ -63,7 +63,7 @@ class AppStrings {
     'confirmManifestSuccess': 'Reihenfolge übernommen.',
     'settingsServerSection': 'Server',
     'settingsNightWindowTitle': 'Nachtfenster',
-    'settingsNightWindowExplanation': 'In dieser Zeit rechnet Faden damit, dass du einschläfst: Läuft das Hörbuch länger als 3 Minuten, ohne dass du etwas tippst oder drückst, bietet Faden danach „Faden aufnehmen“ an.',
+    'settingsNightWindowExplanation': 'In dieser Zeit rechnet Faden damit, dass du einschläfst: Läuft das Hörbuch länger als 3 Minuten, ohne dass du etwas tippst oder drückst, bietet Faden danach „Faden aufnehmen“ an. Tagsüber nur, wenn Kopfhörer oder Sperrbildschirm die Wiedergabe angehalten haben – nicht im Auto und nicht, wenn die Verbindung abreißt.',
     'settingsNightWindowStartPicker': 'Nacht beginnt um',
     'settingsNightWindowEndPicker': 'Nacht endet um',
     'timePickerConfirm': 'Übernehmen',
@@ -199,6 +199,16 @@ class AppStrings {
     'libraryPercent': '{n} %',
     'playerNextUp': 'Als Nächstes:',
     'playerNextChapter': '{chapter} · {title}',
+    'settingsFadenSearchTitle': 'Faden-Suche',
+    'settingsProbeLength': '{n} Sekunden',
+    'settingsProbeLengthExplanation': 'So lange spielt jede Hörprobe. Kürzere Proben sind schneller vorbei, längere erkennst du leichter wieder.',
+    'settingsSleepOnsetsTitle': 'Deine Einschlafzeiten',
+    'settingsSleepOnsetsEmpty': 'Noch keine. Nach jeder Faden-Suche steht hier, wann du ungefähr eingeschlafen bist.',
+    'settingsSleepOnsetsExplanation': 'Die letzte Stelle, die du bei der Faden-Suche wiedererkannt hast, als Uhrzeit. Ab 5 Suchen beginnt die Suche dort, wo du meist einschläfst. Bleibt auf diesem Gerät.',
+    'settingsNightWindowSuggestion': 'Vorschlag: {time} übernehmen',
+    'settingsHealthWrite': 'Einschlafzeit in Health eintragen',
+    'settingsHealthWriteDescription': 'Trägt nach der Faden-Suche „Im Bett“ von der errechneten Einschlafzeit bis zu deiner ersten Berührung am Morgen in Health ein, nur wenn für die Nacht noch keine Schlafdaten da sind. Bleibt auf dem iPhone.',
+    'settingsHealthWriteDenied': 'Health erlaubt Faden das Eintragen nicht. Du kannst es in der Health-App unter Datenzugriff freigeben.',
   };
 
   static String _of(String key) {
@@ -457,4 +467,21 @@ class AppStrings {
   /// "Kapitel 5 · Der Weg" in the player's "Als Nächstes" peek (E74).
   static String playerNextChapter(String chapter, String title) =>
       _of('playerNextChapter').replaceAll('{chapter}', chapter).replaceAll('{title}', title);
+
+  // Faden-Suche lernt mit (E77-E82).
+  static String get settingsFadenSearchTitle => _of('settingsFadenSearchTitle');
+  static String get settingsProbeLengthExplanation => _of('settingsProbeLengthExplanation');
+  static String get settingsSleepOnsetsTitle => _of('settingsSleepOnsetsTitle');
+  static String get settingsSleepOnsetsEmpty => _of('settingsSleepOnsetsEmpty');
+  static String get settingsSleepOnsetsExplanation => _of('settingsSleepOnsetsExplanation');
+  static String get settingsHealthWrite => _of('settingsHealthWrite');
+  static String get settingsHealthWriteDescription => _of('settingsHealthWriteDescription');
+  static String get settingsHealthWriteDenied => _of('settingsHealthWriteDenied');
+
+  /// "6 Sekunden", one probe-length choice (E77).
+  static String settingsProbeLength(int seconds) => _of('settingsProbeLength').replaceAll('{n}', '$seconds');
+
+  /// "Vorschlag: 22:30–01:00 übernehmen" (E81); [range] is already formatted.
+  static String settingsNightWindowSuggestion(String range) =>
+      _of('settingsNightWindowSuggestion').replaceAll('{time}', range);
 }

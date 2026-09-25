@@ -19,6 +19,7 @@ import 'package:faden/data/journal.dart';
 import 'package:faden/data/sync.dart';
 import 'package:faden/domain/event.dart';
 import 'package:faden/domain/manifest.dart';
+import 'package:faden/domain/pause_reason.dart';
 import 'package:faden/domain/position.dart';
 import 'package:faden/l10n/strings.dart';
 import 'package:faden/ui/providers.dart';
@@ -280,6 +281,135 @@ void main() {
       final pause = (await events()).single;
       expect(pause.type, EventType.pause);
       expect(pause.source, EventSource.system);
+    });
+  });
+
+  group('pause reasons (E80)', () {
+    late StreamController<AudioInterruptionEvent> interruptions;
+    late StreamController<void> noisy;
+    late StreamController<bool> car;
+
+    setUp(() {
+      interruptions = StreamController<AudioInterruptionEvent>();
+      noisy = StreamController<void>();
+      car = StreamController<bool>();
+      handler.attachAudioSessionEvents(
+        interruptions: interruptions.stream,
+        becomingNoisy: noisy.stream,
+        carAudio: car.stream,
+      );
+    });
+
+    tearDown(() async {
+      await interruptions.close();
+      await noisy.close();
+      await car.close();
+    });
+
+    Future<void> settleStreams() => Future<void>.delayed(const Duration(milliseconds: 20));
+
+    test('a call is an interruption: no SLEEP_HINT', () async {
+      await openBook();
+      handler.fakePlaying = true;
+      interruptions.add(AudioInterruptionEvent(true, AudioInterruptionType.pause));
+      await settleStreams();
+      final pause = (await events()).single;
+      expect(pause.data, {'reason': 'interruption'});
+    });
+
+    test('a lost connection: no SLEEP_HINT, no auto-play, and the next play rewinds 30 s', () async {
+      await openBook();
+      handler.fakePlaying = true;
+      noisy.add(null);
+      await settleStreams();
+      handler.fakePlaying = false;
+      expect((await events()).single.data, {'reason': 'route_lost'});
+      clock.ms += 15 * 60000;
+      await settleStreams();
+      expect((await events()).map((e) => e.type), [EventType.pause], reason: 'no auto-play on reconnect');
+      await fire(() => handler.playFrom(EventSource.mediaButton));
+      expect((await events()).last.position, const Position(fileHash: 'h1', offsetMs: 10 * 60000 - 30000));
+    });
+
+    test('also after an app restart', () async {
+      await openBook();
+      handler.fakePlaying = true;
+      noisy.add(null);
+      await settleStreams();
+      handler.fakePlaying = false;
+      await handler.dispose();
+      clock.ms += 60000;
+      handler = _Handler(journal: journal, clock: clock);
+      await openBook();
+      await fire(() => handler.playFrom(EventSource.ui));
+      expect((await events()).last.position, const Position(fileHash: 'h1', offsetMs: 10 * 60000 - 30000));
+    });
+
+    test('below 10 s nothing is rewound', () async {
+      await openBook();
+      handler.fakePlaying = true;
+      noisy.add(null);
+      await settleStreams();
+      handler.fakePlaying = false;
+      clock.ms += 5000;
+      await fire(() => handler.playFrom(EventSource.ui));
+      expect((await events()).last.position, const Position(fileHash: 'h1', offsetMs: 10 * 60000));
+    });
+
+    test('a headphone pause followed by the lost connection within 10 s rewinds 30 s', () async {
+      await openBook();
+      handler.fakePlaying = true;
+      await handler.pause(); // the AirPods' own pause, just before the route goes
+      handler.fakePlaying = false;
+      clock.ms += 2000;
+      noisy.add(null);
+      await settleStreams();
+      clock.ms += 60000;
+      await fire(() => handler.playFrom(EventSource.ui));
+      expect((await events()).last.position, const Position(fileHash: 'h1', offsetMs: 10 * 60000 - 30000));
+    });
+
+    test('in the car (CarPlay) a steering-wheel pause writes no SLEEP_HINT and records the route', () async {
+      await openBook();
+      car.add(true);
+      await settleStreams();
+      handler.fakePlaying = true;
+      await handler.pause();
+      final pause = (await events()).single;
+      expect(pause.data, {'reason': 'unconscious', 'route': 'car'});
+      car.add(false);
+      await settleStreams();
+      await handler.pause();
+      expect((await events()).map((e) => e.type), [EventType.pause, EventType.pause, EventType.sleepHint]);
+    });
+
+    test('a playback error is its own reason, without SLEEP_HINT', () async {
+      await openBook();
+      await handler.pauseFrom(EventSource.system, reason: PauseReason.error);
+      expect((await events()).single.data, {'reason': 'error'});
+    });
+  });
+
+  group('AWAKE while paused (E83)', () {
+    test('gets a session of its own, so it cannot clear a sleep suspicion', () async {
+      await openBook();
+      await fire(() => handler.playFrom(EventSource.ui));
+      await handler.pauseFrom(EventSource.system);
+      clock.ms += 20000;
+      await handler.awake();
+      final all = await events();
+      final play = all.firstWhere((e) => e.type == EventType.play);
+      final awake = all.last;
+      expect(awake.type, EventType.awake);
+      expect(awake.sessionId, isNot(play.sessionId));
+    });
+
+    test('while playing it belongs to the running session', () async {
+      await openBook();
+      await fire(() => handler.playFrom(EventSource.ui));
+      await handler.awake();
+      final all = await events();
+      expect(all.last.sessionId, all.first.sessionId);
     });
   });
 

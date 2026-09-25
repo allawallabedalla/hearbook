@@ -7,6 +7,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../data/api.dart' show ConnectionCheck;
 import '../data/book_downloads.dart';
 import '../data/settings_store.dart' show Appearance;
+import '../domain/faden_search.dart' show probeLengths;
+import '../domain/sleep_learning.dart';
 import '../l10n/strings.dart';
 import 'controls.dart';
 import 'format.dart';
@@ -17,7 +19,9 @@ import 'theme.dart';
 /// docs/KONZEPT.md "Screens": "5. Einstellungen": server (with a
 /// connection check), night window, appearance (decision E28), storage,
 /// downloads (automatic on Wi-Fi, E56; chapter-wise over mobile data,
-/// E66), sleep data. Headphone-button remapping beyond
+/// E66), sleep data; the Faden search's probe length (E77), the sleep
+/// onsets it found with a night-window suggestion (E79, E81) and writing
+/// them to Health (E82). Headphone-button remapping beyond
 /// the fixed +/-30s of section 9 stays out of scope (M7).
 ///
 /// Laid out like the iPhone's settings (decision E65): grouped sections
@@ -111,6 +115,16 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     setState(() => _healthDataOptIn = optIn);
   }
 
+  /// "Einschlafzeit in Health eintragen" (E82): only turns on once Health
+  /// allows writing; otherwise says where to allow it.
+  Future<void> _setHealthWrite(bool on) async {
+    final messenger = ScaffoldMessenger.maybeOf(context);
+    final result = await ref.read(healthWriteSettingProvider.notifier).set(on);
+    if (on && !result) {
+      messenger?.showSnackBar(SnackBar(content: Text(AppStrings.settingsHealthWriteDenied)));
+    }
+  }
+
   /// A Cupertino time wheel in a sheet (decision E44), 24-hour. Returns the
   /// picked time in minutes since midnight, or null if cancelled.
   Future<int?> _pickTime(int currentMin, String title) async {
@@ -200,6 +214,10 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     final cellularChapters = ref.watch(cellularChaptersSettingProvider).value ?? false;
     final cellularHint = ref.watch(cellularHintSettingProvider).value ?? true;
     final autoDownload = ref.watch(autoDownloadSettingProvider).value ?? true;
+    final probeLen = ref.watch(probeLengthProvider).value;
+    final healthWriter = ref.watch(sleepHealthWriterProvider);
+    final canWriteHealth = healthWriter?.isSupported ?? false;
+    final healthWrite = ref.watch(healthWriteSettingProvider).value ?? false;
     final ios = Theme.of(context).platform == TargetPlatform.iOS;
 
     // Grouped sections as in the iPhone's settings, explanations below
@@ -280,6 +298,20 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
             ],
             footer: Text(AppStrings.settingsNightWindowExplanation),
           ),
+          // Decision E77: the probe length, 6 s by default.
+          FadenGroup(
+            header: AppStrings.settingsFadenSearchTitle,
+            rows: [
+              for (final ms in probeLengths)
+                FadenCheckRow(
+                  label: AppStrings.settingsProbeLength(ms ~/ 1000),
+                  selected: ms == probeLen,
+                  onTap: () => ref.read(probeLengthProvider.notifier).set(ms),
+                ),
+            ],
+            footer: Text(AppStrings.settingsProbeLengthExplanation),
+          ),
+          SleepOnsetsSection(window: window),
           FadenGroup(
             header: AppStrings.settingsAppearanceTitle,
             rows: [
@@ -330,11 +362,27 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                 onChanged: _setHealthDataOptIn,
                 title: Text(AppStrings.settingsHealthDataOptIn),
               ),
+              // Decision E82: off by default; switching it on asks Health.
+              if (canWriteHealth)
+                SwitchListTile.adaptive(
+                  value: healthWrite,
+                  onChanged: _setHealthWrite,
+                  title: Text(AppStrings.settingsHealthWrite),
+                ),
             ],
-            footer: Text(
-              AppStrings.settingsHealthDataOptInDescription(
-                ios ? AppStrings.healthSourceIos : AppStrings.healthSourceAndroid,
-              ),
+            footer: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Text(
+                  AppStrings.settingsHealthDataOptInDescription(
+                    ios ? AppStrings.healthSourceIos : AppStrings.healthSourceAndroid,
+                  ),
+                ),
+                if (canWriteHealth) ...[
+                  const SizedBox(height: 6),
+                  Text(AppStrings.settingsHealthWriteDescription),
+                ],
+              ],
             ),
           ),
         ],
@@ -498,6 +546,74 @@ class _StorageSectionState extends ConsumerState<_StorageSection> {
       footer: Text(AppStrings.storageFinishedNote),
     );
   }
+}
+
+/// "Deine Einschlafzeiten" (decisions E79, E81): the last 14 onsets the
+/// Faden search found, newest first, and from 5 onsets a suggested night
+/// window to take over with one tap. Read from this device only.
+class SleepOnsetsSection extends ConsumerWidget {
+  /// The night window now, to hide a suggestion that is already set.
+  final NightWindow window;
+
+  const SleepOnsetsSection({super.key, required this.window});
+
+  static const int shown = 14;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final tokens = FadenTokens.of(context);
+    final onsets = ref.watch(sleepOnsetsProvider).value ?? const <SleepOnsetRecord>[];
+    final suggestion = suggestNightWindow(onsets);
+    final showSuggestion = suggestion != null &&
+        (suggestion.startMin != window.startMin || suggestion.endMin != window.endMin);
+    final newest = onsets.reversed.take(shown).toList();
+    final rowStyle = TextStyle(
+      color: tokens.tinte,
+      fontSize: FadenTypeSizes.body,
+      fontFeatures: const [FontFeature.tabularFigures()],
+    );
+    return FadenGroup(
+      header: AppStrings.settingsSleepOnsetsTitle,
+      rows: [
+        if (showSuggestion)
+          ListTile(
+            minTileHeight: fadenMinTapTarget,
+            title: Text(
+              AppStrings.settingsNightWindowSuggestion(
+                '${formatMinutesOfDay(suggestion.startMin)}–${formatMinutesOfDay(suggestion.endMin)}',
+              ),
+              style: TextStyle(color: tokens.faden, fontSize: FadenTypeSizes.body),
+            ),
+            onTap: () async {
+              final notifier = ref.read(nightWindowProvider.notifier);
+              await notifier.setStart(suggestion.startMin);
+              await notifier.setEnd(suggestion.endMin);
+            },
+          ),
+        if (newest.isEmpty)
+          ListTile(
+            title: Text(
+              AppStrings.settingsSleepOnsetsEmpty,
+              style: TextStyle(color: tokens.leiseAufFlaeche, fontSize: FadenTypeSizes.body),
+            ),
+          ),
+        for (final onset in newest)
+          ListTile(
+            minTileHeight: fadenMinTapTarget,
+            title: Text(formatOnsetDate(onset.localDate), style: rowStyle),
+            trailing: Text(formatMinutesOfDay(onset.localMinuteOfDay), style: rowStyle),
+          ),
+      ],
+      footer: Text(AppStrings.settingsSleepOnsetsExplanation),
+    );
+  }
+}
+
+/// "24.09." for "2026-09-24".
+String formatOnsetDate(String isoDate) {
+  final parts = isoDate.split('-');
+  if (parts.length != 3) return isoDate;
+  return '${parts[2]}.${parts[1]}.';
 }
 
 String _appearanceLabel(Appearance appearance) => switch (appearance) {

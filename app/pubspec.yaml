@@ -65,9 +65,11 @@ dependencies:
   # adding (CLAUDE.md): verified publisher carp.dk, actively maintained
   # (13.3.2, published ~40 days before this milestone), 680 likes/160 pub
   # points, iOS 15+/HealthKit and Android/Health Connect (Google Fit support
-  # dropped as of 11.0.0, which is fine -- this app only ever reads
-  # SLEEP_ASLEEP). Used behind data/sleep_data_source.dart's `SleepDataSource`
-  # interface, never directly from domain/ or ui/.
+  # dropped as of 11.0.0, which is fine -- this app reads SLEEP_ASLEEP and,
+  # opt-in on iOS only, writes SLEEP_IN_BED, decision E82). Used behind
+  # data/sleep_data_source.dart's `SleepDataSource` and
+  # data/sleep_health_writer.dart's `SleepHealthWriter`, never directly from
+  # domain/ or ui/.
   health: ^13.3.2
 
   # Network-change sync trigger (docs/ARCHITEKTUR.md section 6: "Auslöser:
@@ -118,7 +120,7 @@ flutter:
           weight: 700
 
   # Faden-Suche cue tone (docs/KONZEPT.md "Faden aufnehmen": "Ein leiser
-  # Ton, dann eine 4 s lange Hörprobe"), generated locally (no third-party
+  # Ton, dann eine 6 s lange Hörprobe", 4 or 8 s by setting), generated locally (no third-party
   # asset, see docs/ARCHITEKTUR.md section 13).
   assets:
     - assets/sounds/ton.wav

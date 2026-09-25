@@ -27,6 +27,25 @@ void main() {
     test('returns x unchanged when pausen is empty', () {
       expect(snap(12345, 0, 100000, 5000, const []), 12345);
     });
+
+    test('the probe length sets the bounds: a full probe must fit on both sides (4 / 6 / 8 s)', () {
+      final pausen = [5000, 7000, 93000];
+      // 4 s: 5000 is eligible (4000 < 5000), nearest to x = 6000.
+      expect(snap(6000, 0, 100000, 2000, pausen, probeLen: 4000), 5000);
+      // 6 s: 5000 is too close to lo, 7000 is the candidate.
+      expect(snap(6000, 0, 100000, 2000, pausen, probeLen: 6000), 7000);
+      // 8 s: both are too close to lo; x stays.
+      expect(snap(6000, 0, 100000, 2000, pausen, probeLen: 8000), 6000);
+      // hi side: 93000 < 100000 - 6000 but not < 100000 - 8000.
+      expect(snap(93000, 0, 100000, 2000, pausen, probeLen: 6000), 93000);
+      expect(snap(92500, 0, 100000, 2000, pausen, probeLen: 8000), 92500);
+    });
+
+    test('defaults to 6 s probes', () {
+      expect(defaultProbeLen, 6000);
+      expect(probeLengths, [4000, 6000, 8000]);
+      expect(snap(6000, 0, 100000, 2000, const [5000, 7000]), 7000);
+    });
   });
 
   group('fadenSuche', () {
@@ -99,6 +118,66 @@ void main() {
       );
       expect(calls[0], 5 * 60000); // prior used verbatim (no snap points), not hi - firstOffset
       expect(result.leiter, [lo]); // listener never agreed
+    });
+
+    test('a learned prior keeps the Fehlalarm-Test, then replaces the first midpoint', () async {
+      final lo = 0, hi = 40 * 60000;
+      final calls = <int>[];
+      final result = await fadenSuche(
+        lo,
+        hi,
+        const [],
+        (p, n) async {
+          calls.add(p);
+          return false;
+        },
+        prior: 5 * 60000,
+        priorAfterFalseAlarm: true,
+      );
+      expect(calls[0], hi - firstOffset, reason: 'probe 1 still guards against a false alarm');
+      expect(calls[1], 5 * 60000, reason: 'then the learned guess instead of the midpoint');
+      expect(calls[2], (5 * 60000) ~/ 2, reason: 'plain bisection afterwards');
+      expect(result.leiter, [lo]);
+      expect(result.falseAlarm, isFalse);
+    });
+
+    test('a learned prior is ignored when probe 1 moved hi to or below it', () async {
+      final lo = 0, hi = 40 * 60000;
+      final calls = <int>[];
+      await fadenSuche(
+        lo,
+        hi,
+        const [],
+        (p, n) async {
+          calls.add(p);
+          return false;
+        },
+        prior: hi - 10000, // after "no" to probe 1, hi = stop - 25 s < prior
+        priorAfterFalseAlarm: true,
+      );
+      expect(calls[1], (hi - firstOffset) ~/ 2, reason: 'midpoint instead of an out-of-window guess');
+    });
+
+    test('a learned prior never moves lo by itself', () async {
+      final lo = 60000, hi = 40 * 60000;
+      final result = await fadenSuche(
+        lo,
+        hi,
+        const [],
+        (p, n) async => false,
+        prior: lo, // not strictly inside: ignored
+        priorAfterFalseAlarm: true,
+      );
+      expect(result.leiter, [lo]);
+      expect(result.start, lo - preroll);
+    });
+
+    test('falseAlarm marks a probe 1 that was recognised', () async {
+      final result = await fadenSuche(0, 40 * 60000, const [], (p, n) async => true);
+      expect(result.falseAlarm, isTrue);
+      final other = await fadenSuche(0, 40 * 60000, const [], (p, n) async => n == 2);
+      expect(other.falseAlarm, isFalse);
+      expect(other.leiter, hasLength(2));
     });
   });
 

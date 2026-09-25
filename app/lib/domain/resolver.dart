@@ -1,5 +1,6 @@
 import 'event.dart';
 import 'manifest.dart';
+import 'pause_reason.dart';
 import 'position.dart';
 
 /// Night window for section 7 rule 5 / section 9, minutes since local
@@ -189,8 +190,16 @@ BookState resolve(
   final stopEvent = sessionEvents.last;
   final resumeAfterStop =
       deduped.any((e) => e.type == EventType.resume && compareEvents(e, stopEvent) > 0);
+  // Decision E80: a session that stopped because the connection was lost
+  // (car left, headphones gone), because of an interruption (a call) or in
+  // the car is never suspected -- not even in the night window.
+  Event? stopPause;
+  for (final e in sessionEvents) {
+    if (e.type == EventType.pause) stopPause = e;
+  }
+  final ruledOut = stopPause != null && rulesOutSleep(stopPause);
   final sleepSuspected =
-      sleepDistanceOk && (inNightWindow || containsSleepHint) && !resumeAfterStop;
+      sleepDistanceOk && (inNightWindow || containsSleepHint) && !resumeAfterStop && !ruledOut;
 
   // Rule 7: finished.
   final containsFinished = sessionEvents.any((e) => e.type == EventType.finished);

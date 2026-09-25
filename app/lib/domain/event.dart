@@ -30,6 +30,11 @@ enum EventType {
       this == EventType.seek ||
       this == EventType.resume ||
       this == EventType.undo;
+
+  /// Section 5 "Wach-Beleg" column for the types that are awake proofs
+  /// whatever their source (PAUSE only is, from the UI).
+  bool get alwaysAwakeProof =>
+      isIntent || this == EventType.awake || this == EventType.finished;
 }
 
 /// Event sources from docs/ARCHITEKTUR.md section 5.
@@ -126,23 +131,8 @@ class Event {
   /// `FINISHED`; `PAUSE` only counts when it came from the UI (a listener
   /// falling asleep with headphones on triggers a `PAUSE` via the media
   /// button or the system, not the UI).
-  bool get isAwakeProof {
-    switch (type) {
-      case EventType.play:
-      case EventType.seek:
-      case EventType.resume:
-      case EventType.undo:
-      case EventType.awake:
-      case EventType.finished:
-        return true;
-      case EventType.pause:
-        return source == EventSource.ui;
-      case EventType.heartbeat:
-      case EventType.sleepHint:
-      case EventType.probe:
-        return false;
-    }
-  }
+  bool get isAwakeProof =>
+      type.alwaysAwakeProof || (type == EventType.pause && source == EventSource.ui);
 
   Event copyWith({
     String? eventId,

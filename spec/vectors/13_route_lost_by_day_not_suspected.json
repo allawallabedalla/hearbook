@@ -1,0 +1,138 @@
+{
+  "description": "Auto verlassen am Tag (E80): 14:00 Ortszeit, 20 Min ohne Wach-Beleg, die Session endet mit PAUSE data.reason=route_lost, route=car -> kein SLEEP_HINT, kein sleep_suspected.",
+  "settings": {
+    "night_window": {
+      "start_min": 1200,
+      "end_min": 360
+    }
+  },
+  "manifest": {
+    "manifest_id": "m1",
+    "files": [
+      {
+        "idx": 0,
+        "file_hash": "f1",
+        "duration_ms": 3600000
+      },
+      {
+        "idx": 1,
+        "file_hash": "f2",
+        "duration_ms": 3600000
+      }
+    ]
+  },
+  "events": [
+    {
+      "event_id": "e1",
+      "device_id": "dev-a",
+      "session_id": "s1",
+      "book_id": "book-1",
+      "manifest_id": "m1",
+      "type": "PLAY",
+      "file_hash": "f1",
+      "offset_ms": 0,
+      "hlc": {
+        "pt": 1704196800000,
+        "c": 0
+      },
+      "wall_ms": 1704196800000,
+      "tz_min": 120,
+      "source": "ui",
+      "data": {}
+    },
+    {
+      "event_id": "e2",
+      "device_id": "dev-a",
+      "session_id": "s1",
+      "book_id": "book-1",
+      "manifest_id": "m1",
+      "type": "HEARTBEAT",
+      "file_hash": "f1",
+      "offset_ms": 300000,
+      "hlc": {
+        "pt": 1704197100000,
+        "c": 0
+      },
+      "wall_ms": 1704197100000,
+      "tz_min": 120,
+      "source": "ui",
+      "data": {}
+    },
+    {
+      "event_id": "e3",
+      "device_id": "dev-a",
+      "session_id": "s1",
+      "book_id": "book-1",
+      "manifest_id": "m1",
+      "type": "HEARTBEAT",
+      "file_hash": "f1",
+      "offset_ms": 600000,
+      "hlc": {
+        "pt": 1704197400000,
+        "c": 0
+      },
+      "wall_ms": 1704197400000,
+      "tz_min": 120,
+      "source": "ui",
+      "data": {}
+    },
+    {
+      "event_id": "e4",
+      "device_id": "dev-a",
+      "session_id": "s1",
+      "book_id": "book-1",
+      "manifest_id": "m1",
+      "type": "HEARTBEAT",
+      "file_hash": "f1",
+      "offset_ms": 900000,
+      "hlc": {
+        "pt": 1704197700000,
+        "c": 0
+      },
+      "wall_ms": 1704197700000,
+      "tz_min": 120,
+      "source": "ui",
+      "data": {}
+    },
+    {
+      "event_id": "e5",
+      "device_id": "dev-a",
+      "session_id": "s1",
+      "book_id": "book-1",
+      "manifest_id": "m1",
+      "type": "PAUSE",
+      "file_hash": "f1",
+      "offset_ms": 1200000,
+      "hlc": {
+        "pt": 1704198000000,
+        "c": 0
+      },
+      "wall_ms": 1704198000000,
+      "tz_min": 120,
+      "source": "system",
+      "data": {
+        "reason": "route_lost",
+        "route": "car"
+      }
+    }
+  ],
+  "expect": {
+    "position": {
+      "file_hash": "f1",
+      "offset_ms": 1200000
+    },
+    "global_ms": 1200000,
+    "last_awake": {
+      "file_hash": "f1",
+      "offset_ms": 0
+    },
+    "stop": {
+      "file_hash": "f1",
+      "offset_ms": 1200000
+    },
+    "sleep_suspected": false,
+    "history": [],
+    "finished": false,
+    "needs_confirmation": false
+  }
+}

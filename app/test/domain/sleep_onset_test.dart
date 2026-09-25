@@ -205,4 +205,65 @@ void main() {
       expect(result.hi, isNotNull); // sanity: this case does compute something
     });
   });
+
+  group('wallClockAtPosition (inverse, decision E79)', () {
+    const base = 1700000000000;
+    final steady = [
+      for (var i = 0; i <= 12; i++) HeartbeatSample(wallMs: base + i * 5000, globalMs: 600000 + i * 5000),
+    ];
+
+    test('empty samples -> null', () {
+      expect(wallClockAtPosition(const [], 1000), isNull);
+    });
+
+    test('interpolates between the two heartbeats around the position', () {
+      expect(wallClockAtPosition(steady, 612500), base + 12500);
+      expect(wallClockAtPosition(steady, 600000), base);
+      expect(wallClockAtPosition(steady, 660000), base + 60000);
+    });
+
+    test('is the inverse of positionAtWallClock for steady playback', () {
+      for (var g = 600000; g <= 660000; g += 1234) {
+        final w = wallClockAtPosition(steady, g)!;
+        expect(positionAtWallClock(steady, w), g);
+      }
+    });
+
+    test('in any order, at 1.5x speed', () {
+      final fast = [
+        for (var i = 5; i >= 0; i--) HeartbeatSample(wallMs: base + i * 5000, globalMs: i * 7500),
+      ];
+      expect(wallClockAtPosition(fast, 15000), base + 10000);
+    });
+
+    test('a position heard twice (a seek back) maps to the later time', () {
+      final samples = [
+        const HeartbeatSample(wallMs: base, globalMs: 100000),
+        const HeartbeatSample(wallMs: base + 5000, globalMs: 105000),
+        const HeartbeatSample(wallMs: base + 10000, globalMs: 110000),
+        // seek back to 100000
+        const HeartbeatSample(wallMs: base + 15000, globalMs: 101000),
+        const HeartbeatSample(wallMs: base + 20000, globalMs: 106000),
+      ];
+      expect(wallClockAtPosition(samples, 103000), base + 17000);
+    });
+
+    test('never interpolates across a jump (no playback runs that fast)', () {
+      final samples = [
+        const HeartbeatSample(wallMs: base, globalMs: 0),
+        const HeartbeatSample(wallMs: base + 5000, globalMs: 5000),
+        const HeartbeatSample(wallMs: base + 10000, globalMs: 900000), // a seek forward
+        const HeartbeatSample(wallMs: base + 15000, globalMs: 905000),
+      ];
+      expect(wallClockAtPosition(samples, 400000), isNull);
+      expect(wallClockAtPosition(samples, 902000), base + 12000);
+    });
+
+    test('just outside the heartbeats: extrapolated at 1x up to 10 s, else null', () {
+      expect(wallClockAtPosition(steady, 596000), base - 4000);
+      expect(wallClockAtPosition(steady, 665000), base + 65000);
+      expect(wallClockAtPosition(steady, 580000), isNull);
+      expect(wallClockAtPosition(steady, 700000), isNull);
+    });
+  });
 }

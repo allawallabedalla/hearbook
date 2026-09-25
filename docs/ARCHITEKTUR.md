@@ -154,9 +154,9 @@ Summe der Paketdauern per ffprobe, in ms gerundet. Nie aus der Bitrate geschätz
 | `RESUME` | Ergebnis der Faden-Suche oder „Ab Stopp weiterhören“ | ja | ja |
 | `UNDO` | Rückgängig, „Früher“ | ja | ja |
 | `HEARTBEAT` | alle 5 s während der Wiedergabe | nein | nein |
-| `PAUSE` | Wiedergabe stoppt | nein | nur bei `source=ui` |
+| `PAUSE` | Wiedergabe stoppt; `data.reason` sagt warum (`conscious`, `unconscious`, `route_lost`, `interruption`, `timer`, `error`), `data.route = car` mit CarPlay (E80) | nein | nur bei `source=ui` |
 | `AWAKE` | Berührung, Lautstärke, Timer verlängert (höchstens 1 pro 10 s) | nein | ja |
-| `SLEEP_HINT` | Sleep-Timer abgelaufen; Pause über Mediataste oder System im Nachtfenster | nein | nein |
+| `SLEEP_HINT` | Sleep-Timer abgelaufen; unbewusste Pause über Mediataste oder System, zu jeder Tageszeit, nicht im Auto (E80) | nein | nein |
 | `PROBE` | Hörprobe der Faden-Suche, `data.known` | nein | nein |
 | `FINISHED` | Buchende ohne Schlafverdacht erreicht | nein | ja |
 
@@ -205,7 +205,7 @@ Regeln:
 2. Das letzte Absicht-Event (`PLAY`, `SEEK`, `RESUME`, `UNDO`) bestimmt die gewinnende Session.
 3. `position` = Position des letzten Events der gewinnenden Session. Events anderer Sessions bewegen die Position nie, auch wenn sie später eintreffen.
 4. `last_awake` = Position des letzten Wach-Belegs der gewinnenden Session.
-5. `sleep_suspected` = Abstand(`last_awake`, `stop`) ≥ 3 Min UND (ein Event der Session liegt in Gerätezeit im Nachtfenster ODER die Session enthält `SLEEP_HINT`) UND nach dem Stopp folgte kein `RESUME`.
+5. `sleep_suspected` = Abstand(`last_awake`, `stop`) ≥ 3 Min UND (ein Event der Session liegt in Gerätezeit im Nachtfenster ODER die Session enthält `SLEEP_HINT`) UND nach dem Stopp folgte kein `RESUME` UND die letzte `PAUSE` der Session hat weder `data.reason` = `route_lost` oder `interruption` noch `data.route` = `car` (Verbindung abgerissen, Anruf, im Auto: nie Schlafverdacht, E80).
 6. `history`: Springt ein Absicht-Event mehr als 2 Min von der vorherigen Position weg, kommt die vorherige Position in `history`.
 7. `finished` = `FINISHED` in der gewinnenden Session und `sleep_suspected` ist falsch.
 8. Abstände über globale ms des aktiven Manifests. Fehlt ein `file_hash` im aktiven Manifest: `needs_confirmation = true`, die Position bleibt unangetastet.
@@ -219,6 +219,11 @@ Testfälle in `spec/vectors/`, je eine JSON-Datei mit `settings`, `manifest`, `e
 6. Kapitelsprung über 2 Min, dann `UNDO` → alte Position, `history` korrekt.
 7. Manifest nur angehängt → Position unverändert.
 8. Buchende mit Schlafverdacht → `finished = false`.
+9. Nachtfenster, 20 Min ohne Wach-Beleg, Stopp durch Verbindungsverlust (`route_lost`) → kein `sleep_suspected`.
+10. Dasselbe mit einer Unterbrechung (`interruption`, Anruf) → kein `sleep_suspected`.
+11. Nachtfenster, Pause per Lenkradtaste mit CarPlay (`route = car`) → kein `sleep_suspected`.
+12. Tagsüber, unbewusste Pause mit `SLEEP_HINT` → `sleep_suspected`.
+13. Tagsüber, Auto verlassen (`route_lost`, `car`) → kein `sleep_suspected`.
 
 ## 8. Faden-Suche (pur, Dart; im Prototyp JavaScript)
 
@@ -226,27 +231,31 @@ Testfälle in `spec/vectors/`, je eine JSON-Datei mit `settings`, `manifest`, `e
 Parameter
   target        = 30_000   ms Zielgenauigkeit
   max_probes    = 8        inklusive Probe 1
-  probe_len     = 4_000    ms
+  probe_len     = 6_000    ms, Einstellung 4_000 / 6_000 / 8_000 (E77)
   answer_window = 3_000    ms nach Ende der Probe (Antworten während der Probe zählen)
   first_offset  = 25_000   ms vor dem Stopp
   preroll       = 2_000    ms
 
-suche(lo, hi, pausen, frage, prior = null) -> (start, leiter)
+suche(lo, hi, pausen, frage, prior = null, gelernt = false) -> (start, leiter)
   // lo = last_awake, hi = stop, beides globale ms
+  // prior aus Gesundheitsdaten (gelernt = false) ersetzt Probe 1,
+  // ein gelernter prior (gelernt = true, E78) nur den ersten Mittelpunkt
   wenn hi - lo <= target:
     return (max(lo - preroll, 0), [lo])
 
   leiter = [lo]
   proben = 0
 
-  wenn prior == null:                          // Probe 1: Fehlalarm-Test
+  wenn prior == null oder gelernt:             // Probe 1: Fehlalarm-Test
     p = snap(hi - first_offset, lo, hi, tol = 2_000)
     proben += 1
-    wenn frage(p): return (p, [lo, p])
+    wenn frage(p): return (p, [lo, p])         // Fehlalarm: keine Einschlafzeit
     hi = p
 
+  prior_offen = prior != null
   solange hi - lo > target und proben < max_probes:
-    x = (proben == 0 und prior != null) ? prior : lo + (hi - lo) / 2
+    x = (prior_offen und lo < prior < hi) ? prior : lo + (hi - lo) / 2
+    prior_offen = false
     p = snap(x, lo, hi, tol = max(2_000, 0.03 * (hi - lo)))
     proben += 1
     wenn frage(p): lo = p; leiter.append(p)
@@ -261,7 +270,7 @@ snap(x, lo, hi, tol):
   return das s aus k mit kleinstem |s - x|
 ```
 
-Eigenschafts-Tests mit simuliertem Hörer („kennt p genau dann, wenn p ≤ S“, S zufällig in [lo, hi]):
+Eigenschafts-Tests mit simuliertem Hörer („kennt p genau dann, wenn p ≤ S“, S zufällig in [lo, hi]), je für 4, 6 und 8 s Probenlänge und zusätzlich mit zufälligem gelerntem `prior` (auch weit außerhalb des Fensters; dort zusätzlich: die Leiter ist genau `lo` plus jede erkannte Probe, jede Probe liegt echt in (lo, hi), Probe 1 bleibt der Fehlalarm-Test):
 1. `start ≤ S` immer. Es wird nie Ungehörtes übersprungen.
 2. Fenster ≤ 30 Min → `S - start ≤ target + preroll`.
 3. Nie mehr als `max_probes` Proben.
@@ -273,8 +282,24 @@ Weitere Regeln: Eine Probe endet spätestens am Dateiende. Proben laufen über e
 ## 9. Wach-Signale und Schlafverdacht (App)
 
 - `AWAKE` entsteht bei Berührung des Player-Screens, Lautstärkeänderung (falls die Plattform sie meldet) und Timer-Verlängerung.
-- `SLEEP_HINT` entsteht beim Ablauf des Sleep-Timers und bei einer Pause über Mediataste oder System im Nachtfenster. Die AirPods-Einschlaferkennung (ab iOS 26) kommt als normale Pause an und ist von einem bewussten Tastendruck nicht zu unterscheiden, daher nur Hinweis.
+- Jede Pause trägt ihren Grund in `data.reason` (E80, `domain/pause_reason.dart`):
+
+  | Grund | Auslöser | `SLEEP_HINT` | Zurückspulen beim nächsten Play |
+  |---|---|---|---|
+  | `conscious` | Knopf in der App, Buchwechsel | nein | Tabelle (E32) |
+  | `unconscious` | Mediataste oder System: AirPods-Einschlaferkennung (ab iOS 26), Kopfhörer drücken, Sperrbildschirm | ja, zu jeder Tageszeit; nicht im Auto | Tabelle |
+  | `route_lost` | Ausgabe weg: Kopfhörer getrennt, Bluetooth oder CarPlay getrennt (`audio_session` „becoming noisy“, auf iOS `oldDeviceUnavailable`) | nein | ab 10 s Pause immer 30 s |
+  | `interruption` | Anruf, Siri, Wecker | nein | Tabelle; Ende einer Unterbrechung setzt fort (E36) |
+  | `timer` | Sleep-Timer abgelaufen | ja | Tabelle |
+  | `error` | Wiedergabefehler (E39) | nein | Tabelle |
+
+  Ist CarPlay die Ausgabe (`AudioDeviceType.carAudio`), trägt jede Pause `data.route = car` und schreibt kein `SLEEP_HINT` (außer dem Sleep-Timer, den der Resolver im Auto ebenfalls ignoriert). Bluetooth-Freisprecher im Auto sind von Kopfhörern nicht zu unterscheiden und zählen wie Kopfhörer. Kommt die Verbindung zurück, startet nichts von selbst; ein Play per Mediataste setzt einfach fort. Folgt einer unbewussten Pause binnen 10 s ein Verbindungsverlust (AirPods ins Case, CarPlay pausiert vor dem Trennen), spult das nächste Play ebenfalls 30 s zurück (nur im Speicher; das Event bleibt). Die AirPods-Einschlaferkennung ist von einem bewussten Tastendruck nicht zu unterscheiden, daher nur Hinweis: Nach mehr als 3 Min ohne Wach-Beleg bietet der Player dann auch tagsüber „Faden aufnehmen“ an. Ein Fehlalarm kostet einen Tipp (Probe 1 erkannt, oder „Ab Stopp weiterhören“).
+- `AWAKE` außerhalb einer laufenden Wiedergabe bekommt eine eigene Session (E83): Eine Berührung am Morgen belegt, dass du jetzt wach bist, nicht, dass du das Ende der Session gehört hast.
 - Gesundheitsdaten (M6) erzeugen keine Events. Beim Start der Faden-Suche liest die App lokal den Schlafbeginn T im Zeitraum der Session und rechnet T über die `HEARTBEAT`-Events (Wanduhr → Position) in globale ms um. Dann gilt: `hi = min(stop, pos(T + 5 Min))`, `prior = pos(T - 10 Min)` falls > `lo`. `lo` wird nie aus Gesundheitsdaten gesetzt (Invariante 9).
+- Ohne `prior` aus Gesundheitsdaten nimmt die Suche ab 5 gespeicherten Einschlafzeiten einen gelernten `prior` = `lo` + Median der Hörzeit von `last_awake` bis zur Einschlafstelle der letzten 30 (E78); Probe 1 läuft trotzdem.
+- Einschlafzeit zurückrechnen (E79, pur in `domain/sleep_onset.dart` `wallClockAtPosition` und `domain/sleep_learning.dart`): Jeder Start aus dem Ergebnis der Faden-Suche an einer erkannten Stelle (nicht `lo`, kein Fehlalarm) wird über die `HEARTBEAT`-Events der eingeschlafenen Session zur Wanduhrzeit (Umkehrung der Abbildung oben, lineare Interpolation, nie über einen Sprung hinweg, zuletzt gehört gilt). Gespeichert wird lokal in der Einstellungs-Tabelle (`sleep_onsets`, kein Event, nie synchronisiert): Uhrzeit, `tz_min`, Datum, Hörzeit seit `last_awake`, Zeit des ersten Wach-Belegs nach dem Stopp (jedes Buch, jedes Gerät), ob Health beschrieben wurde. „Früher“ ersetzt den Eintrag der Session, der Weg zurück zu `lo` löscht ihn.
+- Nachtfenster-Vorschlag (E81): ab 5 Einschlafzeiten 10. bis 90. Perzentil der Uhrzeiten (der Kreis wird an der größten Lücke geschnitten, damit Mitternacht zusammenbleibt), je 30 Min Rand, Beginn auf 15 Min abgerundet, Ende aufgerundet; länger als 12 h: kein Vorschlag.
+- Health schreiben (E82, nur iOS, Standard aus): nach dem Ergebnis ein Eintrag „Im Bett“ (HealthKit `sleepAnalysis`, `inBed`, Paket `health` `writeHealthData(type: SLEEP_IN_BED)`) von der Einschlafzeit bis zum ersten Wach-Beleg nach dem Stopp. Nicht, wenn das Ende fehlt, kürzer als 30 Min oder länger als 16 h ist, ohne Schreibrecht, oder wenn Health für diese Zeit schon Schlafdaten hat (irgendeine Quelle, auch Faden). Höchstens einmal je Nacht. Die Berechtigung wird nur beim Einschalten erfragt.
 - Mediatasten: normal Play/Pause, Weiter = +30 s, Zurück = −30 s. In der letzten Minute des Sleep-Timers verlängert jede Taste. Im Faden-Modus zählt jede Taste als „kenne ich“.
 
 ## 10. API
@@ -307,11 +332,13 @@ Setup-Endpunkte verlangen ebenfalls `Authorization: Bearer <FADEN_TOKEN>`. `path
 app/lib/
   core/     hlc.dart, ids.dart, clock.dart
   domain/   position.dart, manifest.dart, event.dart, resolver.dart,
-            faden_search.dart, audio_hash_bounds.dart, auto_rewind.dart   (pur, keine Flutter-Imports)
+            faden_search.dart, audio_hash_bounds.dart, auto_rewind.dart,
+            pause_reason.dart, sleep_onset.dart, sleep_learning.dart   (pur, keine Flutter-Imports)
   data/     db.dart (drift), journal.dart, sync.dart, api.dart, downloads.dart, hash_file.dart,
             library.dart (Cache Bücher/Details/Pausen-Index), book_downloads.dart, storage.dart,
             offline_books.dart (automatisch laden und aufräumen),
-            cellular_downloads.dart (kapitelweise über Mobilfunk)
+            cellular_downloads.dart (kapitelweise über Mobilfunk),
+            sleep_data_source.dart, sleep_health_writer.dart, sleep_log.dart (Einschlafzeiten, lokal)
   audio/    handler.dart (audio_service), player.dart (just_audio), probe_player.dart,
             playback_status.dart
   signals/  awake.dart, night.dart, screen_brightness.dart, health.dart
@@ -444,5 +471,12 @@ volumes:
 | E74 | „Als Nächstes“ unten im Player (`_BottomStrip`/`_NextUpPeek` in `ui/player_screen.dart`): statt des bloßen Griffs eine Kachel „Als Nächstes:“ über „Kapitel 5 · Titel“ (beginnt der Titel schon mit „Kapitel 5“, nur der Titel) mit Pfeil nach oben; Tipp oder Wischen nach oben öffnet die Details. VoiceOver: „Details öffnen“ mit dem nächsten Kapitel als Wert. Im letzten Kapitel und wenn neben dem Sleep-Timer weniger als 140 dp bleiben nur der Griff wie bisher. Die Kachel sitzt in der 56-dp-Zeile des Griffs und kostet auf dem SE keine Höhe; sie baut nur bei einem Kapitelwechsel neu. | Wunsch des Nutzers: zeigen, was kommt, und dass darunter mehr liegt. Die Zeile gab es schon; so verdrängt die Vorschau nie Cover oder Bedienelemente. Ergänzt E61. |
 | E75 | Weicherer Tag: `grund` tagsüber `#F4F2EE` (warmes Off-White) statt `#EEF0F3`, neues Token `karte` (tags `#FFFFFF`, nachts `#15120F`) für Karten, Kacheln, gruppierte Einstellungen (`FadenGroup`, jetzt `FadenCard`), Suchfeld, Dialoge und Menüs; weiche Schatten (`kartenSchatten`, `kachelSchatten`) statt Haarlinien, nachts keine. Radien: Karten 20, große Karte 24, Blätter und Dialoge 24, Kacheln 14/16. Nebentext auf Karten in `leiseAufKarte` (nachts `tinte`, da `tinte-leise` auf `#15120F` nur 4,0:1 hat). Alle Textpaare ≥ 4,5:1 (`test/ui/theme_contrast_test.dart`; z. B. `tinte-leise` auf `grund` 5,2:1, auf `karte` 5,8:1, auf dem hervorgehobenen Tag-Karte 4,8:1). „Dunkel“ und die Nachtansicht behalten die Nacht-Tokens (E28). | Wunsch des Nutzers (Vorlagen): der Tag wirkte kühl und durch Linien kleinteilig. Indigo bleibt, Farbe vor allem für Hauptbutton, aktive Zustände und Fortschritt. Ersetzt den Tag-Wert von `grund` in KONZEPT „Design“ und in E65 (15) die Fläche `flaeche` der Gruppen. Das App-Symbol behält vorerst seinen Hintergrund. |
 | E76 | Hauptaktionen als Kapseln (`FilledButton`/`OutlinedButton` im Theme mit `StadiumBorder`): „Server einrichten“ über die volle Breite; der Mobilfunk-Dialog (E66) ist jetzt auf allen Plattformen ein Dialog im App-Look (`showDialog`/`AlertDialog` statt `.adaptive`) mit „Laden“ als Kapsel über die volle Breite und „Nicht jetzt“ darunter; „Fertig“ nach der Faden-Suche als Kapsel unten statt als Text oben rechts (nachts nur Umriss). Überschriften leerer Zustände 28 sp mit gemischter Schriftstärke („Willkommen bei **Faden**“, „**Gefunden.** Weiter ab hier.“), das Symbol auf einem leisen Squircle. | Wunsch des Nutzers (Vorlagen). Der Cupertino-Dialog kennt keine hervorgehobene Kapsel; „Fertig“ oben rechts lag außer Reichweite des Daumens. |
+| E77 | Probenlänge als Einstellung „Faden-Suche“: 4, 6 oder 8 s als Zeilen mit Häkchen, Standard 6 s (`settings_store.dart` `probe_len_ms`, `probeLengthProvider`). `probeLen` ist ein Parameter der puren Suche (`fadenSuche(probeLen:)`, `snap(probeLen:)`); nur die Probe selbst und die Snap-Grenzen hängen daran, `target`, `answer_window` (3 s), `first_offset` und `max_probes` bleiben. Der Balken auf der Karte läuft über Probe + 3 s. Die Eigenschafts-Tests laufen für alle drei Längen. Ersetzt in Abschnitt 8 `probe_len = 4_000`, in KONZEPT „4 s lange Hörprobe“ und in E64 „Probe + Antwortfenster = 7 s“. | Wunsch des Nutzers (Backlog „Faden-Suche lernt mit“, 5): 4 s waren zum Wiedererkennen knapp; ob 4 s reichen, ist ungetestet, daher wählbar. |
+| E78 | Einschlaf-Schätzer: Ab 5 gespeicherten Einschlafzeiten (E79) ist der erste Bisektionspunkt `lo` + Median der Hörzeit von `last_awake` bis zur Einschlafstelle über die letzten 30 (`learnedPrior` in `domain/sleep_learning.dart`), aber nur, wenn es keinen `prior` aus Gesundheitsdaten gibt. Anders als der Gesundheits-`prior` ersetzt er nicht Probe 1: Der Fehlalarm-Test 25 s vor dem Stopp läuft zuerst (`fadenSuche(priorAfterFalseAlarm: true)`), danach ersetzt der gelernte Wert den ersten Mittelpunkt, sofern er echt in (lo, hi) liegt, sonst gilt der Mittelpunkt. `lo` bewegt sich weiter nur durch „kenne ich“ (Invariante 9; Eigenschafts-Tests mit simuliertem Hörer und zufälligen Priors). | Probe 1 kostet einen Tipp und fängt Fehlalarme ab, die mit dem Verdacht auch tagsüber (E80) häufiger werden; der gelernte Wert spart danach die ersten 2–3 Halbierungen. |
+| E79 | Einschlafzeit zurückrechnen: Jeder Start aus dem Ergebnis der Faden-Suche (Fund, angetippte Stelle, „Früher“) meldet `FadenSearchController.onChosen(globalMs, recognised)`; `recognised` ist falsch für den Rückfall auf `lo` und für einen erkannten Probe 1 (Fehlalarm, `FadenSearchResult.falseAlarm`). `data/sleep_log.dart` rechnet die Stelle über die `HEARTBEAT`-Events der eingeschlafenen Session in Wanduhrzeit um (`wallClockAtPosition`, Umkehrung von `positionAtWallClock` mit derselben linearen Interpolation; nie über einen Sprung, bei doppelt gehörter Stelle die spätere Zeit, bis 10 s neben den Herzschlägen mit 1x fortgeschrieben) und speichert lokal in der Einstellungs-Tabelle (`sleep_onsets`, JSON, höchstens 60): Session, Buch, Uhrzeit, `tz_min`, Datum, Hörzeit seit `last_awake` (globale ms), erster Wach-Beleg nach dem Stopp (`Journal.firstAwakeProofWallMsAfter`, jedes Buch), Health geschrieben. Ein Eintrag je Session; „Früher“ ersetzt ihn, der Rückfall auf `lo` löscht ihn. Kein Event, nicht synchronisiert. Neu: Abschnitt „Deine Einschlafzeiten“ in den Einstellungen (die letzten 14, neueste zuerst, Datum und Uhrzeit, leerer Zustand mit Erklärung). | Backlog „Faden-Suche lernt mit“, 2. Die Einschlafzeit ist abgeleitet aus deinen Antworten, keine Gesundheitsmessung; sie bleibt trotzdem wie Gesundheitsdaten auf dem Gerät. Grenze: Die zuletzt erkannte Stelle ist die letzte Erinnerung, nicht der messbare Einschlafmoment. |
+| E80 | Pausen haben einen Grund (`domain/pause_reason.dart`, in `PAUSE.data.reason`; der Server nimmt `data` als beliebiges Objekt bis 4 KB, keine Server-Änderung): `conscious` (App-Knopf, Buchwechsel), `unconscious` (Mediataste/System), `route_lost` (`audio_session` `becomingNoisyEventStream`: Kopfhörer, Bluetooth, CarPlay getrennt; auf iOS jede Route-Änderung `oldDeviceUnavailable`), `interruption` (Anruf), `timer`, `error`; dazu `data.route = car`, solange CarPlay die Ausgabe ist (`AudioSession.devicesStream`, `AudioDeviceType.carAudio`). `SLEEP_HINT` schreibt jetzt jede unbewusste Pause zu jeder Tageszeit (nicht im Auto) und der Sleep-Timer; Verbindungsverlust, Unterbrechung, Fehler und bewusste Pausen nie. Resolver-Regel 5 verdächtigt keine Session, deren letzte `PAUSE` `route_lost`, `interruption` oder `car` trägt, auch nicht im Nachtfenster (Vektoren 09–13). Nach `route_lost` spult das nächste Play ab 10 s Pause 30 s zurück (`autoRewindMs(reason:)`, auch nach App-Neustart über `Journal.lastPauseReasonForBook`), sonst die Tabelle aus E32; kein automatisches Play beim Wiederverbinden. Ersetzt in Abschnitt 9 „Pause über Mediataste oder System im Nachtfenster“, in E16/E36 die Nachtfenster-Regel für `SLEEP_HINT`, in E20 den Hook `isInNightWindow` (entfällt samt `nightWindowHookProvider`), in E13 das separate `SLEEP_HINT` beim Timer (jetzt über denselben Weg). | Entscheidung des Nutzers: Suche auch tagsüber, wenn er nicht bewusst pausiert; sonst einfach weiter, wo pausiert wurde, etwa nach dem Aussteigen aus dem Auto mit 30 s zurück. CarPlay-Audit: Wer am Lenkrad pausiert, schläft nicht. Grenzen: Ein Bluetooth-Freisprecher im Auto meldet sich als `bluetoothA2dp` und ist von Kopfhörern nicht zu unterscheiden. Sterben die AirPods nachts nach dem Einschlafen am Akku, gilt das als Verbindungsverlust ohne Verdacht; die AirPods-Einschlaferkennung pausiert aber vorher. Kosten eines Fehlalarms am Tag (AirPods herausgenommen, Sperrbildschirm-Pause nach über 3 Min ohne Berührung): ein Tipp auf Probe 1 oder „Ab Stopp weiterhören“. |
+| E81 | Nachtfenster-Vorschlag in „Deine Einschlafzeiten“: ab 5 Einschlafzeiten „Vorschlag: 22:30–01:00 übernehmen“, ein Tipp setzt Beginn und Ende. Rechnung (`suggestNightWindow`, pur): Uhrzeiten auf dem 24-h-Kreis an der größten Lücke aufschneiden (Mitternacht bleibt zusammen), 10. und 90. Perzentil (linear), je 30 Min Rand, Beginn auf 15 Min ab-, Ende aufrunden; über 12 h kein Vorschlag; gleicht er dem aktuellen Fenster, verschwindet die Zeile. | Backlog „Faden-Suche lernt mit“, 3: ein persönliches Fenster statt fest 20–06 Uhr. |
+| E82 | „Einschlafzeit in Health eintragen“ (nur iOS, Standard aus, `settings_store.dart` `health_write_opt_in`): Beim Einschalten fragt Faden Health nach Schreib- und Leserecht für Schlaf (`requestAuthorization`, `SLEEP_IN_BED` READ_WRITE, die übrigen Schlafwerte READ); ohne Schreibrecht bleibt der Schalter aus und ein Hinweis nennt die Health-App. Nach einem Ergebnis der Faden-Suche (E79) schreibt `SleepLog` einen Eintrag „Im Bett“ (`writeHealthData(type: SLEEP_IN_BED)`, im Paket `health` 13.3.2 geprüft: `HKCategorySample` mit `HKCategoryValueSleepAnalysis.inBed`, `recordingMethod` automatisch) von der Einschlafzeit bis zum ersten Wach-Beleg nach dem Stopp; nicht, wenn dieser fehlt, weniger als 30 Min oder mehr als 16 h danach liegt, wenn `hasPermissions(WRITE)` nein sagt oder Health im Zeitraum schon irgendeinen Schlafeintrag hat (Watch, Schlaf-App, iPhone-Schlafenszeit oder Faden selbst). Höchstens einmal je Nacht; „Früher“ ändert den Health-Eintrag nicht mehr. `NSHealthUpdateUsageDescription` sagt jetzt wahrheitsgemäß, was geschrieben wird; die Kommentare in `Runner.entitlements` sind entfernt (Xcode entfernt Kommentare beim Speichern, das brach vorher `git pull`, siehe E50). Android schreibt nichts (Health Connect hat im Paket kein „Im Bett“), das Manifest bleibt bei `READ_SLEEP`. Ersetzt in E21 „diese App schreibt nie Gesundheitsdaten“. | Entscheidung des Nutzers: keine Watch, kein Schlaf-Tracker, daher ist der Eintrag in Health gewünscht. Invariante 7: HealthKit liegt auf dem iPhone, es entsteht kein Event, nichts wird synchronisiert. |
+| E83 | `AWAKE` außerhalb einer laufenden Wiedergabe (Berührung des Players im Pausenzustand) bekommt eine eigene, nie gewinnende Session statt der zuletzt beendeten (`_buildEvent(detached:)` in `audio/handler.dart`). | Die Berührung am Morgen hing sich bisher an die eingeschlafene Session, setzte `last_awake` auf den Stopp und löschte so den Verdacht, bevor „Faden aufnehmen“ getippt war (nur solange die App seit dem Abend lief). Mit dem Verdacht auch tagsüber (E80) wäre das häufig. Die Berührung belegt, dass du jetzt wach bist, nicht, dass du das Ende gehört hast; als Aufwachzeit zählt sie weiter (E79, E82). |
 
 Neue Entscheidungen unten anhängen: Nummer, Entscheidung, Grund.

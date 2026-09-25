@@ -95,7 +95,7 @@
   "settingsNightWindowTitle": "Nachtfenster",
   "@settingsNightWindowTitle": { "description": "Abschnittstitel in den Einstellungen." },
 
-  "settingsNightWindowExplanation": "In dieser Zeit rechnet Faden damit, dass du einschläfst: Läuft das Hörbuch länger als 3 Minuten, ohne dass du etwas tippst oder drückst, bietet Faden danach „Faden aufnehmen“ an.",
+  "settingsNightWindowExplanation": "In dieser Zeit rechnet Faden damit, dass du einschläfst: Läuft das Hörbuch länger als 3 Minuten, ohne dass du etwas tippst oder drückst, bietet Faden danach „Faden aufnehmen“ an. Tagsüber nur, wenn Kopfhörer oder Sperrbildschirm die Wiedergabe angehalten haben – nicht im Auto und nicht, wenn die Verbindung abreißt.",
   "@settingsNightWindowExplanation": { "description": "Erklärung des Nachtfensters: Schlafverdacht (ARCHITEKTUR.md Abschnitt 7 Regel 5, Abschnitt 9); die dunkle Nachtansicht folgt der Bildschirmhelligkeit (E54)." },
 
   "settingsNightWindowStartPicker": "Nacht beginnt um",
@@ -491,5 +491,35 @@
   "@playerNextUp": { "description": "Vorschau unten im Player auf das nächste Kapitel, z. B. „Als Nächstes: Kapitel 5 · Der Weg“ (E74)." },
 
   "playerNextChapter": "{chapter} · {title}",
-  "@playerNextChapter": { "description": "Das nächste Kapitel in der Vorschau (E74); {chapter} ist chapterLabel, {title} der Kapiteltitel.", "placeholders": { "chapter": {}, "title": {} } }
+  "@playerNextChapter": { "description": "Das nächste Kapitel in der Vorschau (E74); {chapter} ist chapterLabel, {title} der Kapiteltitel.", "placeholders": { "chapter": {}, "title": {} } },
+
+  "settingsFadenSearchTitle": "Faden-Suche",
+  "@settingsFadenSearchTitle": { "description": "Abschnitt in den Einstellungen: Länge der Hörproben (E77)." },
+
+  "settingsProbeLength": "{n} Sekunden",
+  "@settingsProbeLength": { "description": "Eine Wahl der Probenlänge (4, 6 oder 8), Zeile mit Häkchen (E77).", "placeholders": { "n": {} } },
+
+  "settingsProbeLengthExplanation": "So lange spielt jede Hörprobe. Kürzere Proben sind schneller vorbei, längere erkennst du leichter wieder.",
+  "@settingsProbeLengthExplanation": { "description": "Erklärung unter der Probenlänge (E77)." },
+
+  "settingsSleepOnsetsTitle": "Deine Einschlafzeiten",
+  "@settingsSleepOnsetsTitle": { "description": "Abschnitt in den Einstellungen: aus der Faden-Suche errechnete Einschlafzeiten (E79, E81)." },
+
+  "settingsSleepOnsetsEmpty": "Noch keine. Nach jeder Faden-Suche steht hier, wann du ungefähr eingeschlafen bist.",
+  "@settingsSleepOnsetsEmpty": { "description": "Leerer Zustand der Einschlafzeiten (E79)." },
+
+  "settingsSleepOnsetsExplanation": "Die letzte Stelle, die du bei der Faden-Suche wiedererkannt hast, als Uhrzeit. Ab 5 Suchen beginnt die Suche dort, wo du meist einschläfst. Bleibt auf diesem Gerät.",
+  "@settingsSleepOnsetsExplanation": { "description": "Erklärung unter den Einschlafzeiten (E78, E79); Invariante 7 in eigenen Worten." },
+
+  "settingsNightWindowSuggestion": "Vorschlag: {time} übernehmen",
+  "@settingsNightWindowSuggestion": { "description": "Übernimmt das aus den Einschlafzeiten vorgeschlagene Nachtfenster mit einem Tipp (E81). {time} ist z. B. „22:30–01:00“.", "placeholders": { "time": {} } },
+
+  "settingsHealthWrite": "Einschlafzeit in Health eintragen",
+  "@settingsHealthWrite": { "description": "Schalter, Standard aus (E82)." },
+
+  "settingsHealthWriteDescription": "Trägt nach der Faden-Suche „Im Bett“ von der errechneten Einschlafzeit bis zu deiner ersten Berührung am Morgen in Health ein, nur wenn für die Nacht noch keine Schlafdaten da sind. Bleibt auf dem iPhone.",
+  "@settingsHealthWriteDescription": { "description": "Erklärung unter dem Schalter (E82); Invariante 7 in eigenen Worten." },
+
+  "settingsHealthWriteDenied": "Health erlaubt Faden das Eintragen nicht. Du kannst es in der Health-App unter Datenzugriff freigeben.",
+  "@settingsHealthWriteDenied": { "description": "Hinweis, wenn die Schreib-Berechtigung fehlt (E82)." }
 }

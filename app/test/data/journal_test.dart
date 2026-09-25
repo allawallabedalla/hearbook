@@ -2,6 +2,7 @@ import 'package:faden/core/hlc.dart';
 import 'package:faden/data/db.dart';
 import 'package:faden/data/journal.dart';
 import 'package:faden/domain/event.dart';
+import 'package:faden/domain/pause_reason.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 Event _event({
@@ -9,6 +10,8 @@ Event _event({
   EventType type = EventType.play,
   int pt = 1000,
   String bookId = 'book-1',
+  EventSource source = EventSource.ui,
+  Map<String, dynamic> data = const {'note': 'x'},
 }) =>
     Event(
       eventId: id,
@@ -22,8 +25,8 @@ Event _event({
       hlc: Hlc(pt: pt, c: 0),
       wallMs: pt,
       tzMin: 0,
-      source: EventSource.ui,
-      data: const {'note': 'x'},
+      source: source,
+      data: data,
     );
 
 void main() {
@@ -126,6 +129,49 @@ void main() {
       );
       await journal.storeRemote(remote);
       expect(await journal.maxHlc(), const Hlc(pt: 9000, c: 4));
+    });
+  });
+
+  group('lastPauseReasonForBook (E80)', () {
+    test('the reason of the newest PAUSE when no intent came after it', () async {
+      await journal.record(_event(id: 'a', pt: 1000), () async {});
+      await journal.record(
+          _event(id: 'b', type: EventType.pause, pt: 2000, source: EventSource.system, data: {'reason': 'route_lost'}),
+          () async {});
+      await journal.record(_event(id: 'c', type: EventType.awake, pt: 3000), () async {});
+      expect(await journal.lastPauseReasonForBook('book-1'), PauseReason.routeLost);
+    });
+
+    test('null once an intent followed, for other books, and for old pauses without data', () async {
+      await journal.record(
+          _event(id: 'b', type: EventType.pause, pt: 2000, data: {'reason': 'route_lost'}), () async {});
+      await journal.record(_event(id: 'c', type: EventType.play, pt: 3000), () async {});
+      expect(await journal.lastPauseReasonForBook('book-1'), isNull);
+      expect(await journal.lastPauseReasonForBook('book-2'), isNull);
+      await journal.record(_event(id: 'd', type: EventType.pause, pt: 4000, data: const {}), () async {});
+      expect(await journal.lastPauseReasonForBook('book-1'), isNull);
+    });
+  });
+
+  group('firstAwakeProofWallMsAfter (E79)', () {
+    test('the first awake proof after the time, any book; heartbeats, hints and system pauses do not count',
+        () async {
+      await journal.record(_event(id: 'a', type: EventType.play, pt: 1000), () async {});
+      await journal.record(_event(id: 'b', type: EventType.heartbeat, pt: 2000), () async {});
+      await journal.record(_event(id: 'c', type: EventType.sleepHint, pt: 3000), () async {});
+      await journal.record(
+          _event(id: 'd', type: EventType.pause, pt: 4000, source: EventSource.system), () async {});
+      await journal.record(_event(id: 'e', type: EventType.probe, pt: 5000), () async {});
+      await journal.record(_event(id: 'f', type: EventType.awake, pt: 6000, bookId: 'book-2'), () async {});
+      await journal.record(_event(id: 'g', type: EventType.resume, pt: 7000), () async {});
+      expect(await journal.firstAwakeProofWallMsAfter(1000), 6000);
+      expect(await journal.firstAwakeProofWallMsAfter(6000), 7000);
+      expect(await journal.firstAwakeProofWallMsAfter(7000), isNull);
+    });
+
+    test('a UI pause counts', () async {
+      await journal.record(_event(id: 'a', type: EventType.pause, pt: 5000), () async {});
+      expect(await journal.firstAwakeProofWallMsAfter(1000), 5000);
     });
   });
 }

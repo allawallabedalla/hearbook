@@ -4,6 +4,7 @@ import 'package:drift/drift.dart';
 
 import '../core/hlc.dart';
 import '../domain/event.dart';
+import '../domain/pause_reason.dart';
 import '../domain/position.dart';
 import 'db.dart';
 
@@ -115,6 +116,49 @@ class Journal {
           ..where(db.eventRows.bookId.equals(bookId)))
         .getSingleOrNull();
     return row?.read(maxWall);
+  }
+
+  /// Why the book was last paused (decision E80), for the reason-aware
+  /// auto-rewind after an app restart: the reason of the newest PAUSE, if
+  /// no intent event came after it; null otherwise or when it has none.
+  Future<PauseReason?> lastPauseReasonForBook(String bookId) async {
+    final rows = await (db.select(db.eventRows)
+          ..where((t) =>
+              t.bookId.equals(bookId) &
+              t.type.isIn([
+                EventType.pause.wireName,
+                for (final type in EventType.values)
+                  if (type.isIntent) type.wireName,
+              ]))
+          ..orderBy([
+            (t) => OrderingTerm.desc(t.hlcPt),
+            (t) => OrderingTerm.desc(t.hlcC),
+            (t) => OrderingTerm.desc(t.deviceId),
+            (t) => OrderingTerm.desc(t.eventId),
+          ])
+          ..limit(1))
+        .get();
+    if (rows.isEmpty) return null;
+    return pauseReasonOf(_toEvent(rows.single));
+  }
+
+  /// Wall time of the first awake-proof event (section 5, any book, any
+  /// device) after [wallMs]: when the listener picked the phone up again
+  /// after falling asleep (decision E79). Null if there is none yet.
+  Future<int?> firstAwakeProofWallMsAfter(int wallMs) async {
+    final awakeTypes = [
+      for (final type in EventType.values)
+        if (type.alwaysAwakeProof) type.wireName,
+    ];
+    final rows = await (db.select(db.eventRows)
+          ..where((t) =>
+              t.wallMs.isBiggerThanValue(wallMs) &
+              (t.type.isIn(awakeTypes) |
+                  (t.type.equals(EventType.pause.wireName) & t.source.equals(EventSource.ui.wireName))))
+          ..orderBy([(t) => OrderingTerm.asc(t.wallMs)])
+          ..limit(1))
+        .get();
+    return rows.isEmpty ? null : rows.single.wallMs;
   }
 
   /// Ids of every book with at least one event of [type] (any device).

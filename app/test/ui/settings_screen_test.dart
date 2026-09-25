@@ -8,6 +8,8 @@ import 'package:faden/data/api.dart' show ConnectionCheck;
 import 'package:faden/data/db.dart';
 import 'package:faden/data/journal.dart';
 import 'package:faden/data/settings_store.dart';
+import 'package:faden/data/sleep_health_writer.dart';
+import 'package:faden/domain/sleep_learning.dart';
 import 'package:faden/l10n/strings.dart';
 import 'package:faden/ui/providers.dart';
 import 'package:faden/ui/controls.dart';
@@ -20,6 +22,44 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'fake_audio_handler.dart';
+
+class _FakeHealthWriter implements SleepHealthWriter {
+  bool allow = true;
+  int requests = 0;
+
+  @override
+  bool get isSupported => true;
+
+  @override
+  Future<bool> requestPermission() async {
+    requests++;
+    return allow;
+  }
+
+  @override
+  Future<bool> canWrite() async => allow;
+
+  @override
+  Future<bool> hasSleepOverlapping({required int startWallMs, required int endWallMs}) async => false;
+
+  @override
+  Future<bool> writeInBed({required int startWallMs, required int endWallMs}) async => true;
+}
+
+/// Five onsets around midnight (UTC, tz 0): 23:00 ... 00:30.
+List<SleepOnsetRecord> _onsets() {
+  const day = 1790208000000; // 2026-09-24 00:00 UTC
+  return [
+    for (final (i, minutes) in [(0, 23 * 60), (1, 23 * 60 + 30), (2, 23 * 60 + 45), (4, 24 * 60 + 10), (5, 24 * 60 + 30)])
+      SleepOnsetRecord(
+        sessionId: 's$i',
+        bookId: 'b',
+        onsetWallMs: day + i * 86400000 + minutes * 60000,
+        tzMin: 0,
+        listenMs: 600000,
+      ),
+  ];
+}
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -38,6 +78,10 @@ void main() {
     bool overLibrary = false,
     ServerConfig server = ServerConfig.empty,
     Future<void> Function(SettingsStore store)? seed,
+    SleepHealthWriter? healthWriter,
+    Size? size,
+    double textScale = 1.0,
+    FadenTokens? tokens,
   }) async {
     await tester.runAsync(() async {
       db = AppDatabase.memory();
@@ -46,8 +90,8 @@ void main() {
       handler = FakeAudioHandler(Journal(db));
     });
     // A tall surface so every section is on screen without scrolling.
-    tester.view.physicalSize = const Size(1080, 4000);
-    tester.view.devicePixelRatio = 2;
+    tester.view.physicalSize = size == null ? const Size(1080, 7000) : size * 3;
+    tester.view.devicePixelRatio = size == null ? 2 : 3;
     addTearDown(tester.view.reset);
     await tester.pumpWidget(
       ProviderScope(
@@ -57,8 +101,14 @@ void main() {
           audioHandlerProvider.overrideWithValue(handler),
           connectionCheckerProvider.overrideWithValue((url, token) async => check),
           initialServerConfigProvider.overrideWithValue(server),
+          if (healthWriter != null) sleepHealthWriterProvider.overrideWithValue(healthWriter),
         ],
         child: MaterialApp(
+          theme: tokens == null ? null : fadenThemeFor(tokens),
+          builder: (context, child) => MediaQuery(
+            data: MediaQuery.of(context).copyWith(textScaler: TextScaler.linear(textScale)),
+            child: child!,
+          ),
           home: overLibrary
               ? Builder(
                   builder: (context) => Scaffold(
@@ -338,6 +388,112 @@ void main() {
     expect(formatMinutesOfDay(6 * 60 + 5), '06:05');
     expect(formatMinutesOfDay(20 * 60), '20:00');
     expect(formatMinutesOfDay(23 * 60 + 59), '23:59');
+  });
+
+  group('Faden-Suche lernt mit', () {
+    testWidgets('probe length: 4, 6 and 8 s as check rows, 6 s by default, stored at once (E77)', (tester) async {
+      await pumpSettings(tester);
+      expect(find.text(AppStrings.settingsFadenSearchTitle), findsOneWidget);
+      expect(find.text(AppStrings.settingsProbeLengthExplanation), findsOneWidget);
+      FadenCheckRow row(int s) => tester.widget<FadenCheckRow>(
+          find.widgetWithText(FadenCheckRow, AppStrings.settingsProbeLength(s)));
+      expect([row(4).selected, row(6).selected, row(8).selected], [false, true, false]);
+
+      await tester.tap(find.text(AppStrings.settingsProbeLength(8)));
+      await settle(tester);
+      expect(await tester.runAsync(store.probeLenMs), 8000);
+      expect([row(4).selected, row(6).selected, row(8).selected], [false, false, true]);
+      await tearDownAll(tester);
+    });
+
+    testWidgets('no onsets yet: the empty text, no suggestion (E79)', (tester) async {
+      await pumpSettings(tester);
+      expect(find.text(AppStrings.settingsSleepOnsetsTitle), findsOneWidget);
+      expect(find.text(AppStrings.settingsSleepOnsetsEmpty), findsOneWidget);
+      expect(find.textContaining('Vorschlag'), findsNothing);
+      await tearDownAll(tester);
+    });
+
+    testWidgets('lists the onsets newest first and takes the suggested night window over in one tap (E81)',
+        (tester) async {
+      await pumpSettings(tester, seed: (store) => store.setSleepOnsetsJson(encodeOnsets(_onsets())));
+      expect(find.text(AppStrings.settingsSleepOnsetsEmpty), findsNothing);
+      expect(find.text('30.09.'), findsOneWidget);
+      expect(find.text('24.09.'), findsOneWidget);
+      expect(
+        tester.getTopLeft(find.text('30.09.')).dy,
+        lessThan(tester.getTopLeft(find.text('24.09.')).dy),
+        reason: 'newest first',
+      );
+      expect(find.text('00:30'), findsOneWidget);
+      final suggestion = find.text(AppStrings.settingsNightWindowSuggestion('22:30–01:00'));
+      expect(suggestion, findsOneWidget);
+
+      await tester.tap(suggestion);
+      await settle(tester);
+      expect(await tester.runAsync(store.nightStartMin), 22 * 60 + 30);
+      expect(await tester.runAsync(store.nightEndMin), 60);
+      expect(suggestion, findsNothing, reason: 'already set');
+      await tearDownAll(tester);
+    });
+
+    for (final size in const [Size(375, 6000), Size(430, 6000)]) {
+      for (final scale in const [1.0, 1.35]) {
+        for (final (name, tokens) in [('light', FadenTokens.day), ('dark', FadenTokens.night)]) {
+          testWidgets('new sections lay out without overflow: ${size.width.toInt()} pt, $scale, $name',
+              (tester) async {
+            await pumpSettings(
+              tester,
+              seed: (store) => store.setSleepOnsetsJson(encodeOnsets(_onsets())),
+              healthWriter: _FakeHealthWriter(),
+              size: size,
+              textScale: scale,
+              tokens: tokens,
+            );
+            expect(tester.takeException(), isNull);
+            expect(find.text(AppStrings.settingsProbeLength(6)), findsOneWidget);
+            expect(find.text(AppStrings.settingsNightWindowSuggestion('22:30–01:00')), findsOneWidget);
+            expect(find.text(AppStrings.settingsHealthWrite), findsOneWidget, reason: 'everything built');
+            await tearDownAll(tester);
+          });
+        }
+      }
+    }
+
+    testWidgets('the Health write switch is hidden where Faden cannot write', (tester) async {
+      await pumpSettings(tester);
+      expect(find.text(AppStrings.settingsHealthWrite), findsNothing);
+      await tearDownAll(tester);
+    });
+
+    testWidgets('"Einschlafzeit in Health eintragen": off by default, asks Health when switched on (E82)',
+        (tester) async {
+      final writer = _FakeHealthWriter();
+      await pumpSettings(tester, healthWriter: writer);
+      final tile = find.widgetWithText(SwitchListTile, AppStrings.settingsHealthWrite);
+      expect(tester.widget<SwitchListTile>(tile).value, isFalse);
+      expect(find.text(AppStrings.settingsHealthWriteDescription), findsOneWidget);
+      expect(writer.requests, 0, reason: 'nothing asked before the switch');
+
+      await tester.tap(tile);
+      await settle(tester);
+      expect(writer.requests, 1);
+      expect(await tester.runAsync(store.healthWriteOptIn), isTrue);
+      expect(tester.widget<SwitchListTile>(tile).value, isTrue);
+      await tearDownAll(tester);
+    });
+
+    testWidgets('stays off and says so when Health does not allow writing', (tester) async {
+      final writer = _FakeHealthWriter()..allow = false;
+      await pumpSettings(tester, healthWriter: writer);
+      final tile = find.widgetWithText(SwitchListTile, AppStrings.settingsHealthWrite);
+      await tester.tap(tile);
+      await settle(tester);
+      expect(await tester.runAsync(store.healthWriteOptIn), isFalse);
+      expect(tester.widget<SwitchListTile>(tile).value, isFalse);
+      expect(find.text(AppStrings.settingsHealthWriteDenied), findsOneWidget);
+      await tearDownAll(tester);
+    });
   });
 }
 

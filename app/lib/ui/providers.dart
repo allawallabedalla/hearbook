@@ -21,12 +21,15 @@ import '../data/library.dart';
 import '../data/offline_books.dart';
 import '../data/settings_store.dart';
 import '../data/sleep_data_source.dart';
+import '../data/sleep_health_writer.dart';
+import '../data/sleep_log.dart';
 import '../data/storage.dart';
 import '../data/sync.dart';
 import '../domain/event.dart';
 import '../domain/manifest.dart';
 import '../domain/position.dart';
 import '../domain/resolver.dart';
+import '../domain/sleep_learning.dart';
 import '../domain/sleep_onset.dart';
 import '../signals/night.dart';
 import '../signals/screen_brightness.dart';
@@ -317,34 +320,6 @@ final sleepTimerProvider = Provider<SleepTimerController>((ref) {
   return timer;
 });
 
-/// docs/ARCHITEKTUR.md section 9: a media/system pause in the night window
-/// writes SLEEP_HINT. The handler asks through `isInNightWindow`, which
-/// reads the window from [nightWindowProvider] on every call, so a change
-/// in the settings applies at once; until the setting has loaded, the
-/// default 20:00-06:00 applies. App-wide since E60 (it used to be set by
-/// the player, which no longer stays mounted). The night window no longer
-/// switches the night view (E54).
-final nightWindowHookProvider = Provider<void>((ref) {
-  final handler = ref.watch(audioHandlerProvider);
-  // Loads the window now and keeps it; listening does not rebuild this.
-  ref.listen(nightWindowProvider, (_, _) {});
-  bool inWindow() {
-    final window = ref.read(nightWindowProvider).value ?? NightWindow.defaults;
-    final now = DateTime.now();
-    return isInNightWindow(
-      nowWallMs: now.millisecondsSinceEpoch,
-      tzMin: now.timeZoneOffset.inMinutes,
-      nightStartMin: window.startMin,
-      nightEndMin: window.endMin,
-    );
-  }
-
-  handler.isInNightWindow = inWindow;
-  ref.onDispose(() {
-    if (handler.isInNightWindow == inWindow) handler.isInNightWindow = null;
-  });
-});
-
 /// Whether the Faden screen (ui/faden_screen.dart) is in front. Undo hints
 /// arriving meanwhile are held back until it closes
 /// (ui/playback_announcer.dart), where a tap means "kenne ich".
@@ -455,6 +430,68 @@ final connectionCheckerProvider = Provider<ConnectionChecker>(
 /// instance). Constructing/overriding this alone requests no permission
 /// and reads no data -- see [PlayerSessionController.sleepOnsetAdjustment].
 final sleepDataSourceProvider = Provider<SleepDataSource?>((ref) => null);
+
+/// "Einschlafzeit in Health eintragen" (decision E82): null where Faden
+/// cannot write "Im Bett" (tests, unless overridden). main.dart overrides
+/// it with the `health`-backed writer; constructing it asks nothing.
+final sleepHealthWriterProvider = Provider<SleepHealthWriter?>((ref) => null);
+
+/// The locally stored sleep onsets and the Health write (decisions E79,
+/// E82). Local only: nothing here is an event or synced.
+final sleepLogProvider = Provider<SleepLog>((ref) => SleepLog(
+      settings: ref.watch(settingsStoreProvider),
+      journal: ref.watch(journalProvider),
+      healthWriter: ref.watch(sleepHealthWriterProvider),
+    ));
+
+/// The stored sleep onsets for "Deine Einschlafzeiten" (decisions E79,
+/// E81), read afresh whenever the settings open (autoDispose).
+final sleepOnsetsProvider = FutureProvider.autoDispose<List<SleepOnsetRecord>>(
+  (ref) => ref.watch(sleepLogProvider).onsets(),
+);
+
+/// The Faden search's probe length, 4, 6 or 8 s (decision E77). [set]
+/// writes the store first, then updates the state.
+class ProbeLengthController extends AsyncNotifier<int> {
+  @override
+  Future<int> build() => ref.watch(settingsStoreProvider).probeLenMs();
+
+  Future<void> set(int ms) async {
+    await ref.read(settingsStoreProvider).setProbeLenMs(ms);
+    if (!ref.mounted) return;
+    state = AsyncData(ms);
+  }
+}
+
+final probeLengthProvider = AsyncNotifierProvider<ProbeLengthController, int>(ProbeLengthController.new);
+
+/// "Einschlafzeit in Health eintragen" (decision E82), off by default.
+/// Switching it on asks Health for permission first; it only turns on when
+/// writing is allowed.
+class HealthWriteSettingController extends AsyncNotifier<bool> {
+  @override
+  Future<bool> build() => ref.watch(settingsStoreProvider).healthWriteOptIn();
+
+  /// Returns the state after the change (false when permission was denied).
+  Future<bool> set(bool on) async {
+    var value = on;
+    if (on) {
+      final writer = ref.read(sleepHealthWriterProvider);
+      try {
+        value = writer != null && writer.isSupported && await writer.requestPermission();
+      } catch (_) {
+        value = false;
+      }
+    }
+    await ref.read(settingsStoreProvider).setHealthWriteOptIn(value);
+    if (!ref.mounted) return value;
+    state = AsyncData(value);
+    return value;
+  }
+}
+
+final healthWriteSettingProvider =
+    AsyncNotifierProvider<HealthWriteSettingController, bool>(HealthWriteSettingController.new);
 
 final audioHandlerProvider =
     Provider<FadenAudioHandler>((ref) => throw UnimplementedError('override in main.dart'));

@@ -1,7 +1,7 @@
 // Tests ui/faden_search_controller.dart against fake dependencies (playTone/
 // playProbe/stopProbe/onProbeAnswered/onResumeAt/onAborted are all injected
 // functions), driven with fake_async so the answer-window timing
-// (docs/ARCHITEKTUR.md section 8: probe_len + answer_window = 7s) is exact
+// (docs/ARCHITEKTUR.md section 8: probe_len + answer_window = 9 s by default) is exact
 // and instant to run. domain/faden_search.dart's own bisection logic is
 // already covered by test/domain/faden_search_*.dart -- this file is about
 // the *orchestration* around it: progress reporting, PROBE/RESUME wiring,
@@ -20,6 +20,7 @@ class _Recorder {
   int stopCount = 0;
   final List<({int p, bool known})> probeAnswers = [];
   final List<int> resumeCalls = [];
+  final List<({int globalMs, bool recognised})> chosen = [];
   int abortCalls = 0;
 
   /// Which probe positions the simulated listener "knows" -- knows p iff
@@ -32,12 +33,19 @@ class _Recorder {
     required int hi,
     List<int> pausen = const [],
     int? prior,
+    bool priorAfterFalseAlarm = false,
+    int probeLen = fs.defaultProbeLen,
   }) {
     return FadenSearchController(
       lo: lo,
       hi: hi,
       pausen: pausen,
       prior: prior,
+      priorAfterFalseAlarm: priorAfterFalseAlarm,
+      probeLen: probeLen,
+      onChosen: (globalMs, recognised) async {
+        chosen.add((globalMs: globalMs, recognised: recognised));
+      },
       playTone: () async {
         toneCount++;
       },
@@ -114,6 +122,71 @@ void main() {
       });
     });
 
+    test('a learned prior (E78) keeps probe 1 and then lands on the prior', () {
+      fakeAsync((async) {
+        final rec = _Recorder();
+        const lo = 0, hi = 40 * 60000, prior = 5 * 60000;
+        final controller = rec.build(lo: lo, hi: hi, prior: prior, priorAfterFalseAlarm: true);
+        controller.start();
+        async.elapse(const Duration(minutes: 10));
+        expect(rec.probesPlayed.take(2), [hi - fs.firstOffset, prior]);
+        controller.dispose();
+      });
+    });
+
+    test('the answer window follows the probe length (E77): 8 s + 3 s', () {
+      fakeAsync((async) {
+        final rec = _Recorder();
+        final controller = rec.build(lo: 0, hi: 40 * 60000, probeLen: 8000);
+        controller.start();
+        async.elapse(const Duration(milliseconds: 10900));
+        expect(rec.probeAnswers, isEmpty);
+        async.elapse(const Duration(milliseconds: 200));
+        expect(rec.probeAnswers.single.known, isFalse);
+        controller.dispose();
+      });
+    });
+
+    test('onChosen (E79): a recognised passage, then "Früher" down to lo', () {
+      fakeAsync((async) {
+        final rec = _Recorder();
+        const lo = 0, hi = 40 * 60000;
+        final controller = rec.build(lo: lo, hi: hi);
+        var n = 0;
+        controller.progress.listen((p) {
+          // "Kenne ich nicht" to probe 1, "kenne ich" to probe 2, then nothing.
+          if (p.listening && p.current != null && p.current!.probeNr != n) {
+            n = p.current!.probeNr;
+            if (n == 1) controller.answer(known: false);
+            if (n == 2) controller.answer(known: true);
+          }
+        });
+        controller.start();
+        async.elapse(const Duration(minutes: 10));
+        expect(rec.chosen, hasLength(1));
+        expect(rec.chosen.single.recognised, isTrue);
+        expect(rec.chosen.single.globalMs, rec.resumeCalls.single);
+        controller.earlier();
+        async.flushMicrotasks();
+        expect(rec.chosen.last, (globalMs: 0, recognised: false));
+        controller.dispose();
+      });
+    });
+
+    test('onChosen: a recognised probe 1 is a false alarm, not a sleep onset', () {
+      fakeAsync((async) {
+        final rec = _Recorder();
+        final controller = rec.build(lo: 0, hi: 40 * 60000);
+        controller.start();
+        async.flushMicrotasks();
+        controller.submitAnswer();
+        async.elapse(const Duration(seconds: 1));
+        expect(rec.chosen.single.recognised, isFalse);
+        expect(rec.chosen.single.globalMs, 40 * 60000 - fs.firstOffset);
+        controller.dispose();
+      });
+    });
+
     test('reports progress with an increasing probe number, capped at maxProbes', () {
       fakeAsync((async) {
         final rec = _Recorder();
@@ -146,7 +219,7 @@ void main() {
         final rec = _Recorder();
         final controller = rec.build(lo: 0, hi: 40 * 60000);
         controller.start();
-        async.elapse(const Duration(milliseconds: fs.probeLen + fs.answerWindow - 1));
+        async.elapse(const Duration(milliseconds: fs.defaultProbeLen + fs.answerWindow - 1));
         expect(rec.probeAnswers, isEmpty); // not yet timed out
         async.elapse(const Duration(milliseconds: 1));
         expect(rec.probeAnswers.single.known, isFalse);
@@ -277,7 +350,7 @@ void main() {
           expect(windows.last, windowBefore + 1);
 
           // 5 s + 6.9 s: past the first window, inside the restarted one.
-          async.elapse(const Duration(milliseconds: fs.probeLen + fs.answerWindow - 100));
+          async.elapse(const Duration(milliseconds: fs.defaultProbeLen + fs.answerWindow - 100));
           expect(rec.probeAnswers, isEmpty);
           async.elapse(const Duration(milliseconds: 100));
           expect(rec.probeAnswers.single.known, isFalse, reason: 'silence still counts as not known');
@@ -326,7 +399,7 @@ void main() {
           tone.complete();
           async.flushMicrotasks();
           expect(rec.probesPlayed, hasLength(1));
-          async.elapse(const Duration(milliseconds: fs.probeLen + fs.answerWindow));
+          async.elapse(const Duration(milliseconds: fs.defaultProbeLen + fs.answerWindow));
           expect(rec.probeAnswers.first.known, isFalse, reason: 'the early "Kenne ich" did not count');
           controller.dispose();
         });
@@ -525,7 +598,7 @@ void main() {
             onAborted: base.onAborted,
           );
           controller.start();
-          async.elapse(const Duration(milliseconds: fs.probeLen + fs.answerWindow)); // times out
+          async.elapse(const Duration(milliseconds: fs.defaultProbeLen + fs.answerWindow)); // times out
           expect(rec.probeAnswers, hasLength(1));
           controller.dispose();
           write.complete();

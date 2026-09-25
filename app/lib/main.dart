@@ -15,6 +15,7 @@ import 'data/db.dart';
 import 'data/journal.dart';
 import 'data/settings_store.dart';
 import 'data/sleep_data_source.dart';
+import 'data/sleep_health_writer.dart';
 import 'data/storage.dart';
 import 'l10n/strings.dart';
 import 'signals/night.dart';
@@ -67,6 +68,8 @@ Future<void> main() async {
   // inside PlayerSessionController.sleepOnsetAdjustment, and only once the
   // "Schlafdaten erlauben" setting is on and Faden-Suche actually starts.
   final sleepDataSource = HealthPluginSleepDataSource();
+  // E82: asks nothing until "Einschlafzeit in Health eintragen" is switched on.
+  final sleepHealthWriter = HealthPluginSleepWriter();
 
   // The sync client is attached by syncWiringProvider once the providers
   // exist, and replaced whenever the server settings change (E37).
@@ -85,10 +88,17 @@ Future<void> main() async {
   // prompts instead of pausing; its README recommends speech() for audiobooks.
   final session = await AudioSession.instance;
   await session.configure(const AudioSessionConfiguration.speech());
-  // E36: calls and headphone unplugs pause (and resume) through the journal.
+  // E36: calls and headphone unplugs pause (and resume) through the journal;
+  // E80: each with its reason, and whether CarPlay is the output.
   audioHandler.attachAudioSessionEvents(
     interruptions: session.interruptionEventStream,
     becomingNoisy: session.becomingNoisyEventStream,
+    carAudio: session.devicesStream.map(
+      // audio_session marks its device types experimental; carAudio is
+      // AVAudioSessionPortCarAudio (CarPlay) in 0.2.4.
+      // ignore: experimental_member_use
+      (devices) => devices.any((d) => d.isOutput && d.type == AudioDeviceType.carAudio),
+    ),
   );
 
   runApp(
@@ -101,6 +111,7 @@ Future<void> main() async {
         appSupportDirProvider.overrideWithValue(supportDir),
         initialServerConfigProvider.overrideWithValue(serverConfig),
         sleepDataSourceProvider.overrideWithValue(sleepDataSource),
+        sleepHealthWriterProvider.overrideWithValue(sleepHealthWriter),
         audioHandlerProvider.overrideWithValue(audioHandler),
         initialAppearanceProvider.overrideWithValue(appearance),
         initialLibraryViewProvider.overrideWithValue(libraryView),
@@ -194,10 +205,9 @@ class _FadenAppState extends ConsumerState<FadenApp> {
     ref.watch(syncWiringProvider);
     ref.watch(offlineWiringProvider);
     ref.watch(downloadWiringProvider);
-    // E60: the player is a route that closes, so the sleep timer and the
-    // SLEEP_HINT hook live for as long as the app does.
+    // E60: the player is a route that closes, so the sleep timer lives for
+    // as long as the app does.
     ref.watch(sleepTimerProvider);
-    ref.watch(nightWindowHookProvider);
     final tokens = resolveFadenTokens(
       appearance: ref.watch(appearanceProvider),
       platformBrightness: MediaQuery.platformBrightnessOf(context),

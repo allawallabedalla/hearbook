@@ -40,9 +40,8 @@ abstract class SleepDataSource {
 /// [SleepDataSource] backed by the `health` package (pubspec.yaml: verified
 /// publisher, actively maintained -- see the pubspec.yaml comment for the
 /// exact version/rationale). Reads only `HealthDataType.SLEEP_ASLEEP`
-/// ("Schlafbeginn", section 9); this app never writes any health data
-/// (invariant 7 doesn't strictly forbid it, but a write is not part of
-/// this feature and would be one more thing to keep off any sync path).
+/// ("Schlafbeginn", section 9). Writing ("Im Bett", opt-in, decision E82)
+/// lives in data/sleep_health_writer.dart.
 class HealthPluginSleepDataSource implements SleepDataSource {
   final Health _health;
   bool _configured = false;

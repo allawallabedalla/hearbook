@@ -53,6 +53,16 @@ class FadenScreen extends ConsumerStatefulWidget {
   /// behaviour exactly.
   final int? prior;
 
+  /// Whether [prior] was learned from earlier searches (decision E78):
+  /// probe 1 still runs first.
+  final bool priorAfterFalseAlarm;
+
+  /// The probe length setting (decision E77).
+  final int probeLen;
+
+  /// Every start from the result, see [FadenSearchController.onChosen].
+  final Future<void> Function(int globalMs, bool recognised)? onChosen;
+
   final List<ja.IndexedAudioSource> playlistSources;
 
   /// Test seam: a probe player to use instead of a fresh [ProbePlayer]
@@ -67,6 +77,9 @@ class FadenScreen extends ConsumerStatefulWidget {
     this.stop,
     required this.pausen,
     this.prior,
+    this.priorAfterFalseAlarm = false,
+    this.probeLen = fs.defaultProbeLen,
+    this.onChosen,
     required this.playlistSources,
     this.probePlayer,
   });
@@ -85,7 +98,8 @@ class _FadenScreenState extends ConsumerState<FadenScreen> with SingleTickerProv
   StreamSubscription<FadenProgress>? _progressSub;
   FadenProgress? _progress;
 
-  /// The probe + answer window of the passage being asked (4 s + 3 s),
+  /// The probe + answer window of the passage being asked (6 s + 3 s by
+  /// default),
   /// restarted with every new window ([FadenProgress.window]).
   late final AnimationController _windowClock;
   int _window = 0;
@@ -108,7 +122,7 @@ class _FadenScreenState extends ConsumerState<FadenScreen> with SingleTickerProv
 
     _windowClock = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: fs.probeLen + fs.answerWindow),
+      duration: Duration(milliseconds: widget.probeLen + fs.answerWindow),
     );
 
     _probePlayer = widget.probePlayer ?? ProbePlayer();
@@ -125,6 +139,8 @@ class _FadenScreenState extends ConsumerState<FadenScreen> with SingleTickerProv
       hi: widget.hi,
       pausen: widget.pausen,
       prior: widget.prior,
+      priorAfterFalseAlarm: widget.priorAfterFalseAlarm,
+      probeLen: widget.probeLen,
       playTone: _probePlayer.playTone,
       playProbe: (p) {
         final pos = widget.manifest.positionForGlobalMs(p);
@@ -133,7 +149,7 @@ class _FadenScreenState extends ConsumerState<FadenScreen> with SingleTickerProv
         return _probePlayer.playProbe(
           fileIndex: idx,
           offsetMs: pos.offsetMs,
-          probeLenMs: fs.probeLen,
+          probeLenMs: widget.probeLen,
           fileDurationMs: widget.manifest.files[idx].durationMs,
         );
       },
@@ -144,6 +160,7 @@ class _FadenScreenState extends ConsumerState<FadenScreen> with SingleTickerProv
       },
       onResumeAt: _handleResolved,
       onAborted: _handleAborted,
+      onChosen: widget.onChosen,
     );
     _progressSub = _controller.progress.listen(_onProgress);
 

@@ -33,7 +33,7 @@
 	<key>NSHealthShareUsageDescription</key>
 	<string>Faden liest lokal deinen Schlafbeginn, um die Faden-Suche zu verkürzen. Diese Daten verlassen nie dein Gerät.</string>
 	<key>NSHealthUpdateUsageDescription</key>
-	<string>Faden schreibt keine Gesundheitsdaten; dieser Hinweis ist eine Vorgabe von Apple HealthKit.</string>
+	<string>Wenn du es in den Einstellungen einschaltest, trägt Faden nach der Faden-Suche deine errechnete Einschlafzeit als „Im Bett“ in Health ein. Die Daten bleiben auf deinem iPhone.</string>
 	<key>UIApplicationSceneManifest</key>
 	<dict>
 		<key>UIApplicationSupportsMultipleScenes</key>

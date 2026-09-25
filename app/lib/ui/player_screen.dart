@@ -38,8 +38,7 @@ import 'thread_progress.dart';
 /// a drag down moves it with the finger and closes it on release (E63).
 /// What must outlive it lives app-wide: the sleep timer
 /// ([sleepTimerProvider], set from the moon button here or the details
-/// sheet), the SLEEP_HINT hook ([nightWindowHookProvider]) and the undo
-/// and error SnackBars (ui/playback_announcer.dart).
+/// sheet) and the undo and error SnackBars (ui/playback_announcer.dart).
 class PlayerScreen extends ConsumerStatefulWidget {
   const PlayerScreen({super.key});
 
@@ -223,7 +222,20 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
       hi = adjustment.hi;
       prior = adjustment.prior;
     }
+    // Decision E78: without a health-data prior, the first bisection point
+    // comes from earlier searches (the median minutes from the last awake
+    // proof to the recognised passage); probe 1 still runs first.
+    final sleepLog = ref.read(sleepLogProvider);
+    var learned = false;
+    if (prior == null) {
+      prior = await sleepLog.learnedPriorFor(lo: lo, hi: hi);
+      learned = prior != null;
+    }
+    final probeLen = await ref.read(probeLengthProvider.future);
     if (!mounted) return;
+    final sleepingSession = bookState.sessionId;
+    final bookId = session.bookId;
+    if (bookId == null) return;
 
     // `hi` is reassigned above, so it is not promoted from `int?` to `int`
     // inside the closure below (a local variable assigned anywhere in this
@@ -242,6 +254,19 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
             stop: stopMs,
             pausen: pausen,
             prior: prior,
+            priorAfterFalseAlarm: learned,
+            probeLen: probeLen,
+            // Decision E79: every start from the result is remembered
+            // locally as this night's sleep onset (and, if wanted, goes to
+            // Health, E82) -- never an event.
+            onChosen: (globalMs, recognised) => sleepLog.recordChoice(
+              bookId: bookId,
+              sessionId: sleepingSession,
+              manifest: manifest,
+              loGlobalMs: lo,
+              chosenGlobalMs: globalMs,
+              recognised: recognised,
+            ),
             playlistSources: sources,
           ),
         ),
@@ -269,7 +294,6 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
     final session = ref.watch(playerSessionProvider);
     // App-wide since E60 (main.dart watches them too); watched here so the
     // player never runs without them.
-    ref.watch(nightWindowHookProvider);
     final sleepTimer = ref.watch(sleepTimerProvider);
     final night = ref.watch(nightModeProvider);
     // Decision E28: the night view always gets the night look; otherwise

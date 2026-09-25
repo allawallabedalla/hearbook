@@ -117,3 +117,44 @@ SleepPriorAdjustment adjustForSleepOnset({
 
   return SleepPriorAdjustment(hi: newHi, prior: prior);
 }
+
+/// Fastest plausible playback between two heartbeats (the app's top speed
+/// is 2x), with slack for timer jitter: a larger position step between two
+/// samples is a seek, not playback, and is never interpolated across.
+const double _maxPlaybackRate = 3.0;
+const int _rateSlackMs = 2000;
+
+/// How far past the outermost sample a position may lie and still be
+/// mapped (at 1x): the first heartbeat comes up to 5 s after PLAY.
+const int _edgeToleranceMs = 10000;
+
+/// The inverse of [positionAtWallClock] (decision E79): the wall-clock time
+/// at which playback passed [globalMs], from the session's own HEARTBEAT
+/// samples. Linear interpolation between the two samples around it, only
+/// where playback actually ran between them (never across a seek). A
+/// position heard twice (a seek back) maps to the later time, when it was
+/// last heard. Just outside the samples (the first heartbeat comes 5 s
+/// after PLAY) it is extrapolated at 1x for up to 10 s; otherwise, or with
+/// no samples at all, null.
+int? wallClockAtPosition(List<HeartbeatSample> heartbeats, int globalMs) {
+  if (heartbeats.isEmpty) return null;
+  final sorted = [...heartbeats]..sort((a, b) => a.wallMs.compareTo(b.wallMs));
+  for (var i = sorted.length - 2; i >= 0; i--) {
+    final a = sorted[i];
+    final b = sorted[i + 1];
+    if (globalMs < a.globalMs || globalMs > b.globalMs) continue;
+    final dg = b.globalMs - a.globalMs;
+    final dw = b.wallMs - a.wallMs;
+    if (dg > dw * _maxPlaybackRate + _rateSlackMs) continue; // a seek, not playback
+    if (dg == 0) return a.wallMs;
+    return a.wallMs + ((globalMs - a.globalMs) * dw / dg).round();
+  }
+  HeartbeatSample? nearest;
+  for (final s in sorted.reversed) {
+    final d = (s.globalMs - globalMs).abs();
+    if (d > _edgeToleranceMs) continue;
+    if (nearest == null || d < (nearest.globalMs - globalMs).abs()) nearest = s;
+  }
+  if (nearest == null) return null;
+  return nearest.wallMs + (globalMs - nearest.globalMs);
+}

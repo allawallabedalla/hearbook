@@ -2,12 +2,6 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-	<!-- M6 (docs/ARCHITEKTUR.md section 9): HealthKit capability, the
-	     equivalent of ticking "HealthKit" under Xcode's Signing &
-	     Capabilities tab for the Runner target (no Xcode available in the
-	     sandbox this was written in -- see docs/ARCHITEKTUR.md section 13
-	     for that limitation). Read-only use: no background delivery, no
-	     clinical records. -->
 	<key>com.apple.developer.healthkit</key>
 	<true/>
 	<key>com.apple.developer.healthkit.access</key>

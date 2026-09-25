@@ -13,6 +13,7 @@ Wer beim Hören einschläft, verliert den Punkt. Das Hörbuch läuft weiter, am 
 ## Situationen
 
 - **Im Bett:** Sleep-Timer an, Licht aus, einschlafen. Am Morgen Kopfhörer rein, „Faden aufnehmen“.
+- **Im Auto:** Beim Aussteigen reißt die Verbindung ab, die Wiedergabe hält an. Beim nächsten Play geht es 30 s früher weiter, damit du den Faden wieder hast; eine Suche gibt es dafür nie.
 - **Unterwegs:** Das Buch ist geladen, das Handy offline. Die Position wird später synchronisiert.
 - **Zwei Geräte:** Abends Tablet, morgens Handy. Es gilt die Stelle der letzten bewussten Aktion.
 
@@ -26,20 +27,28 @@ Wer beim Hören einschläft, verliert den Punkt. Das Hörbuch läuft weiter, am 
 
 ## Faden aufnehmen
 
-Die App kennt zwei Punkte: den letzten sicheren Wach-Punkt (letzte bewusste Aktion) und den Stopp-Punkt. Liegen mehr als 3 Min dazwischen und lief die Sitzung im Nachtfenster (Standard 20 bis 6 Uhr) oder endete per Sleep-Timer, gilt „Schlaf vermutet“.
+Die App kennt zwei Punkte: den letzten sicheren Wach-Punkt (letzte bewusste Aktion) und den Stopp-Punkt. Liegen mehr als 3 Min dazwischen und lief die Sitzung im Nachtfenster (Standard 20 bis 6 Uhr), endete per Sleep-Timer oder hielten Kopfhörer, AirPods-Einschlaferkennung oder Sperrbildschirm sie an (auch tagsüber), gilt „Schlaf vermutet“. Nie, wenn die Verbindung abriss (Kopfhörer getrennt, Auto verlassen), ein Anruf kam oder CarPlay lief: Dann geht es einfach weiter, nach einem Verbindungsabriss 30 s früher.
 
 Ablauf:
 1. Der Hauptbutton heißt jetzt „Faden aufnehmen“, darunter klein „Ab Stopp weiterhören“.
-2. Ein leiser Ton, dann eine 4 s lange Hörprobe ab einem Satzanfang. Der Screen zeigt sie als Karte: „Probe 2 von höchstens 8“, wo sie liegt („Kapitel 5 · 23:14“, „4 Min. vor dem Stopp“) und als Balken, wie lange Probe und Antwortzeit noch laufen.
+2. Ein leiser Ton, dann eine 6 s lange Hörprobe ab einem Satzanfang (in den Einstellungen 4, 6 oder 8 s). Der Screen zeigt sie als Karte: „Probe 2 von höchstens 8“, wo sie liegt („Kapitel 5 · 23:14“, „4 Min. vor dem Stopp“) und als Balken, wie lange Probe und Antwortzeit noch laufen.
 3. Du antwortest mit einer der zwei großen Tasten „Kenne ich“ oder „Kenne ich nicht“; eine Kopfhörertaste heißt „Kenne ich“. „Kenne ich nicht“ zählt sofort. Tust du bis 3 s nach Ende der Probe nichts, gilt „kenne ich nicht“. „Nochmal hören“ spielt die Probe noch einmal und startet die Antwortzeit neu; es bleibt eine Antwort. Ein Tipp neben die Tasten zählt nicht.
 4. Das Suchfenster halbiert sich, die nächste Probe folgt. Höchstens 8 Proben. Unter der Karte stehen die schon gehörten Stellen mit „erkannt“ oder „nicht erkannt“.
 5. „Gefunden. Weiter ab hier.“ mit der Stelle: Die Wiedergabe startet am letzten erkannten Satz. Darunter stehen die erkannten Stellen, nie eine spätere als das Ergebnis; ein Tipp startet dort. „Früher“ springt zur vorherigen erkannten Stelle. Jeder dieser Sprünge lässt sich rückgängig machen. „Fertig“ führt zurück zum Player.
 
 Regeln:
-- Die erste Probe liegt 25 s vor dem Stopp. Erkennst du sie, warst du wach und die Wiedergabe startet dort. Ein Fehlalarm kostet so nur einen Tipp.
+- Die erste Probe liegt 25 s vor dem Stopp. Erkennst du sie, warst du wach und die Wiedergabe startet dort. Ein Fehlalarm kostet so nur einen Tipp, auch tagsüber, wenn du die AirPods nur herausgenommen hattest.
+- Ab 5 Suchen weiß Faden, wie lange du nach der letzten Berührung meist noch zuhörst. Die zweite Probe liegt dann dort statt in der Mitte; das spart 2–3 Proben. Übersprungen wird dadurch nichts.
 - Unsicher heißt: nichts tun oder „Kenne ich nicht“. Die Suche rutscht dann früher, nie später. Lieber 20 s doppelt hören als etwas verpassen.
 - Langer Druck auf den Screen oder „Abbrechen“ bricht ab und startet am letzten sicheren Wach-Punkt. Langes Drücken auf „Kenne ich“ zählt als „Kenne ich“.
 - Der Screen bleibt dunkel: echtes Schwarz, gedimmte Schrift, Tasten nur als Ring. Oben der Faden, der mit jeder Antwort kürzer wird.
+
+## Faden-Suche lernt mit
+
+- **Einschlafzeiten:** Nach jeder Suche rechnet Faden die zuletzt erkannte Stelle über die Herzschläge in eine Uhrzeit um (±1–2 Min.) und merkt sie sich auf dem Gerät, dazu wann du morgens zuerst getippt hast. In den Einstellungen unter „Deine Einschlafzeiten“ stehen die letzten 14.
+- **Nachtfenster-Vorschlag:** Ab 5 Einschlafzeiten schlägt Faden ein persönliches Nachtfenster vor („Vorschlag: 22:30–01:00 übernehmen“); ein Tipp übernimmt es.
+- **Health (nur iPhone, Standard aus):** „Einschlafzeit in Health eintragen“ schreibt nach der Suche „Im Bett“ von der Einschlafzeit bis zur ersten Berührung am Morgen in Health, nicht, wenn für die Nacht schon Schlafdaten da sind (z. B. von einer Watch).
+- Nichts davon verlässt das Gerät oder wird ein Event. Grenze: Die letzte erkannte Stelle ist die letzte Erinnerung, nicht der messbare Einschlafmoment.
 
 ## Screens
 
@@ -49,7 +58,7 @@ Aufbau: Die Bibliothek ist die Basis der App, der Player liegt darüber. Schlie�
 2. **Details (nach oben wischen oder Griff antippen):** Scrubber für das aktuelle Kapitel mit verstrichener und verbleibender Zeit, Tempo, Sleep-Timer (eine Zeile, die dieselbe Auswahl wie der Sleep-Timer-Knopf im Player öffnet), Verlauf, alle Kapitel mit Titel und Dauer, der Weg zurück zur Bibliothek.
 3. **Faden-Modus:** Vollbild, dunkel, siehe oben.
 4. **Bibliothek:** die Basis, ohne Zurück-Pfeil; oben Sortierung und Einstellungen, unten der Mini-Player, solange ein Buch offen ist. Großer Titel, der beim Scrollen in die Leiste wandert. Oben „Weiterhören“: das zuletzt gehörte Buch als große Karte (großes Cover, Titel fett, Autor, Faden und eine Kapsel „34 % · noch 8 Std.“), die übrigen als kleinere Karten; darunter „Alle Bücher“ mit Suche (sie findet alle, egal welcher Filter gilt). Direkt über „Alle Bücher“ eine Zeile kleiner Filter: „Alle · Läuft · Neu · Gehört“ und, sobald Bücher ein Genre haben, „Genre ▾“; sie gelten nur für „Alle Bücher“, nicht für „Weiterhören“, und das Gerät merkt sie sich. Bleibt nichts übrig: „Keine Bücher in diesem Filter.“ Sortierung (zuletzt gehört, Titel, Autor nach Nachname, Länge) und die Ansicht „Liste“, „Nach Autor“ (je Autor eine Kopfzeile, Bücher ohne Autor unter „Unbekannt“ am Ende) oder „Kacheln“ (zwei Spalten mit großen Covern, Titel und Autor darunter) im Menü oben; das Gerät merkt sich die Wahl. Jedes Buch ist eine eigene abgerundete Karte mit kleinem Abstand zur nächsten; das offene Buch ist hervorgehoben (leicht in `faden` gefüllt, in der Nachtansicht nur umrandet). Je Buch Cover, Autor, Fortschritt als dünner Faden und rechts eine kleine Kapsel mit Restzeit oder „neu“/„gehört“ (bei wenig Platz darunter), Download-Status (geladen, lädt mit der Restmenge „noch 240 MB“ und Abbrechen, Fehler mit „Erneut versuchen“), „Reihenfolge prüfen“. Langer Druck auf ein Buch: „Genre ändern“ (die Genres des Servers oder „Automatisch“; nur mit Verbindung zum Server) und, wenn etwas geladen ist, „Download löschen“. Download löschen auch per Wischen. Ohne Server zuerst „Server einrichten“. Offline sind nicht geladene Bücher gedimmt und als „nur online“ markiert.
-5. **Einstellungen (aus der Bibliothek):** gruppiert wie auf dem iPhone, Erklärungen unter den Zeilen. Server mit „Verbindung prüfen“, Nachtfenster, Erscheinungsbild (Wie iPhone, Hell, Dunkel), Speicher (geladene Bücher; zu Ende gehörte werden automatisch gelöscht), „Aktuelle Bücher automatisch laden“ (im WLAN das offene und das nächste Buch aus „Weiterhören“), „Über Mobilfunk kapitelweise laden“ (Standard aus; siehe unten) mit „Hinweis vor dem Laden über Mobilfunk“, Schlafdaten erlauben, Belegung der Kopfhörertasten. Einen Sleep-Timer-Standard gibt es nicht: Der Timer startet nur über die Auswahl im Player.
+5. **Einstellungen (aus der Bibliothek):** gruppiert wie auf dem iPhone, Erklärungen unter den Zeilen. Server mit „Verbindung prüfen“, Nachtfenster, Erscheinungsbild (Wie iPhone, Hell, Dunkel), Faden-Suche (Probenlänge 4, 6 oder 8 s, Standard 6 s), Deine Einschlafzeiten (mit Nachtfenster-Vorschlag), Speicher (geladene Bücher; zu Ende gehörte werden automatisch gelöscht), „Aktuelle Bücher automatisch laden“ (im WLAN das offene und das nächste Buch aus „Weiterhören“), „Über Mobilfunk kapitelweise laden“ (Standard aus; siehe unten) mit „Hinweis vor dem Laden über Mobilfunk“, Schlafdaten erlauben, Einschlafzeit in Health eintragen (nur iPhone, Standard aus), Belegung der Kopfhörertasten. Einen Sleep-Timer-Standard gibt es nicht: Der Timer startet nur über die Auswahl im Player.
 
 ## Unterwegs über Mobilfunk
 
@@ -126,6 +135,10 @@ Leitbild ist ein einzelner Faden. Er zeigt den Fortschritt im ganzen Buch und is
 | Player, unten | Als Nächstes: Kapitel 5 · Der Weg |
 | Große „Weiterhören“-Karte | 34 % · noch 8 Std. |
 | Genre eines Buchs | Genre ändern · Automatisch; offline: Nur mit Verbindung zum Server. |
+| Einstellungen, Probenlänge | Faden-Suche: 4 Sekunden / 6 Sekunden / 8 Sekunden |
+| Einstellungen, Einschlafzeiten | Deine Einschlafzeiten; leer: Noch keine. Nach jeder Faden-Suche steht hier, wann du ungefähr eingeschlafen bist. |
+| Nachtfenster-Vorschlag | Vorschlag: 22:30–01:00 übernehmen |
+| Health schreiben | Einschlafzeit in Health eintragen |
 
 ## Nicht im MVP
 

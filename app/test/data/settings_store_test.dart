@@ -87,4 +87,25 @@ void main() {
         );
     expect((await settings.libraryView()).status, LibraryStatusFilter.all);
   });
+
+  test('probe length defaults to 6 s and keeps only 4, 6 or 8 s (E77)', () async {
+    expect(await settings.probeLenMs(), 6000);
+    for (final ms in [4000, 6000, 8000]) {
+      await settings.setProbeLenMs(ms);
+      expect(await settings.probeLenMs(), ms);
+    }
+    expect(() => settings.setProbeLenMs(5000), throwsArgumentError);
+  });
+
+  test('health write opt-in is off by default (E82)', () async {
+    expect(await settings.healthWriteOptIn(), isFalse);
+    await settings.setHealthWriteOptIn(true);
+    expect(await settings.healthWriteOptIn(), isTrue);
+  });
+
+  test('sleep onsets are stored as they are given (E79)', () async {
+    expect(await settings.sleepOnsetsJson(), isNull);
+    await settings.setSleepOnsetsJson('[]');
+    expect(await settings.sleepOnsetsJson(), '[]');
+  });
 }

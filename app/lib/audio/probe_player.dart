@@ -31,7 +31,7 @@ class ProbePlayer {
     _bookSources = sources;
   }
 
-  /// docs/KONZEPT.md "Faden aufnehmen": "Ein leiser Ton, dann eine 4 s lange
+  /// docs/KONZEPT.md "Faden aufnehmen": "Ein leiser Ton, dann eine 6 s lange
   /// Hörprobe." Plays the bundled cue tone (assets/sounds/ton.wav, see
   /// docs/ARCHITEKTUR.md section 13) once and waits for it to finish.
   /// Swallows playback errors -- a missing/failed tone must never block the

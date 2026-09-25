@@ -1,4 +1,5 @@
 import '../core/ids.dart';
+import '../domain/faden_search.dart' show defaultProbeLen, probeLengths;
 import 'db.dart';
 
 /// Keys used in [KeyValueSettings]. Kept as string constants (not an enum)
@@ -22,6 +23,9 @@ class SettingsKeys {
   static const libraryStatus = 'library_status';
   static const libraryGrouping = 'library_grouping';
   static const libraryGenre = 'library_genre';
+  static const probeLenMs = 'probe_len_ms';
+  static const sleepOnsets = 'sleep_onsets';
+  static const healthWriteOptIn = 'health_write_opt_in';
 
   /// Prefix of the per-book playback speed (decision E38), one key per
   /// book: `book_speed:<book_id>`.
@@ -242,4 +246,28 @@ class SettingsStore {
 
   Future<void> setBookSpeed(String bookId, double speed) =>
       _set('${SettingsKeys.bookSpeedPrefix}$bookId', speed.toString());
+
+  /// The Faden search's probe length (decision E77): 4, 6 or 8 s, 6 s when
+  /// unset or unknown.
+  Future<int> probeLenMs() async {
+    final v = int.tryParse(await _get(SettingsKeys.probeLenMs) ?? '');
+    return probeLengths.contains(v) ? v! : defaultProbeLen;
+  }
+
+  Future<void> setProbeLenMs(int ms) {
+    if (!probeLengths.contains(ms)) throw ArgumentError.value(ms, 'ms', 'not one of $probeLengths');
+    return _set(SettingsKeys.probeLenMs, ms.toString());
+  }
+
+  /// The stored sleep onsets (decision E79), JSON as written by
+  /// domain/sleep_learning.dart's `encodeOnsets`; null when none. Local
+  /// only: never an event, never synced.
+  Future<String?> sleepOnsetsJson() => _get(SettingsKeys.sleepOnsets);
+
+  Future<void> setSleepOnsetsJson(String json) => _set(SettingsKeys.sleepOnsets, json);
+
+  /// "Einschlafzeit in Health eintragen" (decision E82). Off by default.
+  Future<bool> healthWriteOptIn() async => await _get(SettingsKeys.healthWriteOptIn) == 'true';
+
+  Future<void> setHealthWriteOptIn(bool on) => _set(SettingsKeys.healthWriteOptIn, on.toString());
 }

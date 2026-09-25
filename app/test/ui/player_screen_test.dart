@@ -1018,16 +1018,6 @@ void main() {
       await tearDownPlayer(tester);
     });
 
-    testWidgets('the night window still drives SLEEP_HINT, whatever the brightness', (tester) async {
-      await pumpPlayer(tester, nightWindow: true);
-      expect(handler.isInNightWindow?.call(), isTrue, reason: 'bright screen, but in the window');
-      await tearDownPlayer(tester);
-
-      await pumpPlayer(tester, night: true);
-      expect(handler.isInNightWindow?.call(), isFalse, reason: 'dark screen, but outside the window');
-      await tearDownPlayer(tester);
-    });
-
     testWidgets('shows a dimmed cover, title and chapter small and dimmed; the chapter only once (E65)',
         (tester) async {
       await pumpPlayer(tester, night: true);

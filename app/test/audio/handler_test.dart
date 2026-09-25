@@ -18,6 +18,7 @@ import 'package:faden/data/db.dart';
 import 'package:faden/data/journal.dart';
 import 'package:faden/data/sync.dart';
 import 'package:faden/domain/event.dart';
+import 'package:faden/domain/pause_reason.dart';
 import 'package:faden/domain/manifest.dart';
 import 'package:faden/domain/position.dart';
 import 'package:faden/domain/resolver.dart';
@@ -171,46 +172,41 @@ void main() {
     });
   });
 
-  group('pauseFrom / SLEEP_HINT on media/system pause in the night window', () {
-    test('a media-button pause in the night window also writes SLEEP_HINT', () async {
-      handler.isInNightWindow = () => true;
+  group('pauseFrom / SLEEP_HINT by pause reason (E80)', () {
+    test('a media-button pause writes SLEEP_HINT at any time of day', () async {
       await handler.pauseFrom(EventSource.mediaButton);
       final events = await eventsFor('');
       expect(events.map((e) => e.type), [EventType.pause, EventType.sleepHint]);
+      expect(events[0].data, {'reason': 'unconscious'});
       expect(events[1].source, EventSource.mediaButton);
     });
 
-    test('a system pause in the night window also writes SLEEP_HINT', () async {
-      handler.isInNightWindow = () => true;
+    test('a system pause (AirPods sleep detection, lock screen) too', () async {
       await handler.pauseFrom(EventSource.system);
       final events = await eventsFor('');
       expect(events.map((e) => e.type), [EventType.pause, EventType.sleepHint]);
     });
 
-    test('no SLEEP_HINT outside the night window', () async {
-      handler.isInNightWindow = () => false;
-      await handler.pauseFrom(EventSource.system);
-      final events = await eventsFor('');
-      expect(events.map((e) => e.type), [EventType.pause]);
-    });
-
-    test('no SLEEP_HINT for a UI pause even in the night window', () async {
-      handler.isInNightWindow = () => true;
+    test('no SLEEP_HINT for a UI pause', () async {
       await handler.pauseFrom(EventSource.ui);
       final events = await eventsFor('');
       expect(events.map((e) => e.type), [EventType.pause]);
+      expect(events.single.data, {'reason': 'conscious'});
     });
 
-    test('no SLEEP_HINT when isInNightWindow is unset (safe default)', () async {
-      await handler.pauseFrom(EventSource.system);
+    test('no SLEEP_HINT for a lost connection or an interruption', () async {
+      await handler.pauseFrom(EventSource.system, reason: PauseReason.routeLost);
+      await handler.pauseFrom(EventSource.system, reason: PauseReason.interruption);
       final events = await eventsFor('');
-      expect(events.map((e) => e.type), [EventType.pause]);
+      expect(events.map((e) => e.type), [EventType.pause, EventType.pause]);
+      expect(events.map((e) => e.data['reason']), ['route_lost', 'interruption']);
     });
 
     test('bare pause() (framework/hardware entry point) uses source=system', () async {
       await handler.pause();
       final events = await eventsFor('');
-      expect(events.single.source, EventSource.system);
+      expect(events.first.source, EventSource.system);
+      expect(events.map((e) => e.type), [EventType.pause, EventType.sleepHint]);
     });
 
     test('playPause() takes the play branch with source=ui when not playing', () async {
@@ -340,8 +336,8 @@ void main() {
       // gated methods and reaches its normal source=system PAUSE action.
       await handler.pause();
       final events = await eventsFor('');
-      expect(events.single.type, EventType.pause);
-      expect(events.single.source, EventSource.system);
+      expect(events.first.type, EventType.pause);
+      expect(events.first.source, EventSource.system);
     });
 
     test('fadenModeActive reflects enter/exit', () {
@@ -431,7 +427,7 @@ void main() {
       handler.onLastMinuteExtend = () => false;
       await handler.pause();
       final events = await eventsFor('');
-      expect(events.single.type, EventType.pause);
+      expect(events.map((e) => e.type), [EventType.pause, EventType.sleepHint]);
     });
 
     test('Faden-mode gate takes priority over the extend hook', () async {
