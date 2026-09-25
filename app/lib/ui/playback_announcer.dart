@@ -76,7 +76,7 @@ class _PlaybackAnnouncerState extends ConsumerState<PlaybackAnnouncer> {
       SnackBar(
         content: Text(hint.message),
         action: SnackBarAction(
-          label: AppStrings.undoAction,
+          label: hint.actionLabel ?? AppStrings.undoAction,
           onPressed: () {
             unawaited(HapticFeedback.lightImpact());
             unawaited(_handler.undo(hint.target));

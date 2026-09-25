@@ -23,6 +23,9 @@ class _Recorder {
   final List<({int globalMs, bool recognised})> chosen = [];
   int abortCalls = 0;
 
+  /// Feedback sounds and recheck hooks, in order (E85, E91).
+  final List<String> cues = [];
+
   /// Which probe positions the simulated listener "knows" -- knows p iff
   /// p <= knowsUpTo (mirrors the property tests' "kennt p genau dann, wenn
   /// p <= S" listener model, docs/ARCHITEKTUR.md section 8).
@@ -35,6 +38,7 @@ class _Recorder {
     int? prior,
     bool priorAfterFalseAlarm = false,
     int probeLen = fs.defaultProbeLen,
+    bool waitForProbeStart = false,
   }) {
     return FadenSearchController(
       lo: lo,
@@ -61,10 +65,14 @@ class _Recorder {
       onResumeAt: (start) async {
         resumeCalls.add(start);
       },
-      onAborted: (lastAwake) async {
+      onAborted: () async {
         abortCalls++;
-        resumeCalls.add(lastAwake);
       },
+      answerCue: (known) async => cues.add(known ? 'known' : 'unknown'),
+      resultCue: () async => cues.add('result'),
+      onRecheckStarts: () async => cues.add('recheck-pause'),
+      onRecheckFailed: () async => cues.add('recheck-failed'),
+      waitForProbeStart: waitForProbeStart,
     );
   }
 }
@@ -467,7 +475,7 @@ void main() {
     });
 
     group('abort', () {
-      test('aborting mid-answer-window resumes at last_awake (lo), not the ladder', () {
+      test('"Abbrechen" (E89) resumes nothing: the position stays, nothing plays', () {
         fakeAsync((async) {
           final rec = _Recorder();
           final lo = 3 * 60000;
@@ -477,7 +485,8 @@ void main() {
           controller.abort();
           async.flushMicrotasks();
           expect(rec.abortCalls, 1);
-          expect(rec.resumeCalls, [lo]); // exactly last_awake, no preroll subtracted
+          expect(rec.resumeCalls, isEmpty);
+          expect(rec.probeAnswers, isEmpty);
           expect(rec.stopCount, greaterThanOrEqualTo(1));
           controller.dispose();
         });
@@ -697,6 +706,161 @@ void main() {
           expect(rec.resumeCalls, hasLength(1)); // only the original result
           controller.dispose();
         });
+      });
+    });
+  });
+
+  group('audio feedback (E85)', () {
+    test('a click after "kenne ich", a soft tone after "kenne ich nicht" and a timeout, a double tone before the result',
+        () {
+      fakeAsync((async) {
+        final rec = _Recorder();
+        final controller = rec.build(lo: 0, hi: 40 * 60000);
+        controller.start();
+        async.elapse(const Duration(seconds: 1));
+        controller.answer(known: false); // probe 1
+        async.elapse(const Duration(seconds: 1));
+        controller.answer(known: true); // probe 2
+        async.elapse(const Duration(minutes: 5)); // the rest time out
+        expect(rec.cues.take(2), ['unknown', 'known']);
+        expect(rec.cues.skip(2).where((c) => c != 'result'), everyElement('unknown'));
+        expect(rec.cues.last, 'result');
+        expect(rec.cues.where((c) => c == 'result'), hasLength(1));
+        controller.dispose();
+      });
+    });
+  });
+
+  group('the answer window waits for the probe to play (E85)', () {
+    test('no window runs until probePlaying; then probe + 3 s', () {
+      fakeAsync((async) {
+        final rec = _Recorder();
+        final controller = rec.build(lo: 0, hi: 40 * 60000, waitForProbeStart: true);
+        controller.start();
+        async.elapse(const Duration(seconds: 9)); // a slow stream: still loading
+        expect(rec.probeAnswers, isEmpty);
+        controller.probePlaying();
+        async.elapse(const Duration(milliseconds: fs.defaultProbeLen + fs.answerWindow - 100));
+        expect(rec.probeAnswers, isEmpty);
+        async.elapse(const Duration(milliseconds: 200));
+        expect(rec.probeAnswers, hasLength(1));
+        expect(rec.probeAnswers.single.known, isFalse);
+        controller.dispose();
+      });
+    });
+
+    test('a probe that never starts still gets its window after the longest wait', () {
+      fakeAsync((async) {
+        final rec = _Recorder();
+        final controller = rec.build(lo: 0, hi: 40 * 60000, waitForProbeStart: true);
+        controller.start();
+        async.elapse(FadenSearchController.maxProbeStartWait +
+            const Duration(milliseconds: fs.defaultProbeLen + fs.answerWindow + 100));
+        expect(rec.probeAnswers, hasLength(1));
+        controller.dispose();
+      });
+    });
+
+    test('an answer while the probe still loads counts at once', () {
+      fakeAsync((async) {
+        final rec = _Recorder();
+        final controller = rec.build(lo: 0, hi: 40 * 60000, waitForProbeStart: true);
+        controller.start();
+        async.elapse(const Duration(seconds: 1));
+        controller.answer(known: true);
+        async.flushMicrotasks();
+        expect(rec.probeAnswers.single.known, isTrue);
+        controller.dispose();
+      });
+    });
+  });
+
+  group('"Nochmal prüfen" (E91)', () {
+    /// Runs a search where the listener knows everything up to [knows]
+    /// but answers the probe at [missed] (the first unknown after the
+    /// result would be) wrongly, so there is something to recheck.
+    FadenSearchController resolvedSearch(_Recorder rec, FakeAsync async) {
+      final controller = rec.build(lo: 0, hi: 40 * 60000);
+      controller.start();
+      var n = 0;
+      for (var i = 0; i < 20 && !controller.resolved; i++) {
+        async.elapse(const Duration(seconds: 1));
+        n++;
+        // probe 1 unknown, probe 2 (the midpoint) known, then "no" to all
+        controller.answer(known: n == 2);
+        async.elapse(const Duration(seconds: 1));
+      }
+      async.elapse(const Duration(minutes: 5));
+      return controller;
+    }
+
+    test('offers the earliest "kenne ich nicht" after the result, never one before it', () {
+      fakeAsync((async) {
+        final rec = _Recorder();
+        final controller = resolvedSearch(rec, async);
+        final result = controller.leiter[controller.resultIndex];
+        final unknownAfter = [
+          for (final a in rec.probeAnswers)
+            if (!a.known && a.p > result) a.p,
+        ]..sort();
+        expect(controller.recheckCandidate, unknownAfter.first);
+        controller.dispose();
+      });
+    });
+
+    test('recognised now: the result moves forward there, as a RESUME of its own', () {
+      fakeAsync((async) {
+        final rec = _Recorder();
+        final controller = resolvedSearch(rec, async);
+        final u = controller.recheckCandidate!;
+        final resumesBefore = rec.resumeCalls.length;
+        unawaited(controller.recheck());
+        async.elapse(const Duration(seconds: 1));
+        expect(rec.probesPlayed.last, u);
+        controller.answer(known: true);
+        async.flushMicrotasks();
+        expect(rec.probeAnswers.last, (p: u, known: true));
+        expect(rec.resumeCalls.length, resumesBefore + 1);
+        expect(rec.resumeCalls.last, u);
+        expect(controller.leiter.last, u);
+        expect(controller.resultIndex, controller.leiter.length - 1);
+        expect(rec.cues, contains('recheck-pause'));
+        expect(rec.chosen.last, (globalMs: u, recognised: true));
+        controller.dispose();
+      });
+    });
+
+    test('still not recognised: playback goes on where it was and it is not offered again', () {
+      fakeAsync((async) {
+        final rec = _Recorder();
+        final controller = resolvedSearch(rec, async);
+        final u = controller.recheckCandidate!;
+        final leiter = controller.leiter;
+        final resumesBefore = rec.resumeCalls.length;
+        unawaited(controller.recheck());
+        async.elapse(const Duration(seconds: 1));
+        controller.answer(known: false);
+        async.flushMicrotasks();
+        expect(rec.resumeCalls.length, resumesBefore); // no new position
+        expect(rec.cues.last, 'recheck-failed');
+        expect(controller.leiter, leiter);
+        expect(controller.recheckCandidate, isNot(u));
+        controller.dispose();
+      });
+    });
+
+    test('nothing to recheck after a false alarm', () {
+      fakeAsync((async) {
+        final rec = _Recorder();
+        final controller = rec.build(lo: 0, hi: 40 * 60000);
+        controller.start();
+        async.elapse(const Duration(seconds: 1));
+        controller.answer(known: true);
+        async.flushMicrotasks();
+        expect(controller.resolved, isTrue);
+        expect(controller.falseAlarm, isTrue);
+        expect(controller.recheckCandidate, isNull);
+        controller.dispose();
       });
     });
   });

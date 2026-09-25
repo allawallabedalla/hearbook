@@ -8,6 +8,7 @@ import 'package:faden/data/db.dart';
 import 'package:faden/data/journal.dart';
 import 'package:faden/domain/event.dart';
 import 'package:faden/domain/manifest.dart';
+import 'package:faden/domain/pause_reason.dart';
 import 'package:faden/domain/position.dart';
 import 'package:faden/domain/resolver.dart';
 import 'package:faden/l10n/strings.dart';
@@ -27,7 +28,9 @@ const _manifest = Manifest(manifestId: 'm1', files: [
   ManifestFile(idx: 1, fileHash: 'h1', durationMs: 25 * 60000),
 ]);
 
-BookState _state({required bool sleepSuspected}) => BookState(
+/// Sleep suspected after the sleep timer (the search is the main button,
+/// E86); [byDay] after an unconscious pause by day ("Weiterhören" stays).
+BookState _state({required bool sleepSuspected, bool byDay = false}) => BookState(
       position: const Position(fileHash: 'h1', offsetMs: 5 * 60000),
       globalMs: 25 * 60000,
       lastAwake: const Position(fileHash: 'h1', offsetMs: 0),
@@ -37,6 +40,7 @@ BookState _state({required bool sleepSuspected}) => BookState(
       finished: false,
       needsConfirmation: false,
       sessionId: 's1',
+      stopReason: byDay ? PauseReason.unconscious : PauseReason.timer,
     );
 
 void main() {
@@ -71,6 +75,7 @@ void main() {
       WidgetTester tester, {
       bool open = true,
       bool sleepSuspected = false,
+      bool byDay = false,
       bool playing = false,
     }) async {
       await tester.runAsync(() async {
@@ -84,7 +89,7 @@ void main() {
         session.bookId = 'book-1';
         session.bookTitle = 'Der Zauberberg';
         session.manifest = _manifest;
-        session.bookState = _state(sleepSuspected: sleepSuspected);
+        session.bookState = _state(sleepSuspected: sleepSuspected, byDay: byDay);
       }
       await tester.pumpWidget(
         ProviderScope(
@@ -148,6 +153,14 @@ void main() {
       await tester.tap(find.byIcon(Icons.pause));
       await tester.pumpAndSettle();
       expect(handler.calls, [(action: 'pause', source: EventSource.ui)]);
+      await tearDownHandler(tester);
+    });
+
+    testWidgets('by day without a timer (E86) the button just plays', (tester) async {
+      await pumpLibrary(tester, sleepSuspected: true, byDay: true);
+      await tester.tap(find.byIcon(Icons.play_arrow));
+      await tester.pumpAndSettle();
+      expect(handler.calls, [(action: 'play', source: EventSource.ui)]);
       await tearDownHandler(tester);
     });
 

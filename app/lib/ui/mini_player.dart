@@ -6,6 +6,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../audio/handler.dart';
 import '../audio/playback_status.dart';
 import '../domain/event.dart' show EventSource;
+import '../domain/faden_offer.dart';
 import '../domain/manifest.dart';
 import '../domain/position.dart';
 import '../l10n/strings.dart';
@@ -123,7 +124,9 @@ class MiniPlayer extends ConsumerWidget {
                                 return _PlayPauseButton(
                                   action: miniPlayerAction(
                                     playing: status.playing,
-                                    sleepSuspected: bookState.sleepSuspected,
+                                    // E86: only where the search is the main
+                                    // button; by day it just plays.
+                                    sleepSuspected: fadenOfferFor(bookState) == FadenOffer.primary,
                                   ),
                                   buffering: status.buffering,
                                   tokens: tokens,

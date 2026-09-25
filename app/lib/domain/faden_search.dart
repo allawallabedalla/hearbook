@@ -29,6 +29,12 @@ const int answerWindow = 3000; // ms after the probe ends
 const int firstOffset = 25000; // ms before the stop point
 const int preroll = 2000; // ms
 
+/// Decision E87 (the audit's finding 14): a window up to this long asks
+/// only probe 1 (the false-alarm test 25 s before the stop); not recognised,
+/// playback starts at the last awake proof. Re-listening at most 6 min
+/// costs less than 3-4 more questions and never skips anything.
+const int shortWindow = 6 * 60000; // ms
+
 /// Asks the listener about the probe at `p` (the `probeNr`-th probe taken
 /// so far, 1-based) and resolves to whether they know it ("kenne ich").
 typedef Frage = Future<bool> Function(int p, int probeNr);
@@ -92,6 +98,15 @@ Future<FadenSearchResult> fadenSuche(
     return FadenSearchResult(start: _max(lo - preroll, 0), leiter: [lo]);
   }
 
+  if (hi - lo <= shortWindow) {
+    // E87: probe 1 only, whatever the prior.
+    final p = snap(hi - firstOffset, lo, hi, 2000, pausen, probeLen: probeLen);
+    if (await frage(p, 1)) {
+      return FadenSearchResult(start: p, leiter: [lo, p], falseAlarm: true);
+    }
+    return FadenSearchResult(start: _max(lo - preroll, 0), leiter: [lo]);
+  }
+
   final leiter = <int>[lo];
   var proben = 0;
 
@@ -122,6 +137,39 @@ Future<FadenSearchResult> fadenSuche(
 
   final start = lo == leiter[0] ? _max(lo - preroll, 0) : lo;
   return FadenSearchResult(start: start, leiter: leiter);
+}
+
+/// How many more questions a search over a window of [windowMs] may ask
+/// after its [probeNr]-th ("Noch höchstens 6 Fragen", decision E89):
+/// the probe budget, or none after probe 1 in a short window (E87).
+int remainingQuestions({required int probeNr, required int windowMs}) {
+  final budget = windowMs <= shortWindow ? 1 : maxProbes;
+  final left = budget - probeNr;
+  return left < 0 ? 0 : left;
+}
+
+/// What the result says (decision E88), for where playback runs now
+/// ([leiterIndex]) and the search's own result ([resultIndex]).
+enum FadenResultKind {
+  /// "Gefunden. Weiter ab hier."
+  found,
+
+  /// Probe 1 recognised: "Du warst noch wach. Weiter kurz bevor es anhielt."
+  stillAwake,
+
+  /// Nothing recognised: "Nichts wiedererkannt. Weiter ab deiner letzten
+  /// Berührung."
+  nothingRecognised,
+
+  /// Stepped back to the last awake proof: "Weiter ab deiner letzten
+  /// Berührung."
+  lastTouch,
+}
+
+FadenResultKind fadenResultKind({required bool falseAlarm, required int leiterIndex, required int resultIndex}) {
+  if (leiterIndex == 0) return resultIndex == 0 ? FadenResultKind.nothingRecognised : FadenResultKind.lastTouch;
+  if (falseAlarm && leiterIndex == resultIndex) return FadenResultKind.stillAwake;
+  return FadenResultKind.found;
 }
 
 /// "Früher": steps exactly one entry back through `leiter` from

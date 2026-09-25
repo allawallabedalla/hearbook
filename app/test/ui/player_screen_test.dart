@@ -25,6 +25,7 @@ import 'package:faden/data/journal.dart';
 import 'package:faden/data/settings_store.dart';
 import 'package:faden/domain/event.dart';
 import 'package:faden/domain/manifest.dart';
+import 'package:faden/domain/pause_reason.dart';
 import 'package:faden/domain/position.dart';
 import 'package:faden/domain/resolver.dart';
 import 'package:faden/l10n/strings.dart';
@@ -55,7 +56,14 @@ final _manifest = Manifest(manifestId: 'm1', files: [
     ManifestFile(idx: i, fileHash: 'h$i', durationMs: (20 + i) * 60000, title: 'Kapitel ${i + 1}: Ein Titel'),
 ]);
 
-BookState _state({required bool sleepSuspected, Position position = const Position(fileHash: 'h1', offsetMs: 5 * 60000)}) =>
+/// Sleep suspected after the sleep timer ("Faden aufnehmen" is the main
+/// button, E86), or with [byDay] after an unconscious pause by day
+/// ("Weiterhören" with "Eingeschlafen? Stelle suchen" underneath).
+BookState _state({
+  required bool sleepSuspected,
+  Position position = const Position(fileHash: 'h1', offsetMs: 5 * 60000),
+  bool byDay = false,
+}) =>
     BookState(
       position: position,
       globalMs: 25 * 60000,
@@ -66,6 +74,7 @@ BookState _state({required bool sleepSuspected, Position position = const Positi
       finished: false,
       needsConfirmation: false,
       sessionId: 's1',
+      stopReason: byDay ? PauseReason.unconscious : PauseReason.timer,
     );
 
 const _se = Size(375, 667);
@@ -91,6 +100,7 @@ void main() {
     bool night = false,
     bool nightWindow = false,
     bool sleepSuspected = false,
+    bool byDay = false,
     String title = 'Der Zauberberg',
     String? author = 'Thomas Mann',
     bool serverReachable = true,
@@ -121,8 +131,8 @@ void main() {
       ..bookAuthor = author
       ..manifest = _manifest
       ..bookState = position == null
-          ? _state(sleepSuspected: sleepSuspected)
-          : _state(sleepSuspected: sleepSuspected, position: position);
+          ? _state(sleepSuspected: sleepSuspected, byDay: byDay)
+          : _state(sleepSuspected: sleepSuspected, position: position, byDay: byDay);
 
     const dpr = 3.0;
     tester.view.physicalSize = size * dpr;
@@ -253,6 +263,32 @@ void main() {
         container.read(sleepTimerProvider).cancel();
         await tearDownPlayer(tester);
       });
+    }
+
+    for (final size in [_se, _proMax]) {
+      for (final scale in [1.0, 1.35]) {
+        for (final night in [false, true]) {
+          testWidgets('${night ? 'night' : 'day'}, ${size == _se ? 'SE' : 'Pro Max'} x$scale, '
+              'suspected by day: "Weiterhören" with the search underneath (E86)', (tester) async {
+            await pumpPlayer(
+              tester,
+              size: size,
+              textScale: scale,
+              night: night,
+              sleepSuspected: true,
+              byDay: true,
+              title: _longTitle,
+            );
+            expect(tester.takeException(), isNull);
+            expectOnScreen(tester, find.byType(PlayerMainButton), size);
+            expectOnScreen(tester, find.text(AppStrings.mainButtonAsleepSearch), size);
+            expectOnScreen(tester, find.byType(SleepTimerButton), size);
+            expect(find.text(AppStrings.mainButtonRecordThread), findsNothing);
+            expect(find.text(AppStrings.resumeFromStop), findsNothing);
+            await tearDownPlayer(tester);
+          });
+        }
+      }
     }
 
     testWidgets('night, SE x1.35, sleep suspected', (tester) async {
@@ -401,6 +437,22 @@ void main() {
     expect(tester.getSize(button).height, greaterThanOrEqualTo(fadenMinTapTarget));
     semantics.dispose();
     await tearDownPlayer(tester);
+  });
+
+  group('the offer by day (E86)', () {
+    testWidgets('the main button plays; the line underneath searches', (tester) async {
+      final semantics = tester.ensureSemantics();
+      await pumpPlayer(tester, sleepSuspected: true, byDay: true);
+      expect(find.bySemanticsLabel(AppStrings.playAction), findsOneWidget);
+      await tester.tap(find.byType(PlayerMainButton));
+      await tester.pump();
+      expect(handler.calls, [(action: 'play', source: EventSource.ui)]);
+      final link = find.widgetWithText(TextButton, AppStrings.mainButtonAsleepSearch);
+      expect(link, findsOneWidget);
+      expect(tester.getSize(link).height, greaterThanOrEqualTo(fadenMinTapTarget));
+      semantics.dispose();
+      await tearDownPlayer(tester);
+    });
   });
 
   group('audit fixes (E65)', () {

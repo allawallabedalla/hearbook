@@ -15,11 +15,10 @@ class AppStrings {
     'appTitle': 'Faden',
     'mainButtonListen': 'Weiterhören',
     'mainButtonRecordThread': 'Faden aufnehmen',
-    'resumeFromStop': 'Ab Stopp weiterhören',
+    'resumeFromStop': 'Weiter, wo es anhielt',
     'fadenModePrompt': 'Kennst du diese Stelle?',
     'fadenResultFound': 'Gefunden. Weiter ab hier.',
-    'fadenLadderEarlier': 'Früher',
-    'fadenProbeCounter': 'Probe {n} von höchstens {max}',
+    'fadenLadderEarlier': 'Etwas früher anfangen',
     'undoHint': 'Zurück zu {chapter}, {time}',
     'undoAction': 'Rückgängig',
     'libraryFolderChanged': 'Ordner geändert: Reihenfolge prüfen',
@@ -63,7 +62,7 @@ class AppStrings {
     'confirmManifestSuccess': 'Reihenfolge übernommen.',
     'settingsServerSection': 'Server',
     'settingsNightWindowTitle': 'Nachtfenster',
-    'settingsNightWindowExplanation': 'In dieser Zeit rechnet Faden damit, dass du einschläfst: Läuft das Hörbuch länger als 3 Minuten, ohne dass du etwas tippst oder drückst, bietet Faden danach „Faden aufnehmen“ an. Tagsüber nur, wenn Kopfhörer oder Sperrbildschirm die Wiedergabe angehalten haben – nicht im Auto und nicht, wenn die Verbindung abreißt.',
+    'settingsNightWindowExplanation': 'In dieser Zeit rechnet Faden damit, dass du einschläfst: Läuft das Hörbuch länger als 3 Minuten, ohne dass du etwas tippst oder drückst, bietet Faden danach „Faden aufnehmen“ an, nach 20 Minuten auch, wenn die Kopfhörer die Verbindung verloren haben. Tagsüber nur, wenn Kopfhörer oder Sperrbildschirm die Wiedergabe angehalten haben – nie im Auto.',
     'settingsNightWindowStartPicker': 'Nacht beginnt um',
     'settingsNightWindowEndPicker': 'Nacht endet um',
     'timePickerConfirm': 'Übernehmen',
@@ -145,16 +144,16 @@ class AppStrings {
     'fadenUnknown': 'Kenne ich nicht',
     'fadenReplay': 'Nochmal hören',
     'fadenAbort': 'Abbrechen',
-    'fadenAbortHint': 'Weiter am letzten sicheren Wach-Punkt',
+    'fadenAbortHint': 'Zurück zum Player, ohne etwas zu ändern',
     'fadenStarting': 'Gleich kommt die erste Hörprobe.',
     'fadenPassage': '{chapter} · {time}',
-    'fadenBeforeStop': '{time} vor dem Stopp',
+    'fadenBeforeStop': '{time} bevor es anhielt',
     'durationSeconds': '{n} Sek.',
     'fadenAnswerWindow': 'Zeit zum Antworten',
-    'fadenHeardTitle': 'Schon gehört',
-    'fadenHeardKnown': 'erkannt',
-    'fadenHeardUnknown': 'nicht erkannt',
-    'fadenAlternativesTitle': 'Erkannte Stellen',
+    'fadenHeardTitle': 'Bisher gefragt',
+    'fadenHeardKnown': 'kannte ich',
+    'fadenHeardUnknown': 'kannte ich nicht',
+    'fadenAlternativesTitle': 'Oder hier weiterhören',
     'fadenPlaying': 'läuft',
     'fadenDone': 'Fertig',
     'reviewOffline': 'Reihenfolge prüfen geht nur mit Verbindung zum Server.',
@@ -203,12 +202,31 @@ class AppStrings {
     'settingsProbeLength': '{n} Sekunden',
     'settingsProbeLengthExplanation': 'So lange spielt jede Hörprobe. Kürzere Proben sind schneller vorbei, längere erkennst du leichter wieder.',
     'settingsSleepOnsetsTitle': 'Deine Einschlafzeiten',
-    'settingsSleepOnsetsEmpty': 'Noch keine. Nach jeder Faden-Suche steht hier, wann du ungefähr eingeschlafen bist.',
-    'settingsSleepOnsetsExplanation': 'Die letzte Stelle, die du bei der Faden-Suche wiedererkannt hast, als Uhrzeit. Ab 5 Suchen beginnt die Suche dort, wo du meist einschläfst. Bleibt auf diesem Gerät.',
+    'settingsSleepOnsetsEmpty': 'Noch keine. Nach jeder Faden-Suche in der Nacht steht hier, wann du ungefähr eingeschlafen bist.',
+    'settingsSleepOnsetsExplanation': 'Die letzte Stelle, die du bei der Faden-Suche wiedererkannt hast, als Uhrzeit, nur aus Nächten oder nach dem Sleep-Timer. Ab 5 Nächten fragt Faden zuerst dort, wo du nach dem letzten Tippen meist eingeschlafen bist. Zum Löschen nach links wischen. Bleibt auf diesem Gerät.',
     'settingsNightWindowSuggestion': 'Vorschlag: {time} übernehmen',
     'settingsHealthWrite': 'Einschlafzeit in Health eintragen',
     'settingsHealthWriteDescription': 'Trägt nach der Faden-Suche „Im Bett“ von der errechneten Einschlafzeit bis zu deiner ersten Berührung am Morgen in Health ein, nur wenn für die Nacht noch keine Schlafdaten da sind. Bleibt auf dem iPhone.',
     'settingsHealthWriteDenied': 'Health erlaubt Faden das Eintragen nicht. Du kannst es in der Health-App unter Datenzugriff freigeben.',
+    'fadenQuestionsLeft': 'Noch höchstens {n} Fragen',
+    'fadenQuestionsLeftOne': 'Noch höchstens 1 Frage',
+    'fadenQuestionsLast': 'Letzte Frage',
+    'fadenHeardAt': 'gehört gegen {time} Uhr',
+    'fadenResultStillAwake': 'Du warst noch wach. Weiter kurz bevor es anhielt.',
+    'fadenResultNothing': 'Nichts wiedererkannt. Weiter ab deiner letzten Berührung.',
+    'fadenResultLastTouch': 'Weiter ab deiner letzten Berührung.',
+    'fadenRecheck': 'Nochmal prüfen',
+    'mainButtonAsleepSearch': 'Eingeschlafen? Stelle suchen',
+    'undoHintFaden': 'Rückgängig: wieder, wo es anhielt',
+    'undoActionBack': 'Zurück',
+    'asleepPromptTitle': 'Eingeschlafen?',
+    'asleepPromptPlayingHour': 'Du hörst seit über einer Stunde, ohne etwas anzutippen.',
+    'asleepPromptStoppedHour': 'Es lief über eine Stunde, ohne dass du etwas angetippt hast.',
+    'asleepPromptPlayingMinutes': 'Du hörst seit {n} Min., ohne etwas anzutippen.',
+    'asleepPromptStoppedMinutes': 'Es lief {n} Min., ohne dass du etwas angetippt hast.',
+    'asleepPromptYes': 'Ja, Stelle suchen',
+    'asleepPromptNo': 'Nein, weiterhören',
+    'settingsSleepOnsetDelete': 'Löschen',
   };
 
   static String _of(String key) {
@@ -341,8 +359,20 @@ class AppStrings {
   static String get settingsTokenShow => _of('settingsTokenShow');
   static String get settingsTokenHide => _of('settingsTokenHide');
 
-  static String fadenProbeCounter(int n, int max) =>
-      _of('fadenProbeCounter').replaceAll('{n}', '$n').replaceAll('{max}', '$max');
+  /// "Noch höchstens 6 Fragen" (E89) for [n] questions left after this one;
+  /// "Noch höchstens 1 Frage", and "Letzte Frage" when none is left.
+  static String fadenQuestionsLeft(int n) {
+    if (n <= 0) return _of('fadenQuestionsLast');
+    if (n == 1) return _of('fadenQuestionsLeftOne');
+    return _of('fadenQuestionsLeft').replaceAll('{n}', '$n');
+  }
+
+  /// "gehört gegen 23:12 Uhr" (E89); [time] is a local HH:MM clock time.
+  static String fadenHeardAt(String time) => _of('fadenHeardAt').replaceAll('{time}', time);
+
+  /// The body of "Eingeschlafen?" (E84) with the whole minutes listened.
+  static String asleepPromptPlayingMinutes(int n) => _of('asleepPromptPlayingMinutes').replaceAll('{n}', '$n');
+  static String asleepPromptStoppedMinutes(int n) => _of('asleepPromptStoppedMinutes').replaceAll('{n}', '$n');
 
   /// KONZEPT.md Texte-Tabelle: "Zurück zu Kapitel 7, 23:41". [chapter] is
   /// an already-formatted [chapterLabel] and [time] an mm:ss string.
@@ -484,4 +514,19 @@ class AppStrings {
   /// "Vorschlag: 22:30–01:00 übernehmen" (E81); [range] is already formatted.
   static String settingsNightWindowSuggestion(String range) =>
       _of('settingsNightWindowSuggestion').replaceAll('{time}', range);
+
+  // Faden aufnehmen, audit and "Eingeschlafen?" (E84-E91).
+  static String get fadenResultStillAwake => _of('fadenResultStillAwake');
+  static String get fadenResultNothing => _of('fadenResultNothing');
+  static String get fadenResultLastTouch => _of('fadenResultLastTouch');
+  static String get fadenRecheck => _of('fadenRecheck');
+  static String get mainButtonAsleepSearch => _of('mainButtonAsleepSearch');
+  static String get undoHintFaden => _of('undoHintFaden');
+  static String get undoActionBack => _of('undoActionBack');
+  static String get asleepPromptTitle => _of('asleepPromptTitle');
+  static String get asleepPromptPlayingHour => _of('asleepPromptPlayingHour');
+  static String get asleepPromptStoppedHour => _of('asleepPromptStoppedHour');
+  static String get asleepPromptYes => _of('asleepPromptYes');
+  static String get asleepPromptNo => _of('asleepPromptNo');
+  static String get settingsSleepOnsetDelete => _of('settingsSleepOnsetDelete');
 }

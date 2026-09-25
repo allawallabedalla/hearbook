@@ -17,6 +17,7 @@ import 'package:faden/audio/handler.dart';
 import 'package:faden/core/hlc.dart';
 import 'package:faden/data/db.dart';
 import 'package:faden/data/journal.dart';
+import 'package:faden/data/settings_store.dart';
 import 'package:faden/data/sleep_data_source.dart';
 import 'package:faden/domain/event.dart';
 import 'package:faden/domain/manifest.dart';
@@ -270,4 +271,23 @@ void main() {
       );
     },
   );
+
+  group('the Resolver uses the night window from the settings (E84)', () {
+    test('default 20-06: the session (00:00-00:40) lies in the night window', () async {
+      await session.onRemoteEvents();
+      expect(session.bookState!.inNightWindow, isTrue);
+    });
+
+    test('a window of 12:00-13:00 set by the listener: not in the night window', () async {
+      final store = SettingsStore(db);
+      await store.setNightStartMin(12 * 60);
+      await store.setNightEndMin(13 * 60);
+      final withSettings = PlayerSessionController(handler: handler, journal: journal, settings: store)
+        ..bookId = bookId
+        ..manifest = manifest;
+      await withSettings.onRemoteEvents();
+      expect(withSettings.bookState!.inNightWindow, isFalse);
+      withSettings.dispose();
+    });
+  });
 }

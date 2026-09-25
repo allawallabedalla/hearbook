@@ -9,6 +9,8 @@ import UIKit
   private var brightnessChannel: FlutterMethodChannel?
   private var brightnessEvents: FlutterEventChannel?
   private let brightnessStream = BrightnessStreamHandler()
+  /// Kept alive for the app's lifetime (lib/signals/screen_awake.dart).
+  private var screenChannel: FlutterMethodChannel?
 
   override func application(
     _ application: UIApplication,
@@ -21,6 +23,7 @@ import UIKit
     GeneratedPluginRegistrant.register(with: engineBridge.pluginRegistry)
 
     registerBrightnessChannels(engineBridge)
+    registerScreenChannel(engineBridge)
 
     // Downloaded audio can be gigabytes and is re-downloadable from the
     // server, so it must not go into the iCloud backup (decision E35).
@@ -51,6 +54,28 @@ import UIKit
       }
     }
     storageChannel = channel
+  }
+
+  /// While the Faden screen is open the phone must not lock itself between
+  /// two probes (decision E85): only the auto-lock is held back.
+  private func registerScreenChannel(_ engineBridge: FlutterImplicitEngineBridge) {
+    guard let registrar = engineBridge.pluginRegistry.registrar(forPlugin: "FadenScreen") else {
+      return
+    }
+    let channel = FlutterMethodChannel(
+      name: "de.faden.app/screen",
+      binaryMessenger: registrar.messenger()
+    )
+    channel.setMethodCallHandler { call, result in
+      guard call.method == "keepOn" else {
+        result(FlutterMethodNotImplemented)
+        return
+      }
+      let on = (call.arguments as? [String: Any])?["on"] as? Bool ?? false
+      UIApplication.shared.isIdleTimerDisabled = on
+      result(nil)
+    }
+    screenChannel = channel
   }
 
   /// The display brightness switches the night view (decision E54). Only

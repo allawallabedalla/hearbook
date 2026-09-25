@@ -17,6 +17,11 @@ const int sleepDistanceThresholdMs = 3 * 60000; // section 7 rule 5: >= 3 min
 const int jumpThresholdMs = 2 * 60000; // section 7 rule 6 / invariant 6: > 2 min
 const int historyLimit = 20; // section 7: "history", at most 20
 
+/// Decision E84: in the night window, a lost connection (headphone battery
+/// empty) after at least this long without an awake proof is suspected
+/// like an unconscious pause -- except in the car.
+const int nightRouteLostSuspectMs = 20 * 60000;
+
 /// Resolver output, docs/ARCHITEKTUR.md section 7.
 class BookState {
   final Position position;
@@ -48,6 +53,15 @@ class BookState {
   /// exposed.
   final String sessionId;
 
+  /// Whether an event of the winning session lies in the night window
+  /// (rule 5's night check), for the player's offer and the learning
+  /// (decision E84). False when unknown.
+  final bool inNightWindow;
+
+  /// The reason of the winning session's last PAUSE (decision E80), null
+  /// without one (still playing, reached the book end, older events).
+  final PauseReason? stopReason;
+
   const BookState({
     required this.position,
     required this.globalMs,
@@ -58,6 +72,8 @@ class BookState {
     required this.finished,
     required this.needsConfirmation,
     required this.sessionId,
+    this.inNightWindow = false,
+    this.stopReason,
   });
 }
 
@@ -197,7 +213,17 @@ BookState resolve(
   for (final e in sessionEvents) {
     if (e.type == EventType.pause) stopPause = e;
   }
-  final ruledOut = stopPause != null && rulesOutSleep(stopPause);
+  // Decision E84: in the night window a lost connection after 20 min
+  // without an awake proof (the headphones' battery died while asleep)
+  // still counts; the car never does.
+  final routeLostAsleep = stopPause != null &&
+      pauseReasonOf(stopPause) == PauseReason.routeLost &&
+      stopPause.data['route'] != carRouteName &&
+      inNightWindow &&
+      lastAwakeGlobalMs != null &&
+      stopGlobalMs != null &&
+      stopGlobalMs - lastAwakeGlobalMs >= nightRouteLostSuspectMs;
+  final ruledOut = stopPause != null && rulesOutSleep(stopPause) && !routeLostAsleep;
   final sleepSuspected =
       sleepDistanceOk && (inNightWindow || containsSleepHint) && !resumeAfterStop && !ruledOut;
 
@@ -215,5 +241,7 @@ BookState resolve(
     finished: finished,
     needsConfirmation: needsConfirmation,
     sessionId: winningSessionId,
+    inNightWindow: inNightWindow,
+    stopReason: stopPause == null ? null : pauseReasonOf(stopPause),
   );
 }

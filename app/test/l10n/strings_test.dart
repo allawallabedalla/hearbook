@@ -73,12 +73,21 @@ void main() {
       expect(AppStrings.settingsHealthDataOptInDescription(AppStrings.healthSourceIos), contains('aus Health,'));
     });
 
-    test('fadenProbeCounter matches the KONZEPT.md pattern',
-        () => expect(AppStrings.fadenProbeCounter(3, 8), 'Probe 3 von höchstens 8'));
+    test('fadenQuestionsLeft in plain words (E89)', () {
+      expect(AppStrings.fadenQuestionsLeft(6), 'Noch höchstens 6 Fragen');
+      expect(AppStrings.fadenQuestionsLeft(1), 'Noch höchstens 1 Frage');
+      expect(AppStrings.fadenQuestionsLeft(0), 'Letzte Frage');
+    });
+
+    test('fadenHeardAt and the "Eingeschlafen?" minutes (E84, E89)', () {
+      expect(AppStrings.fadenHeardAt('23:12'), 'gehört gegen 23:12 Uhr');
+      expect(AppStrings.asleepPromptPlayingMinutes(25), 'Du hörst seit 25 Min., ohne etwas anzutippen.');
+      expect(AppStrings.asleepPromptStoppedMinutes(31), 'Es lief 31 Min., ohne dass du etwas angetippt hast.');
+    });
 
     test('Faden passages (E64)', () {
       expect(AppStrings.fadenPassage(AppStrings.chapterLabel(5), '23:14'), 'Kapitel 5 · 23:14');
-      expect(AppStrings.fadenBeforeStop(AppStrings.durationSeconds(25)), '25 Sek. vor dem Stopp');
+      expect(AppStrings.fadenBeforeStop(AppStrings.durationSeconds(25)), '25 Sek. bevor es anhielt');
     });
   });
 }

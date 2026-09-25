@@ -11,6 +11,7 @@
 library;
 
 import 'dart:convert';
+import 'dart:math' show max;
 
 /// At most this many onsets are stored; the oldest go first.
 const int maxStoredOnsets = 60;
@@ -227,6 +228,42 @@ SuggestedNightWindow? suggestNightWindow(List<SleepOnsetRecord> onsets) {
   final end = ((percentile(0.9) + nightWindowPaddingMin) / nightWindowGridMin).ceil() * nightWindowGridMin;
   if (end - start > maxSuggestedWindowMin) return null;
   return SuggestedNightWindow(startMin: start % day, endMin: end % day);
+}
+
+/// The night window after taking over [suggestion] (decision E90): the
+/// smallest window that contains both the current one and the suggestion,
+/// so taking it over only ever widens the window (a narrower suggestion
+/// would stop Faden from suspecting sleep where it does now). Null when
+/// the suggestion adds nothing (it lies inside the current window) or the
+/// current window is the whole day.
+SuggestedNightWindow? widenNightWindow({
+  required int currentStartMin,
+  required int currentEndMin,
+  required SuggestedNightWindow suggestion,
+}) {
+  const day = 24 * 60;
+  int len(int s, int e) => ((e - s) % day + day) % day;
+  final curLen = len(currentStartMin, currentEndMin);
+  if (curLen == 0) return null; // start == end: always night
+  final sugLen = len(suggestion.startMin, suggestion.endMin);
+  if (sugLen == 0) return null;
+  // Either span starts at one window's start and runs clockwise until
+  // both are covered; the shorter one wins.
+  final fromCurrent = max(curLen, len(currentStartMin, suggestion.startMin) + sugLen);
+  final fromSuggestion = max(sugLen, len(suggestion.startMin, currentStartMin) + curLen);
+  final int start;
+  final int length;
+  if (fromCurrent <= fromSuggestion) {
+    start = currentStartMin;
+    length = fromCurrent;
+  } else {
+    start = suggestion.startMin;
+    length = fromSuggestion;
+  }
+  if (length >= day) return null;
+  final end = (start + length) % day;
+  if (start == currentStartMin && end == currentEndMin) return null;
+  return SuggestedNightWindow(startMin: start, endMin: end);
 }
 
 /// "Im Bett" for Health (E82): from the onset to the first awake proof

@@ -551,7 +551,7 @@ class _StorageSectionState extends ConsumerState<_StorageSection> {
 /// "Deine Einschlafzeiten" (decisions E79, E81): the last 14 onsets the
 /// Faden search found, newest first, and from 5 onsets a suggested night
 /// window to take over with one tap. Read from this device only.
-class SleepOnsetsSection extends ConsumerWidget {
+class SleepOnsetsSection extends ConsumerStatefulWidget {
   /// The night window now, to hide a suggestion that is already set.
   final NightWindow window;
 
@@ -560,12 +560,28 @@ class SleepOnsetsSection extends ConsumerWidget {
   static const int shown = 14;
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<SleepOnsetsSection> createState() => _SleepOnsetsSectionState();
+}
+
+class _SleepOnsetsSectionState extends ConsumerState<SleepOnsetsSection> {
+  /// Swiped away, gone from the list at once (the store follows).
+  final Set<String> _removed = {};
+
+  @override
+  Widget build(BuildContext context) {
+    final window = widget.window;
+    const shown = SleepOnsetsSection.shown;
     final tokens = FadenTokens.of(context);
-    final onsets = ref.watch(sleepOnsetsProvider).value ?? const <SleepOnsetRecord>[];
-    final suggestion = suggestNightWindow(onsets);
-    final showSuggestion = suggestion != null &&
-        (suggestion.startMin != window.startMin || suggestion.endMin != window.endMin);
+    final onsets = [
+      for (final o in ref.watch(sleepOnsetsProvider).value ?? const <SleepOnsetRecord>[])
+        if (!_removed.contains(o.sessionId)) o,
+    ];
+    // E90: taking the suggestion over only ever widens the window.
+    final raw = suggestNightWindow(onsets);
+    final suggestion = raw == null
+        ? null
+        : widenNightWindow(currentStartMin: window.startMin, currentEndMin: window.endMin, suggestion: raw);
+    final showSuggestion = suggestion != null;
     final newest = onsets.reversed.take(shown).toList();
     final rowStyle = TextStyle(
       color: tokens.tinte,
@@ -597,11 +613,30 @@ class SleepOnsetsSection extends ConsumerWidget {
               style: TextStyle(color: tokens.leiseAufFlaeche, fontSize: FadenTypeSizes.body),
             ),
           ),
+        // E90: a wrong night can be swiped away.
         for (final onset in newest)
-          ListTile(
-            minTileHeight: fadenMinTapTarget,
-            title: Text(formatOnsetDate(onset.localDate), style: rowStyle),
-            trailing: Text(formatMinutesOfDay(onset.localMinuteOfDay), style: rowStyle),
+          Dismissible(
+            key: ValueKey('sleep-onset-${onset.sessionId}'),
+            direction: DismissDirection.endToStart,
+            background: ColoredBox(
+              color: tokens.fehler,
+              child: Align(
+                alignment: Alignment.centerRight,
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 16),
+                  child: Text(AppStrings.settingsSleepOnsetDelete, style: TextStyle(color: tokens.grund)),
+                ),
+              ),
+            ),
+            onDismissed: (_) {
+              setState(() => _removed.add(onset.sessionId));
+              unawaited(ref.read(sleepLogProvider).deleteOnset(onset.sessionId));
+            },
+            child: ListTile(
+              minTileHeight: fadenMinTapTarget,
+              title: Text(formatOnsetDate(onset.localDate), style: rowStyle),
+              trailing: Text(formatMinutesOfDay(onset.localMinuteOfDay), style: rowStyle),
+            ),
           ),
       ],
       footer: Text(AppStrings.settingsSleepOnsetsExplanation),

@@ -190,6 +190,62 @@ void main() {
     });
   });
 
+  group('widenNightWindow (E90: the suggestion only widens)', () {
+    const h = 60;
+    (int, int)? widen(int s, int e, int ss, int se) {
+      final w = widenNightWindow(
+        currentStartMin: s,
+        currentEndMin: e,
+        suggestion: SuggestedNightWindow(startMin: ss, endMin: se),
+      );
+      return w == null ? null : (w.startMin, w.endMin);
+    }
+
+    test('a suggestion inside the current window changes nothing', () {
+      expect(widen(20 * h, 6 * h, 22 * h + 30, 1 * h), isNull);
+      expect(widen(20 * h, 6 * h, 20 * h, 6 * h), isNull);
+    });
+
+    test('a later end widens the end only', () {
+      expect(widen(20 * h, 6 * h, 23 * h, 7 * h), (20 * h, 7 * h));
+    });
+
+    test('an earlier start widens the start only', () {
+      expect(widen(20 * h, 6 * h, 19 * h, 2 * h), (19 * h, 6 * h));
+    });
+
+    test('a suggestion around the current window replaces it', () {
+      expect(widen(22 * h, 2 * h, 21 * h, 3 * h), (21 * h, 3 * h));
+    });
+
+    test('disjoint: the shorter span covering both, never narrower', () {
+      // 22-02 and 03-05: 22-05 (7 h) instead of 03-02 (23 h).
+      expect(widen(22 * h, 2 * h, 3 * h, 5 * h), (22 * h, 5 * h));
+      // 01-03 and 22-23: 22-03.
+      expect(widen(1 * h, 3 * h, 22 * h, 23 * h), (22 * h, 3 * h));
+    });
+
+    test('a whole-day window cannot widen', () {
+      expect(widen(0, 0, 22 * h, 2 * h), isNull);
+    });
+
+    test('the result always contains the current window', () {
+      final rng = Random(7);
+      for (var i = 0; i < 2000; i++) {
+        final s = rng.nextInt(24 * 4) * 15, e = rng.nextInt(24 * 4) * 15;
+        final ss = rng.nextInt(24 * 4) * 15, se = rng.nextInt(24 * 4) * 15;
+        if (s == e || ss == se) continue;
+        final w = widen(s, e, ss, se);
+        if (w == null) continue;
+        bool inside(int m, int a, int b) => a < b ? m >= a && m < b : m >= a || m < b;
+        for (var m = 0; m < 24 * 60; m += 15) {
+          if (inside(m, s, e)) expect(inside(m, w.$1, w.$2), isTrue, reason: '$s-$e + $ss-$se -> $w at $m');
+          if (inside(m, ss, se)) expect(inside(m, w.$1, w.$2), isTrue, reason: '$s-$e + $ss-$se -> $w at $m');
+        }
+      }
+    });
+  });
+
   group('inBedInterval (E82)', () {
     final onset = _onsetAt(23, 0);
 

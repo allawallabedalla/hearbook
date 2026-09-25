@@ -10,8 +10,10 @@ import '../core/hlc.dart';
 import '../core/ids.dart';
 import '../data/journal.dart';
 import '../data/sync.dart';
+import '../domain/asleep_prompt.dart';
 import '../domain/auto_rewind.dart';
 import '../domain/event.dart';
+import '../domain/faden_gestures.dart';
 import '../domain/manifest.dart';
 import '../domain/pause_reason.dart';
 import '../domain/position.dart';
@@ -139,8 +141,24 @@ class FadenAudioHandler extends BaseAudioHandler {
   final List<StreamSubscription<Object?>> _sessionSubs = [];
 
   final AwakeGate _awakeGate;
-  bool _fadenModeActive = false;
-  final StreamController<void> _fadenAnswerController = StreamController<void>.broadcast();
+
+  /// Where the Faden search stands for the headphone buttons (E85): null
+  /// when it does not run.
+  FadenRemotePhase? _fadenPhase;
+  bool Function() _fadenCanGoEarlier = _never;
+  static bool _never() => false;
+  final StreamController<RemoteCommand> _fadenAnswerController = StreamController<RemoteCommand>.broadcast();
+
+  /// The listening since the last awake proof, for "Eingeschlafen?"
+  /// (decision E84): fed with every event this handler journals.
+  final ListeningStretchTracker _stretch = ListeningStretchTracker();
+  final StreamController<void> _stretchController = StreamController<void>.broadcast();
+
+  /// Optional hook (decision E86, the audit's finding 1): a play from the
+  /// lock screen, Control Center or the headphones while sleep is
+  /// suspected starts the Faden search instead of playing. Returns true
+  /// when it took the play over. Wired from ui/faden_session.dart.
+  Future<bool> Function()? onRemotePlay;
 
   /// Optional hook: signals/sleep_timer.dart's `extendIfInLastMinute`,
   /// wired from ui/player_screen.dart. Returning true means a media-button
@@ -318,6 +336,8 @@ class FadenAudioHandler extends BaseAudioHandler {
     _sessionActive = false;
     _resumeAfterInterruption = false;
     _lastIndex = null;
+    _stretch.reset();
+    _stretchController.add(null);
     _setStatus(_status.copyWith(clearError: true));
     // Fold in the newest HLC of every stored event (own and remote), not
     // just this device's own: never lowers a clock already advanced by a
@@ -422,7 +442,9 @@ class FadenAudioHandler extends BaseAudioHandler {
 
   @override
   Future<void> play() async {
-    if (await _interceptMediaButton()) return;
+    if (await _interceptMediaButton(RemoteCommand.play)) return;
+    final hook = onRemotePlay;
+    if (hook != null && !playing && await hook()) return;
     await playFrom(EventSource.system);
   }
 
@@ -503,7 +525,7 @@ class FadenAudioHandler extends BaseAudioHandler {
 
   @override
   Future<void> pause() async {
-    if (await _interceptMediaButton()) return;
+    if (await _interceptMediaButton(RemoteCommand.pause)) return;
     await pauseFrom(EventSource.system);
   }
 
@@ -551,29 +573,55 @@ class FadenAudioHandler extends BaseAudioHandler {
 
   Future<void> playPause() => playing ? pauseFrom(EventSource.ui) : playFrom(EventSource.ui);
 
+  /// "Eingeschlafen?" -> "Ja, Stelle suchen" (decision E84): stops the
+  /// book the listener slept through, journaled first. Neither the pause
+  /// nor what follows is an awake proof: a PAUSE with `source=faden`,
+  /// reason `unconscious`, and a SLEEP_HINT (the listener just said so),
+  /// so an aborted search leaves the suspicion in place. Returns the
+  /// stretch as it was, for the search window.
+  Future<ListeningStretch> pauseForAsleepSearch() async {
+    final stretch = this.stretch;
+    if (playing) await _pause(EventSource.faden, reason: PauseReason.unconscious);
+    return stretch;
+  }
+
+  /// The listening since the last awake proof (E84), now.
+  ListeningStretch get stretch => _stretch.snapshot(clock.nowMs());
+
+  /// Emits whenever [stretch] may have changed its state (an event was
+  /// journaled, another book opened).
+  Stream<void> get stretchChanges => _stretchController.stream;
+
+  /// Whether CarPlay is the audio output right now (E80).
+  bool get carRoute => _carRoute;
+
+  /// The session the last events belong to (the one a listener fell asleep
+  /// in, after its stop), or null before anything was journaled.
+  String? get sessionId => _sessionId;
+
   /// docs/ARCHITEKTUR.md section 9: hardware media buttons "Weiter" /
   /// "Zurück" are +/-30s, not a chapter skip.
   @override
   Future<void> skipToNext() async {
-    if (await _interceptMediaButton()) return;
+    if (await _interceptMediaButton(RemoteCommand.next)) return;
     await seekBySeconds(30, source: EventSource.mediaButton);
   }
 
   @override
   Future<void> skipToPrevious() async {
-    if (await _interceptMediaButton()) return;
+    if (await _interceptMediaButton(RemoteCommand.previous)) return;
     await seekBySeconds(-30, source: EventSource.mediaButton);
   }
 
   @override
   Future<void> fastForward() async {
-    if (await _interceptMediaButton()) return;
+    if (await _interceptMediaButton(RemoteCommand.fastForward)) return;
     await seekBySeconds(30, source: EventSource.mediaButton);
   }
 
   @override
   Future<void> rewind() async {
-    if (await _interceptMediaButton()) return;
+    if (await _interceptMediaButton(RemoteCommand.rewind)) return;
     await seekBySeconds(-30, source: EventSource.mediaButton);
   }
 
@@ -591,21 +639,44 @@ class FadenAudioHandler extends BaseAudioHandler {
   /// renders transport controls while this is true, so any call received
   /// here during Faden mode is, by construction, hardware/system-originated,
   /// never our own on-screen UI.
-  void enterFadenMode() => _fadenModeActive = true;
+  ///
+  /// Decision E85: each button now means something of its own
+  /// (domain/faden_gestures.dart): 1x "Kenne ich", 2x "Kenne ich nicht",
+  /// 3x "Nochmal hören"; the command goes out on [fadenModeAnswers].
+  void enterFadenMode() {
+    _fadenPhase = FadenRemotePhase.search;
+    _fadenCanGoEarlier = _never;
+  }
+
+  /// The result plays (E85): the buttons act normally again, except 3x
+  /// ("Etwas früher anfangen") while [canGoEarlier] says there is an
+  /// earlier passage.
+  void enterFadenResultMode({required bool Function() canGoEarlier}) {
+    _fadenPhase = FadenRemotePhase.result;
+    _fadenCanGoEarlier = canGoEarlier;
+  }
 
   /// Ends Faden mode (search resolved, aborted, or the screen closed).
-  void exitFadenMode() => _fadenModeActive = false;
+  void exitFadenMode() {
+    _fadenPhase = null;
+    _fadenCanGoEarlier = _never;
+  }
 
-  bool get fadenModeActive => _fadenModeActive;
+  /// Whether probes are being asked (every button is an answer).
+  bool get fadenModeActive => _fadenPhase == FadenRemotePhase.search;
 
-  /// Emits once per media-button press received while [fadenModeActive] is
-  /// true. ui/faden_screen.dart listens for this alongside a screen tap to
-  /// resolve each probe's "kennst du das?" question.
-  Stream<void> get fadenModeAnswers => _fadenAnswerController.stream;
+  /// Whether a Faden search runs or shows its result.
+  bool get fadenSearchRunning => _fadenPhase != null;
 
-  bool _consumeAsFadenAnswer() {
-    if (!_fadenModeActive) return false;
-    _fadenAnswerController.add(null);
+  /// Emits the command of every button press Faden mode took over.
+  /// ui/faden_session.dart maps it to an answer ([fadenGestureFor]).
+  Stream<RemoteCommand> get fadenModeAnswers => _fadenAnswerController.stream;
+
+  bool _consumeAsFadenAnswer(RemoteCommand command) {
+    final phase = _fadenPhase;
+    if (phase == null) return false;
+    if (fadenGestureFor(command, phase, canGoEarlier: _fadenCanGoEarlier()) == null) return false;
+    _fadenAnswerController.add(command);
     return true;
   }
 
@@ -621,8 +692,8 @@ class FadenAudioHandler extends BaseAudioHandler {
   /// expected to overlap in practice, but Faden mode is the more specific
   /// state). Returns true if either consumed the call, in which case the
   /// caller must skip its normal transport action.
-  Future<bool> _interceptMediaButton() async {
-    if (_consumeAsFadenAnswer()) return true;
+  Future<bool> _interceptMediaButton(RemoteCommand command) async {
+    if (_consumeAsFadenAnswer(command)) return true;
     return _consumeAsLastMinuteExtend();
   }
 
@@ -690,7 +761,7 @@ class FadenAudioHandler extends BaseAudioHandler {
   /// player there and starts playback (docs/KONZEPT.md: "Die Wiedergabe
   /// startet am letzten erkannten Satz.").
   Future<void> resumeFromFaden(Position target, {required int? fileIndex}) =>
-      _resumeTo(target, fileIndex: fileIndex, source: EventSource.faden);
+      _resumeTo(target, fileIndex: fileIndex, source: EventSource.faden, fromFaden: true);
 
   /// docs/KONZEPT.md "Faden aufnehmen": "Ab Stopp weiterhören" -- skips the
   /// search entirely and resumes exactly at the stop point (shown as a
@@ -702,6 +773,7 @@ class FadenAudioHandler extends BaseAudioHandler {
     Position target, {
     required int? fileIndex,
     required EventSource source,
+    bool fromFaden = false,
   }) async {
     // Invariant 6: a RESUME after falling asleep opens a new session, so the
     // Resolver's history (rule 6, winning session only) never records this
@@ -718,8 +790,10 @@ class FadenAudioHandler extends BaseAudioHandler {
       _setStatus(_status.copyWith(clearError: true));
     });
     if (manifest != null && fromGlobalMs != null && toGlobalMs != null) {
-      final hint =
+      var hint =
           undoHintForJump(from: from, fromGlobalMs: fromGlobalMs, toGlobalMs: toGlobalMs, manifest: manifest);
+      // E89: after the Faden search, the way back is "where it stopped".
+      if (hint != null && fromFaden) hint = UndoHint.fromFaden(hint.target);
       if (hint != null) _undoHintController.add(hint);
     }
     _startPlayback();
@@ -781,7 +855,7 @@ class FadenAudioHandler extends BaseAudioHandler {
   /// Ignored in Faden mode, where the main player is not what plays.
   @override
   Future<void> seek(Duration position) async {
-    if (_fadenModeActive) return;
+    if (fadenModeActive) return;
     final manifest = _manifest;
     final idx = _lastIndex;
     if (manifest == null || idx == null || idx < 0 || idx >= manifest.files.length) return;
@@ -820,7 +894,7 @@ class FadenAudioHandler extends BaseAudioHandler {
   /// whether the player moved.
   Future<bool> adoptRemotePosition(Position target) async {
     final manifest = _manifest;
-    if (manifest == null || playing || _fadenModeActive) return false;
+    if (manifest == null || playing || fadenSearchRunning) return false;
     final idx = manifest.indexOf(target.fileHash);
     if (idx < 0) return false;
     final from = _currentPosition();
@@ -918,6 +992,10 @@ class FadenAudioHandler extends BaseAudioHandler {
 
   Future<T> _journal<T>(Event event, Future<T> Function() action) async {
     final result = await journal.record(event, action);
+    if (event.type != EventType.heartbeat) {
+      _stretch.onEvent(event, globalMs: _manifest?.globalMsFor(event.position));
+      if (!_stretchController.isClosed) _stretchController.add(null);
+    }
     if (!_eventsWrittenController.isClosed) _eventsWrittenController.add(event);
     return result;
   }
@@ -1110,6 +1188,7 @@ class FadenAudioHandler extends BaseAudioHandler {
     await _undoHintController.close();
     await _eventsWrittenController.close();
     await _fadenAnswerController.close();
+    await _stretchController.close();
     await _remoteEventsController.close();
     await _chapterAdvancedController.close();
     await _statusController.close();

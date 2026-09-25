@@ -46,6 +46,14 @@ class _FakeHealthWriter implements SleepHealthWriter {
   Future<bool> writeInBed({required int startWallMs, required int endWallMs}) async => true;
 }
 
+/// A night window of 23:00-00:30, which the suggestion 22:30-01:00 widens
+/// (E90: a suggestion only ever widens the window).
+Future<void> _seedOnsetsNarrowWindow(SettingsStore store) async {
+  await store.setSleepOnsetsJson(encodeOnsets(_onsets()));
+  await store.setNightStartMin(23 * 60);
+  await store.setNightEndMin(30);
+}
+
 /// Five onsets around midnight (UTC, tz 0): 23:00 ... 00:30.
 List<SleepOnsetRecord> _onsets() {
   const day = 1790208000000; // 2026-09-24 00:00 UTC
@@ -416,7 +424,7 @@ void main() {
 
     testWidgets('lists the onsets newest first and takes the suggested night window over in one tap (E81)',
         (tester) async {
-      await pumpSettings(tester, seed: (store) => store.setSleepOnsetsJson(encodeOnsets(_onsets())));
+      await pumpSettings(tester, seed: _seedOnsetsNarrowWindow);
       expect(find.text(AppStrings.settingsSleepOnsetsEmpty), findsNothing);
       expect(find.text('30.09.'), findsOneWidget);
       expect(find.text('24.09.'), findsOneWidget);
@@ -425,7 +433,8 @@ void main() {
         lessThan(tester.getTopLeft(find.text('24.09.')).dy),
         reason: 'newest first',
       );
-      expect(find.text('00:30'), findsOneWidget);
+      // The newest onset, and the window's end (23:00-00:30).
+      expect(find.text('00:30'), findsNWidgets(2));
       final suggestion = find.text(AppStrings.settingsNightWindowSuggestion('22:30–01:00'));
       expect(suggestion, findsOneWidget);
 
@@ -444,7 +453,7 @@ void main() {
               (tester) async {
             await pumpSettings(
               tester,
-              seed: (store) => store.setSleepOnsetsJson(encodeOnsets(_onsets())),
+              seed: _seedOnsetsNarrowWindow,
               healthWriter: _FakeHealthWriter(),
               size: size,
               textScale: scale,
@@ -459,6 +468,42 @@ void main() {
         }
       }
     }
+
+    testWidgets('a suggestion inside the current window is not offered: it would narrow it (E90)',
+        (tester) async {
+      // The default window 20:00-06:00 already covers 22:30-01:00.
+      await pumpSettings(tester, seed: (store) => store.setSleepOnsetsJson(encodeOnsets(_onsets())));
+      expect(find.textContaining('Vorschlag'), findsNothing);
+      await tearDownAll(tester);
+    });
+
+    testWidgets('a suggestion reaching past the window widens it, never narrows (E90)', (tester) async {
+      await pumpSettings(tester, seed: (store) async {
+        await store.setSleepOnsetsJson(encodeOnsets(_onsets()));
+        await store.setNightStartMin(20 * 60);
+        await store.setNightEndMin(0);
+      });
+      // 20:00-00:00 plus 22:30-01:00: 20:00-01:00.
+      final suggestion = find.text(AppStrings.settingsNightWindowSuggestion('20:00–01:00'));
+      expect(suggestion, findsOneWidget);
+      await tester.tap(suggestion);
+      await settle(tester);
+      expect(await tester.runAsync(store.nightStartMin), 20 * 60);
+      expect(await tester.runAsync(store.nightEndMin), 60);
+      await tearDownAll(tester);
+    });
+
+    testWidgets('a single onset can be swiped away (E90)', (tester) async {
+      await pumpSettings(tester, seed: (store) => store.setSleepOnsetsJson(encodeOnsets(_onsets())));
+      expect(find.text('30.09.'), findsOneWidget);
+      await tester.drag(find.text('30.09.'), const Offset(-600, 0));
+      await settle(tester);
+      expect(find.text('30.09.'), findsNothing);
+      final stored = await tester.runAsync(() async => decodeOnsets(await store.sleepOnsetsJson()));
+      expect(stored!.map((o) => o.sessionId), isNot(contains('s5')));
+      expect(stored, hasLength(4));
+      await tearDownAll(tester);
+    });
 
     testWidgets('the Health write switch is hidden where Faden cannot write', (tester) async {
       await pumpSettings(tester);

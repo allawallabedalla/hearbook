@@ -11,8 +11,8 @@
   "mainButtonRecordThread": "Faden aufnehmen",
   "@mainButtonRecordThread": { "description": "Hauptbutton nach Schlafverdacht (M5-Funktion, Text hier bereits hinterlegt)." },
 
-  "resumeFromStop": "Ab Stopp weiterhören",
-  "@resumeFromStop": { "description": "Kleine Zeile unter dem Hauptbutton nach Schlafverdacht (M5)." },
+  "resumeFromStop": "Weiter, wo es anhielt",
+  "@resumeFromStop": { "description": "Unter „Faden aufnehmen“ (E86, Audit-Befund 9): setzt ohne Suche am Stopp fort." },
 
   "fadenModePrompt": "Kennst du diese Stelle?",
   "@fadenModePrompt": { "description": "Faden-Modus: Frage über der aktuellen Probe (M5, E64)." },
@@ -20,11 +20,8 @@
   "fadenResultFound": "Gefunden. Weiter ab hier.",
   "@fadenResultFound": { "description": "Ergebnis-Text der Faden-Suche (M5)." },
 
-  "fadenLadderEarlier": "Früher",
-  "@fadenLadderEarlier": { "description": "Leiter-Button der Faden-Suche (M5)." },
-
-  "fadenProbeCounter": "Probe {n} von höchstens {max}",
-  "@fadenProbeCounter": { "description": "Probenzähler im Faden-Modus (KONZEPT.md: \"Probe 3 von höchstens 8\").", "placeholders": { "n": {}, "max": {} } },
+  "fadenLadderEarlier": "Etwas früher anfangen",
+  "@fadenLadderEarlier": { "description": "Leiter auf dem Ergebnis (E89): eine erkannte Stelle zurück." },
 
   "undoHint": "Zurück zu {chapter}, {time}",
   "@undoHint": { "description": "Undo-Hinweis nach jedem Sprung über 2 Min (KONZEPT.md: \"Zurück zu Kapitel 7, 23:41\"). {chapter} ist bereits der fertig formatierte Kapitel-Text (chapterLabel), {time} eine mm:ss-Zeit.", "placeholders": { "chapter": {}, "time": {} } },
@@ -95,8 +92,8 @@
   "settingsNightWindowTitle": "Nachtfenster",
   "@settingsNightWindowTitle": { "description": "Abschnittstitel in den Einstellungen." },
 
-  "settingsNightWindowExplanation": "In dieser Zeit rechnet Faden damit, dass du einschläfst: Läuft das Hörbuch länger als 3 Minuten, ohne dass du etwas tippst oder drückst, bietet Faden danach „Faden aufnehmen“ an. Tagsüber nur, wenn Kopfhörer oder Sperrbildschirm die Wiedergabe angehalten haben – nicht im Auto und nicht, wenn die Verbindung abreißt.",
-  "@settingsNightWindowExplanation": { "description": "Erklärung des Nachtfensters: Schlafverdacht (ARCHITEKTUR.md Abschnitt 7 Regel 5, Abschnitt 9); die dunkle Nachtansicht folgt der Bildschirmhelligkeit (E54)." },
+  "settingsNightWindowExplanation": "In dieser Zeit rechnet Faden damit, dass du einschläfst: Läuft das Hörbuch länger als 3 Minuten, ohne dass du etwas tippst oder drückst, bietet Faden danach „Faden aufnehmen“ an, nach 20 Minuten auch, wenn die Kopfhörer die Verbindung verloren haben. Tagsüber nur, wenn Kopfhörer oder Sperrbildschirm die Wiedergabe angehalten haben – nie im Auto.",
+  "@settingsNightWindowExplanation": { "description": "Erklärung zum Nachtfenster (E80, E84)." },
 
   "settingsNightWindowStartPicker": "Nacht beginnt um",
   "@settingsNightWindowStartPicker": { "description": "Titel der Uhrzeitauswahl für den Beginn." },
@@ -331,8 +328,8 @@
   "fadenAbort": "Abbrechen",
   "@fadenAbort": { "description": "Bricht die Faden-Suche ab und startet am letzten sicheren Wach-Punkt (wie langer Druck, E64)." },
 
-  "fadenAbortHint": "Weiter am letzten sicheren Wach-Punkt",
-  "@fadenAbortHint": { "description": "Bedienhilfe-Hinweis zu fadenAbort (E64)." },
+  "fadenAbortHint": "Zurück zum Player, ohne etwas zu ändern",
+  "@fadenAbortHint": { "description": "VoiceOver-Hinweis für „Abbrechen“ (E89): Position und Wiedergabe bleiben." },
 
   "fadenStarting": "Gleich kommt die erste Hörprobe.",
   "@fadenStarting": { "description": "Faden-Modus, bevor die erste Probe läuft (E64)." },
@@ -340,8 +337,8 @@
   "fadenPassage": "{chapter} · {time}",
   "@fadenPassage": { "description": "Wo eine Probe liegt (E64), z. B. „Kapitel 5 · 23:14“; {chapter} ist chapterLabel, {time} die Zeit im Kapitel.", "placeholders": { "chapter": {}, "time": {} } },
 
-  "fadenBeforeStop": "{time} vor dem Stopp",
-  "@fadenBeforeStop": { "description": "Abstand einer Probe zum Stopp-Punkt (E64), {time} z. B. „25 Sek.“ oder „4 Min.“.", "placeholders": { "time": {} } },
+  "fadenBeforeStop": "{time} bevor es anhielt",
+  "@fadenBeforeStop": { "description": "Abstand einer Probe zum Stopp-Punkt (E64, E89), {time} z. B. „25 Sek.“ oder „4 Min.“.", "placeholders": { "time": {} } },
 
   "durationSeconds": "{n} Sek.",
   "@durationSeconds": { "description": "Dauer unter einer Minute (E64).", "placeholders": { "n": {} } },
@@ -349,17 +346,17 @@
   "fadenAnswerWindow": "Zeit zum Antworten",
   "@fadenAnswerWindow": { "description": "Bedienhilfe der Fortschrittsanzeige für Probe und Antwortfenster (E64)." },
 
-  "fadenHeardTitle": "Schon gehört",
-  "@fadenHeardTitle": { "description": "Überschrift der Liste bisheriger Proben im Faden-Modus (E64)." },
+  "fadenHeardTitle": "Bisher gefragt",
+  "@fadenHeardTitle": { "description": "Überschrift der schon gefragten Stellen (E89)." },
 
-  "fadenHeardKnown": "erkannt",
-  "@fadenHeardKnown": { "description": "Antwort einer bisherigen Probe: „Kenne ich“ (E64)." },
+  "fadenHeardKnown": "kannte ich",
+  "@fadenHeardKnown": { "description": "Antwort einer gefragten Stelle (E89)." },
 
-  "fadenHeardUnknown": "nicht erkannt",
-  "@fadenHeardUnknown": { "description": "Antwort einer bisherigen Probe: „Kenne ich nicht“ oder keine Antwort (E64)." },
+  "fadenHeardUnknown": "kannte ich nicht",
+  "@fadenHeardUnknown": { "description": "Antwort einer gefragten Stelle (E89)." },
 
-  "fadenAlternativesTitle": "Erkannte Stellen",
-  "@fadenAlternativesTitle": { "description": "Ergebnis der Faden-Suche: erkannte Stellen, ab denen man stattdessen weiterhören kann, nie später als das Ergebnis (E64)." },
+  "fadenAlternativesTitle": "Oder hier weiterhören",
+  "@fadenAlternativesTitle": { "description": "Überschrift der erkannten Stellen auf dem Ergebnis (E89)." },
 
   "fadenPlaying": "läuft",
   "@fadenPlaying": { "description": "Markiert im Ergebnis die Stelle, ab der gerade gespielt wird (E64)." },
@@ -505,11 +502,11 @@
   "settingsSleepOnsetsTitle": "Deine Einschlafzeiten",
   "@settingsSleepOnsetsTitle": { "description": "Abschnitt in den Einstellungen: aus der Faden-Suche errechnete Einschlafzeiten (E79, E81)." },
 
-  "settingsSleepOnsetsEmpty": "Noch keine. Nach jeder Faden-Suche steht hier, wann du ungefähr eingeschlafen bist.",
+  "settingsSleepOnsetsEmpty": "Noch keine. Nach jeder Faden-Suche in der Nacht steht hier, wann du ungefähr eingeschlafen bist.",
   "@settingsSleepOnsetsEmpty": { "description": "Leerer Zustand der Einschlafzeiten (E79)." },
 
-  "settingsSleepOnsetsExplanation": "Die letzte Stelle, die du bei der Faden-Suche wiedererkannt hast, als Uhrzeit. Ab 5 Suchen beginnt die Suche dort, wo du meist einschläfst. Bleibt auf diesem Gerät.",
-  "@settingsSleepOnsetsExplanation": { "description": "Erklärung unter den Einschlafzeiten (E78, E79); Invariante 7 in eigenen Worten." },
+  "settingsSleepOnsetsExplanation": "Die letzte Stelle, die du bei der Faden-Suche wiedererkannt hast, als Uhrzeit, nur aus Nächten oder nach dem Sleep-Timer. Ab 5 Nächten fragt Faden zuerst dort, wo du nach dem letzten Tippen meist eingeschlafen bist. Zum Löschen nach links wischen. Bleibt auf diesem Gerät.",
+  "@settingsSleepOnsetsExplanation": { "description": "Erklärung unter den Einschlafzeiten (E78, E79, E90); Invariante 7 in eigenen Worten." },
 
   "settingsNightWindowSuggestion": "Vorschlag: {time} übernehmen",
   "@settingsNightWindowSuggestion": { "description": "Übernimmt das aus den Einschlafzeiten vorgeschlagene Nachtfenster mit einem Tipp (E81). {time} ist z. B. „22:30–01:00“.", "placeholders": { "time": {} } },
@@ -521,5 +518,62 @@
   "@settingsHealthWriteDescription": { "description": "Erklärung unter dem Schalter (E82); Invariante 7 in eigenen Worten." },
 
   "settingsHealthWriteDenied": "Health erlaubt Faden das Eintragen nicht. Du kannst es in der Health-App unter Datenzugriff freigeben.",
-  "@settingsHealthWriteDenied": { "description": "Hinweis, wenn die Schreib-Berechtigung fehlt (E82)." }
+  "@settingsHealthWriteDenied": { "description": "Hinweis, wenn die Schreib-Berechtigung fehlt (E82)." },
+
+  "fadenQuestionsLeft": "Noch höchstens {n} Fragen",
+  "@fadenQuestionsLeft": { "description": "Zähler im Faden-Modus (E89, Audit-Befund 9: statt „Probe 2 von höchstens 8“).", "placeholders": { "n": {} } },
+
+  "fadenQuestionsLeftOne": "Noch höchstens 1 Frage",
+  "@fadenQuestionsLeftOne": { "description": "Zähler im Faden-Modus, eine Frage übrig (E89)." },
+
+  "fadenQuestionsLast": "Letzte Frage",
+  "@fadenQuestionsLast": { "description": "Zähler im Faden-Modus, keine Frage mehr übrig (E89)." },
+
+  "fadenHeardAt": "gehört gegen {time} Uhr",
+  "@fadenHeardAt": { "description": "Wann eine Probe gelaufen war, als Uhrzeit über die Herzschläge (E89); {time} z. B. „23:12“.", "placeholders": { "time": {} } },
+
+  "fadenResultStillAwake": "Du warst noch wach. Weiter kurz bevor es anhielt.",
+  "@fadenResultStillAwake": { "description": "Ergebnis, wenn Probe 1 erkannt wurde (E88)." },
+
+  "fadenResultNothing": "Nichts wiedererkannt. Weiter ab deiner letzten Berührung.",
+  "@fadenResultNothing": { "description": "Ergebnis, wenn keine Probe erkannt wurde (E88)." },
+
+  "fadenResultLastTouch": "Weiter ab deiner letzten Berührung.",
+  "@fadenResultLastTouch": { "description": "Ergebnis nach „Etwas früher anfangen“ bis zum letzten Wach-Beleg (E88)." },
+
+  "fadenRecheck": "Nochmal prüfen",
+  "@fadenRecheck": { "description": "Fragt die früheste nicht erkannte Stelle nach dem Ergebnis noch einmal (E91)." },
+
+  "mainButtonAsleepSearch": "Eingeschlafen? Stelle suchen",
+  "@mainButtonAsleepSearch": { "description": "Unter „Weiterhören“, wenn tagsüber ohne Sleep-Timer Schlaf vermutet wird (E86)." },
+
+  "undoHintFaden": "Rückgängig: wieder, wo es anhielt",
+  "@undoHintFaden": { "description": "Undo-Hinweis nach einem Start aus der Faden-Suche (E89)." },
+
+  "undoActionBack": "Zurück",
+  "@undoActionBack": { "description": "Aktion des Undo-Hinweises nach der Faden-Suche (E89)." },
+
+  "asleepPromptTitle": "Eingeschlafen?",
+  "@asleepPromptTitle": { "description": "Frage nach langem Hören ohne Berührung (E84)." },
+
+  "asleepPromptPlayingHour": "Du hörst seit über einer Stunde, ohne etwas anzutippen.",
+  "@asleepPromptPlayingHour": { "description": "Text der Frage, läuft noch, ab 60 Min (E84)." },
+
+  "asleepPromptStoppedHour": "Es lief über eine Stunde, ohne dass du etwas angetippt hast.",
+  "@asleepPromptStoppedHour": { "description": "Text der Frage, von selbst angehalten, ab 60 Min (E84)." },
+
+  "asleepPromptPlayingMinutes": "Du hörst seit {n} Min., ohne etwas anzutippen.",
+  "@asleepPromptPlayingMinutes": { "description": "Text der Frage im Nachtfenster ab 20 Min (E84).", "placeholders": { "n": {} } },
+
+  "asleepPromptStoppedMinutes": "Es lief {n} Min., ohne dass du etwas angetippt hast.",
+  "@asleepPromptStoppedMinutes": { "description": "Text der Frage im Nachtfenster ab 20 Min, von selbst angehalten (E84).", "placeholders": { "n": {} } },
+
+  "asleepPromptYes": "Ja, Stelle suchen",
+  "@asleepPromptYes": { "description": "Hauptaktion der Frage (E84): hält an und startet die Faden-Suche." },
+
+  "asleepPromptNo": "Nein, weiterhören",
+  "@asleepPromptNo": { "description": "Zweite Aktion der Frage (E84): Wach-Beleg, weiter hören." },
+
+  "settingsSleepOnsetDelete": "Löschen",
+  "@settingsSleepOnsetDelete": { "description": "Hintergrund beim Wischen über eine Einschlafzeit (E90)." }
 }

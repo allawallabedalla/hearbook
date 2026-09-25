@@ -19,8 +19,11 @@ import 'data/sleep_health_writer.dart';
 import 'data/storage.dart';
 import 'l10n/strings.dart';
 import 'signals/night.dart';
+import 'signals/screen_awake.dart';
 import 'signals/screen_brightness.dart';
 import 'ui/cellular_prompt.dart';
+import 'ui/faden_session.dart';
+import 'ui/faden_session_host.dart';
 import 'ui/library_screen.dart';
 import 'ui/playback_announcer.dart';
 import 'ui/player_screen.dart';
@@ -116,6 +119,8 @@ Future<void> main() async {
         initialAppearanceProvider.overrideWithValue(appearance),
         initialLibraryViewProvider.overrideWithValue(libraryView),
         screenBrightnessSourceProvider.overrideWithValue(brightnessSource),
+        // E85: the Faden screen keeps the display from locking itself.
+        screenAwakeProvider.overrideWithValue(const PlatformScreenAwake()),
         initialNightModeProvider.overrideWithValue(nightAtStart),
       ],
       child: const FadenApp(),
@@ -208,6 +213,9 @@ class _FadenAppState extends ConsumerState<FadenApp> {
     // E60: the player is a route that closes, so the sleep timer lives for
     // as long as the app does.
     ref.watch(sleepTimerProvider);
+    // E86: a play from the lock screen or headphones may start the Faden
+    // search instead.
+    ref.watch(fadenRemotePlayWiringProvider);
     final tokens = resolveFadenTokens(
       appearance: ref.watch(appearanceProvider),
       platformBrightness: MediaQuery.platformBrightnessOf(context),
@@ -228,9 +236,16 @@ class _FadenAppState extends ConsumerState<FadenApp> {
       themeAnimationDuration: Duration.zero,
       // Undo hints and playback errors on whatever screen is in front (E60);
       // the question before loading over mobile data (E66).
+      // E84/E85: the running Faden search's screen, and "Eingeschlafen?".
       builder: (context, child) => CellularPromptHost(
         navigatorKey: _navigatorKey,
-        child: PlaybackAnnouncer(child: child!),
+        child: FadenSessionHost(
+          navigatorKey: _navigatorKey,
+          child: AsleepPromptHost(
+            navigatorKey: _navigatorKey,
+            child: PlaybackAnnouncer(child: child!),
+          ),
+        ),
       ),
       home: const _StartupScreen(),
     );

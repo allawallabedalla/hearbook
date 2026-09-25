@@ -5,13 +5,13 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:just_audio/just_audio.dart' as ja;
 
-import '../audio/handler.dart';
 import '../audio/probe_player.dart';
 import '../domain/faden_search.dart' as fs;
 import '../domain/manifest.dart';
 import '../l10n/strings.dart';
+import '../signals/screen_awake.dart';
 import 'faden_search_controller.dart';
-import 'format.dart';
+import 'faden_session.dart';
 import 'providers.dart';
 import 'routes.dart' show reduceMotion;
 import 'theme.dart';
@@ -19,20 +19,28 @@ import 'theme.dart';
 /// docs/KONZEPT.md "Faden-Modus": "Vollbild, dunkel, siehe oben [Faden
 /// aufnehmen]." Full-screen, always the night palette regardless of the
 /// actual night view (the whole point is a calm, low-light search screen):
-/// true black, dim ink, no cover, title or transport controls (that is also
-/// what lets audio/handler.dart treat every hardware media-button call
-/// received while this screen is open as "kenne ich", see its
-/// `enterFadenMode` doc comment).
+/// true black, dim ink, no cover, title or transport controls.
 ///
 /// Decision E64: the search proposes passages visibly. The passage being
-/// asked is a card ("Probe 2 von höchstens 8", where it lies, how long
-/// before the stop, the probe + answer window running out) with two big
-/// buttons, "Kenne ich" and "Kenne ich nicht", and "Nochmal hören"; the
-/// passages already heard are listed below with their answers. A tap on
-/// empty space answers nothing. Long press or "Abbrechen" aborts. The
-/// result names the passage playback starts at and offers the recognised
-/// passages -- never later than the result (invariant 9) -- and "Früher".
+/// asked is a card (how many questions are left at most, when it was
+/// heard, how long before it stopped, the probe + answer window running
+/// out) with two big buttons, "Kenne ich" and "Kenne ich nicht", and
+/// "Nochmal hören"; the passages already asked are listed below with their
+/// answers. A tap on empty space answers nothing. "Abbrechen" returns to
+/// the player without changing anything (E89). The result says honestly
+/// what happened (E88), offers the recognised passages -- never later than
+/// the result (invariant 9) -- "Etwas früher anfangen" and "Nochmal prüfen"
+/// for the earliest passage not recognised (E91).
+///
+/// Since decision E85 the search itself is a [FadenSession] that can run
+/// without this screen (a play from the lock screen); the screen shows
+/// one, keeps the display from locking while it is open, and ends the
+/// session when it is left.
 class FadenScreen extends ConsumerStatefulWidget {
+  /// The session to show; null: the screen starts its own from the
+  /// parameters below (tests, and before E85 every caller).
+  final FadenSession? session;
+
   final Manifest manifest;
 
   /// `last_awake`, global ms.
@@ -42,7 +50,7 @@ class FadenScreen extends ConsumerStatefulWidget {
   final int hi;
 
   /// The stop point itself, global ms, which the probes are shown
-  /// relative to ("4 Min. vor dem Stopp"); [hi] if not given.
+  /// relative to ("4 Min. bevor es anhielt"); [hi] if not given.
   final int? stop;
 
   /// Sentence-start offsets, global ms (domain/pause_index.dart).
@@ -66,7 +74,7 @@ class FadenScreen extends ConsumerStatefulWidget {
   final List<ja.IndexedAudioSource> playlistSources;
 
   /// Test seam: a probe player to use instead of a fresh [ProbePlayer]
-  /// (which wraps a real just_audio instance). The screen disposes it.
+  /// (which wraps a real just_audio instance). The session disposes it.
   final ProbePlayer? probePlayer;
 
   const FadenScreen({
@@ -82,186 +90,142 @@ class FadenScreen extends ConsumerStatefulWidget {
     this.onChosen,
     required this.playlistSources,
     this.probePlayer,
-  });
+  }) : session = null;
+
+  /// Shows [session], which runs already (ui/faden_session_host.dart).
+  FadenScreen.forSession(FadenSession this.session, {super.key})
+      : manifest = session.manifest,
+        lo = session.lo,
+        hi = session.hi,
+        stop = session.stop,
+        pausen = const [],
+        prior = null,
+        priorAfterFalseAlarm = false,
+        probeLen = session.probeLen,
+        onChosen = null,
+        playlistSources = const [],
+        probePlayer = null;
 
   @override
   ConsumerState<FadenScreen> createState() => _FadenScreenState();
 }
 
 class _FadenScreenState extends ConsumerState<FadenScreen> with SingleTickerProviderStateMixin {
-  /// Captured once in [initState]: the search's callbacks and [dispose] may
-  /// run after this widget is unmounted, where `ref` must not be used.
-  late final FadenAudioHandler _handler;
-  late final ProbePlayer _probePlayer;
-  late final FadenSearchController _controller;
-  StreamSubscription<void>? _mediaAnswerSub;
-  StreamSubscription<FadenProgress>? _progressSub;
-  FadenProgress? _progress;
+  /// Captured once in [initState]: [dispose] runs after this widget is
+  /// unmounted, where `ref` must not be used.
+  late final FadenSession _session;
+  late final bool _ownsSession;
+  ScreenAwake? _screenAwake;
 
   /// The probe + answer window of the passage being asked (6 s + 3 s by
-  /// default),
-  /// restarted with every new window ([FadenProgress.window]).
+  /// default), restarted with every new window ([FadenProgress.window]).
   late final AnimationController _windowClock;
   int _window = 0;
-
-  /// Set once the search has its result and playback runs.
-  bool _found = false;
-
-  /// Where playback was last started (global ms): the result, a tapped
-  /// passage or a "Früher" step.
-  int? _playingMs;
-
-  /// A RESUME is being written: further taps wait.
-  bool _resuming = false;
+  bool _leaving = false;
 
   @override
   void initState() {
     super.initState();
-    final handler = _handler = ref.read(audioHandlerProvider);
-    handler.enterFadenMode();
-
+    final given = widget.session;
+    if (given != null) {
+      _session = given;
+      _ownsSession = false;
+    } else {
+      _session = FadenSession(
+        handler: ref.read(audioHandlerProvider),
+        manifest: widget.manifest,
+        lo: widget.lo,
+        hi: widget.hi,
+        stop: widget.stop,
+        pausen: widget.pausen,
+        playlistSources: widget.playlistSources,
+        prior: widget.prior,
+        priorAfterFalseAlarm: widget.priorAfterFalseAlarm,
+        probeLen: widget.probeLen,
+        onChosen: widget.onChosen,
+        probePlayer: widget.probePlayer,
+      );
+      _ownsSession = true;
+    }
     _windowClock = AnimationController(
       vsync: this,
-      duration: Duration(milliseconds: widget.probeLen + fs.answerWindow),
+      duration: Duration(milliseconds: _session.probeLen + fs.answerWindow),
     );
-
-    _probePlayer = widget.probePlayer ?? ProbePlayer();
-    _probePlayer.open(widget.playlistSources);
-
-    // A headphone button still means "Kenne ich".
-    _mediaAnswerSub = handler.fadenModeAnswers.listen((_) {
-      unawaited(HapticFeedback.selectionClick());
-      _controller.submitAnswer();
-    });
-
-    _controller = FadenSearchController(
-      lo: widget.lo,
-      hi: widget.hi,
-      pausen: widget.pausen,
-      prior: widget.prior,
-      priorAfterFalseAlarm: widget.priorAfterFalseAlarm,
-      probeLen: widget.probeLen,
-      playTone: _probePlayer.playTone,
-      playProbe: (p) {
-        final pos = widget.manifest.positionForGlobalMs(p);
-        final idx = widget.manifest.indexOf(pos.fileHash);
-        if (idx < 0) return Future.value();
-        return _probePlayer.playProbe(
-          fileIndex: idx,
-          offsetMs: pos.offsetMs,
-          probeLenMs: widget.probeLen,
-          fileDurationMs: widget.manifest.files[idx].durationMs,
-        );
-      },
-      stopProbe: _probePlayer.stop,
-      onProbeAnswered: (p, known) {
-        final pos = widget.manifest.positionForGlobalMs(p);
-        return handler.probe(position: pos, known: known);
-      },
-      onResumeAt: _handleResolved,
-      onAborted: _handleAborted,
-      onChosen: widget.onChosen,
-    );
-    _progressSub = _controller.progress.listen(_onProgress);
-
-    unawaited(_controller.start());
-  }
-
-  void _onProgress(FadenProgress p) {
-    if (!mounted) return;
-    setState(() => _progress = p);
-    if (p.window != _window) {
+    _session.addListener(_onSession);
+    _session.attachScreen();
+    if (_ownsSession) _session.start();
+    // E85: the phone must not lock itself between two probes.
+    _screenAwake = ref.read(screenAwakeProvider);
+    unawaited(_screenAwake?.keepOn(true));
+    final p = _session.progress;
+    if (p != null && p.listening) {
       _window = p.window;
       unawaited(_windowClock.forward(from: 0));
-    } else if (!p.listening) {
-      _windowClock.stop();
+    }
+    if (_session.ended) {
+      WidgetsBinding.instance.addPostFrameCallback((_) => _leave());
     }
   }
 
-  /// The search's own finding, a tapped passage, or a "Früher" step (all
-  /// call [FadenSearchController.onResumeAt]): resume playback there and
-  /// show the result -- "Gefunden. Weiter ab hier." with the passage, the
-  /// recognised alternatives and "Früher" -- instead of closing at once.
-  Future<void> _handleResolved(int globalMs) async {
-    await _resumeTo(globalMs);
-    // Playback runs again: headphone buttons, the AirPods' sleep detection
-    // and the sleep timer must work normally while the result is shown.
-    _handler.exitFadenMode();
-    _windowClock.stop();
-    if (mounted) {
-      setState(() {
-        _found = true;
-        _playingMs = globalMs;
-      });
+  void _onSession() {
+    if (!mounted) return;
+    if (_session.ended) {
+      _leave();
+      return;
     }
+    final p = _session.progress;
+    if (p != null) {
+      if (p.window != _window) {
+        _window = p.window;
+        unawaited(_windowClock.forward(from: 0));
+      } else if (!p.listening) {
+        _windowClock.stop();
+      }
+    }
+    if (!_session.asking) _windowClock.stop();
+    setState(() {});
   }
 
-  /// Long-press or "Abbrechen" abort (docs/KONZEPT.md: "... startet am
-  /// letzten sicheren Wach-Punkt."): resume there and close straight back
-  /// to the player, no intermediate "Gefunden" state.
-  Future<void> _handleAborted(int globalMs) async {
-    await _resumeTo(globalMs);
-    if (mounted) _closeToPlayer();
-  }
-
-  Future<void> _resumeTo(int globalMs) async {
-    final pos = widget.manifest.positionForGlobalMs(globalMs);
-    final idx = widget.manifest.indexOf(pos.fileHash);
-    await _handler.resumeFromFaden(pos, fileIndex: idx < 0 ? null : idx);
-  }
-
-  void _closeToPlayer() {
-    _handler.exitFadenMode();
-    Navigator.of(context).pop();
+  /// Back to the player (the session ended, "Abbrechen", "Fertig").
+  void _leave() {
+    if (_leaving || !mounted) return;
+    _leaving = true;
+    unawaited(_screenAwake?.keepOn(false));
+    Navigator.of(context).maybePop();
   }
 
   void _answer({required bool known}) {
-    if (_found) return;
+    if (!_session.asking) return;
     // Felt as well as seen: the screen stays dark (E44).
     unawaited(HapticFeedback.selectionClick());
-    _controller.answer(known: known);
+    _session.answer(known: known);
   }
 
-  void _abort() {
-    if (_found) return;
-    _controller.abort();
+  /// "Abbrechen" (E89): nothing changes, back to the player.
+  void _cancel() {
+    unawaited(_session.cancel());
   }
 
-  Future<void> _resumeWith(Future<void> Function() resume) async {
-    if (_resuming) return;
-    _resuming = true;
-    try {
-      await resume();
-    } finally {
-      _resuming = false;
-    }
+  /// "Fertig": the result plays on, back to the player.
+  void _done() {
+    unawaited(_session.close());
   }
 
   @override
   void dispose() {
-    // Also the path for leaving without a result (back gesture / route
-    // pop): end the search silently (no further PROBE, no RESUME, no
-    // playback start), stop the probe, and leave Faden mode so media
-    // buttons act normally again. Idempotent after [_closeToPlayer].
-    _mediaAnswerSub?.cancel();
-    _progressSub?.cancel();
-    _controller.dispose();
+    // Also the path for leaving by a back gesture: before the result the
+    // search ends silently (no further PROBE, no RESUME, no playback
+    // start, E89); on the result, playback just goes on.
+    _session.removeListener(_onSession);
+    _session.detachScreen();
+    if (!_session.ended) {
+      unawaited(_session.found ? _session.close() : _session.cancel());
+    }
+    unawaited(_screenAwake?.keepOn(false));
     _windowClock.dispose();
-    _handler.exitFadenMode();
-    unawaited(_probePlayer.dispose());
+    if (_ownsSession) _session.dispose();
     super.dispose();
   }
-
-  /// "Kapitel 5 · 23:14".
-  String _passage(int globalMs) {
-    final pos = widget.manifest.positionForGlobalMs(globalMs);
-    final idx = widget.manifest.indexOf(pos.fileHash);
-    return AppStrings.fadenPassage(AppStrings.chapterLabel(idx + 1), formatClock(pos.offsetMs));
-  }
-
-  /// "4 Min. vor dem Stopp".
-  String _beforeStop(int globalMs) =>
-      AppStrings.fadenBeforeStop(formatBeforeStop((widget.stop ?? widget.hi) - globalMs));
 
   @override
   Widget build(BuildContext context) {
@@ -276,18 +240,11 @@ class _FadenScreenState extends ConsumerState<FadenScreen> with SingleTickerProv
             // Readable up to 1.6x, like the player (E44).
             child: MediaQuery.withClampedTextScaling(
               maxScaleFactor: 1.6,
-              // Long press anywhere aborts (docs/KONZEPT.md); a plain tap
-              // on empty space answers nothing (E64). Kept out of the
-              // semantics tree, so VoiceOver reads every text and button on
-              // its own; it has "Abbrechen" for the abort.
-              child: GestureDetector(
-                behavior: HitTestBehavior.opaque,
-                excludeFromSemantics: true,
-                onLongPress: _abort,
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 24),
-                  child: _found ? _result(tokens) : _search(tokens),
-                ),
+              // A plain tap on empty space answers nothing (E64); a long
+              // press no longer aborts (E89): "Abbrechen" is the one way out.
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 24),
+                child: _session.asking ? _search(tokens) : _result(tokens),
               ),
             ),
           ),
@@ -297,14 +254,21 @@ class _FadenScreenState extends ConsumerState<FadenScreen> with SingleTickerProv
   }
 
   Widget _search(FadenTokens tokens) {
-    final progress = _progress;
+    final progress = _session.progress;
     final windowMs = widget.hi - widget.lo;
     final remainingMs = progress == null ? windowMs : (progress.hi - progress.lo);
     final fraction = windowMs <= 0 ? 0.0 : (remainingMs / windowMs).clamp(0.0, 1.0);
     final current = progress?.current;
     final listening = progress?.listening ?? false;
+    final rechecking = progress?.rechecking ?? false;
     final heard = progress?.heard ?? const <FadenProbe>[];
     final caption = TextStyle(fontSize: FadenTypeSizes.caption, color: tokens.tinteLeise);
+    final probeNr = progress?.probeNr ?? 0;
+    final counter = rechecking
+        ? AppStrings.fadenRecheck
+        : probeNr == 0
+            ? ''
+            : AppStrings.fadenQuestionsLeft(fs.remainingQuestions(probeNr: probeNr, windowMs: windowMs));
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -313,7 +277,7 @@ class _FadenScreenState extends ConsumerState<FadenScreen> with SingleTickerProv
           children: [
             Expanded(
               child: Text(
-                (progress?.probeNr ?? 0) == 0 ? '' : AppStrings.fadenProbeCounter(progress!.probeNr, fs.maxProbes),
+                counter,
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
                 style: TextStyle(fontSize: FadenTypeSizes.body, color: tokens.tinte),
@@ -322,8 +286,7 @@ class _FadenScreenState extends ConsumerState<FadenScreen> with SingleTickerProv
             Semantics(
               hint: AppStrings.fadenAbortHint,
               child: TextButton(
-                onPressed: _abort,
-                onLongPress: _abort,
+                onPressed: _cancel,
                 style: TextButton.styleFrom(foregroundColor: tokens.tinteLeise),
                 child: Text(AppStrings.fadenAbort, style: const TextStyle(fontSize: FadenTypeSizes.body)),
               ),
@@ -351,10 +314,10 @@ class _FadenScreenState extends ConsumerState<FadenScreen> with SingleTickerProv
         const SizedBox(height: 16),
         _ProbeCard(
           tokens: tokens,
-          passage: current == null ? null : _passage(current.p),
-          beforeStop: current == null ? null : _beforeStop(current.p),
+          passage: current == null ? null : _session.passageLabel(current.p),
+          beforeStop: current == null ? null : _session.beforeStopLabel(current.p),
           windowClock: _windowClock,
-          onReplay: listening ? _controller.replay : null,
+          onReplay: listening ? _session.replay : null,
         ),
         const SizedBox(height: 16),
         FadenAnswerButton(
@@ -379,9 +342,9 @@ class _FadenScreenState extends ConsumerState<FadenScreen> with SingleTickerProv
               // The latest first.
               for (final probe in heard.reversed)
                 _HeardRow(
-                  key: ValueKey('faden-heard-${probe.probeNr}'),
+                  key: ValueKey('faden-heard-${probe.probeNr}-${probe.p}'),
                   tokens: tokens,
-                  passage: _passage(probe.p),
+                  passage: _session.passageLabel(probe.p),
                   known: probe.known ?? false,
                 ),
             ],
@@ -391,16 +354,25 @@ class _FadenScreenState extends ConsumerState<FadenScreen> with SingleTickerProv
     );
   }
 
+  String _headline() => switch (_session.resultKind) {
+        fs.FadenResultKind.found => AppStrings.fadenResultFound,
+        fs.FadenResultKind.stillAwake => AppStrings.fadenResultStillAwake,
+        fs.FadenResultKind.nothingRecognised => AppStrings.fadenResultNothing,
+        fs.FadenResultKind.lastTouch => AppStrings.fadenResultLastTouch,
+      };
+
   Widget _result(FadenTokens tokens) {
-    final playing = _playingMs;
-    final leiter = _controller.leiter;
-    final resultIndex = _controller.resultIndex;
+    final controller = _session.controller;
+    final playing = _session.playingMs;
+    final leiter = controller.leiter;
+    final resultIndex = controller.resultIndex;
     // The recognised passages, the result first, then earlier ones --
     // never anything later than the result (invariant 9).
     final alternatives = [
       for (var i = resultIndex; i >= 1; i--) i,
     ];
-    final showAlternatives = alternatives.any((i) => i != _controller.leiterIndex);
+    final showAlternatives = alternatives.any((i) => i != controller.leiterIndex);
+    final recheck = _session.recheckMs;
     final caption = TextStyle(fontSize: FadenTypeSizes.caption, color: tokens.tinteLeise);
 
     return Column(
@@ -409,7 +381,7 @@ class _FadenScreenState extends ConsumerState<FadenScreen> with SingleTickerProv
         const SizedBox(height: 24),
         // "**Gefunden.** Weiter ab hier." (E76): the first sentence bold.
         Text.rich(
-          _firstSentenceBold(AppStrings.fadenResultFound),
+          _firstSentenceBold(_headline()),
           style: TextStyle(fontSize: FadenTypeSizes.display, color: tokens.tinte, height: 1.2),
         ),
         const SizedBox(height: 12),
@@ -418,19 +390,19 @@ class _FadenScreenState extends ConsumerState<FadenScreen> with SingleTickerProv
             tokens: tokens,
             children: [
               Text(
-                _passage(playing),
+                _session.passageLabel(playing),
                 style: TextStyle(fontSize: FadenTypeSizes.title, color: tokens.faden),
               ),
               const SizedBox(height: 4),
-              Text(_beforeStop(playing), style: caption),
+              Text(_session.beforeStopLabel(playing), style: caption),
             ],
           ),
-        if (_controller.canGoEarlier) ...[
+        if (controller.canGoEarlier) ...[
           const SizedBox(height: 8),
           Align(
             alignment: Alignment.centerLeft,
             child: TextButton.icon(
-              onPressed: () => unawaited(_resumeWith(_controller.earlier)),
+              onPressed: () => unawaited(_session.earlier()),
               style: TextButton.styleFrom(foregroundColor: tokens.faden),
               icon: const Icon(Icons.fast_rewind_outlined),
               label: Text(AppStrings.fadenLadderEarlier, style: const TextStyle(fontSize: FadenTypeSizes.body)),
@@ -438,30 +410,41 @@ class _FadenScreenState extends ConsumerState<FadenScreen> with SingleTickerProv
           ),
         ],
         const SizedBox(height: 16),
-        if (showAlternatives) Text(AppStrings.fadenAlternativesTitle, style: caption),
         Expanded(
-          child: showAlternatives
-              ? ListView(
-                  padding: const EdgeInsets.only(bottom: 16),
-                  children: [
-                    for (final i in alternatives)
-                      _AlternativeRow(
-                        key: ValueKey('faden-alternative-$i'),
-                        tokens: tokens,
-                        passage: _passage(leiter[i]),
-                        beforeStop: _beforeStop(leiter[i]),
-                        playing: i == _controller.leiterIndex,
-                        onTap: () => unawaited(_resumeWith(() => _controller.resumeAtLeiterIndex(i))),
-                      ),
-                  ],
-                )
-              : const SizedBox.shrink(),
+          child: ListView(
+            padding: const EdgeInsets.only(bottom: 16),
+            children: [
+              if (recheck != null)
+                _RecheckRow(
+                  key: ValueKey('faden-recheck-$recheck'),
+                  tokens: tokens,
+                  passage: _session.passageLabel(recheck),
+                  beforeStop: _session.beforeStopLabel(recheck),
+                  onTap: () => unawaited(_session.recheck()),
+                ),
+              if (showAlternatives) ...[
+                Padding(
+                  padding: EdgeInsets.only(top: recheck != null ? 16 : 0),
+                  child: Text(AppStrings.fadenAlternativesTitle, style: caption),
+                ),
+                for (final i in alternatives)
+                  _AlternativeRow(
+                    key: ValueKey('faden-alternative-$i'),
+                    tokens: tokens,
+                    passage: _session.passageLabel(leiter[i]),
+                    beforeStop: _session.beforeStopLabel(leiter[i]),
+                    playing: i == controller.leiterIndex,
+                    onTap: () => unawaited(_session.resumeAtLeiterIndex(i)),
+                  ),
+              ],
+            ],
+          ),
         ),
         // "Fertig" as a full-width capsule at the thumb (E76); with the
         // night colours only its outline (no lit surface).
         Padding(
           padding: const EdgeInsets.only(top: 8, bottom: 16),
-          child: FilledButton(onPressed: _closeToPlayer, child: Text(AppStrings.fadenDone)),
+          child: FilledButton(onPressed: _done, child: Text(AppStrings.fadenDone)),
         ),
       ],
     );
@@ -613,12 +596,68 @@ class _HeardRow extends StatelessWidget {
           children: [
             Icon(known ? Icons.check : Icons.close, size: 18, color: known ? tokens.faden : tokens.tinteLeise),
             const SizedBox(width: 12),
+            // The answer under the passage: "kannte ich nicht" is long.
             Expanded(
-              child: Text(passage, style: TextStyle(fontSize: FadenTypeSizes.body, color: tokens.tinte)),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(passage, style: TextStyle(fontSize: FadenTypeSizes.body, color: tokens.tinte)),
+                  Text(answer, style: TextStyle(fontSize: FadenTypeSizes.caption, color: tokens.tinteLeise)),
+                ],
+              ),
             ),
-            const SizedBox(width: 8),
-            Text(answer, style: TextStyle(fontSize: FadenTypeSizes.caption, color: tokens.tinteLeise)),
           ],
+        ),
+      ),
+    );
+  }
+}
+
+/// "Nochmal prüfen" (E91): the earliest passage not recognised after
+/// the result, to be asked once more.
+class _RecheckRow extends StatelessWidget {
+  final FadenTokens tokens;
+  final String passage;
+  final String beforeStop;
+  final VoidCallback onTap;
+
+  const _RecheckRow({
+    super.key,
+    required this.tokens,
+    required this.passage,
+    required this.beforeStop,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Semantics(
+      button: true,
+      child: InkWell(
+        onTap: onTap,
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(minHeight: fadenMinTapTarget),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(vertical: 8),
+            child: Row(
+              children: [
+                Icon(Icons.replay, size: 20, color: tokens.faden),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(AppStrings.fadenRecheck, style: TextStyle(fontSize: FadenTypeSizes.body, color: tokens.faden)),
+                      Text(
+                        '$passage · $beforeStop',
+                        style: TextStyle(fontSize: FadenTypeSizes.caption, color: tokens.tinteLeise),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
         ),
       ),
     );

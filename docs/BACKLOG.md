@@ -28,6 +28,19 @@ Stand: 25.09.2026 (Nachtrag). Erledigtes durchstreichen oder löschen.
    - Im Auto (CarPlay): Pause am Lenkrad → kein „Faden aufnehmen“; aussteigen, später Play → 30 s früher
    - Kopfhörer trennen, nach 10 s Play → 30 s früher, nichts startet beim Wiederverbinden von selbst
    - „Einschlafzeit in Health eintragen“ einschalten: Health fragt nach Erlaubnis; nach der nächsten Suche in Health → Schlaf → „Im Bett“ prüfen
+   - **Faden aufnehmen, Audit (E84–E91)** (ca. 15 Min.):
+     - Sleep-Timer 15 Min, einschlafen lassen (oder warten), Handy gesperrt lassen, Play an den Kopfhörern: Ton, dann Probe 1; nochmal drücken = „Kenne ich“ → es geht kurz vor dem Stopp weiter, Doppelton
+     - Mit gesperrtem Handy die ganze Suche über die Kopfhörer: 1× kenne ich (Klick), 2× kenne ich nicht (tiefer Ton), 3× nochmal hören; läuft sie ohne Hänger durch (App bleibt wach)? Kommt 2×/3× bei deinen Kopfhörern an?
+     - Auf dem Ergebnis 3× drücken: „Etwas früher anfangen“; Play/Pause wirkt normal
+     - Faden-Screen offen lassen: sperrt sich das Display nicht mehr von selbst?
+     - Gestreamtes Kapitel (nicht geladen): beginnt der Balken erst, wenn die Probe hörbar ist?
+     - Nachts ohne Timer über 20 Min (tagsüber über 60 Min) nichts antippen, dann aufs Display tippen: „Eingeschlafen?“ erscheint, der Tipp löst nichts anderes aus; „Ja, Stelle suchen“ hält an und sucht; „Nein, weiterhören“ läuft weiter
+     - App im Hintergrund lassen und nach über einer Stunde öffnen: die Frage kommt sofort, nachts im dunklen Look
+     - Mit CarPlay: keine Frage, Play spielt einfach
+     - Tagsüber ohne Timer nach Sperrbildschirm-Pause: Hauptbutton „Weiterhören“, darunter „Eingeschlafen? Stelle suchen“
+     - Ergebnis-Texte: „Du warst noch wach …“, „Nichts wiedererkannt …“, „gehört gegen 23:12 Uhr“ stimmt ungefähr mit der Uhr?
+     - „Nochmal prüfen“ auf dem Ergebnis; „Abbrechen“ ändert nichts und spielt nicht los
+     - Einstellungen → „Deine Einschlafzeiten“: eine Zeile nach links wischen löscht sie
 4. **Genres prüfen** (ca. 2 Min., frühestens 5 Min. nach Schritt 1). Token steht in `/volume1/docker/faden/.env` (`FADEN_TOKEN`):
    ```
    curl -s -H "Authorization: Bearer DEIN_TOKEN" http://192.168.178.114:8787/api/v1/books
@@ -42,6 +55,26 @@ Stand: 25.09.2026 (Nachtrag). Erledigtes durchstreichen oder löschen.
 - Sortierung „Neu hinzugefügt“: Server schickt `created_at` noch nicht mit.
 - Rückmeldungen aus Schritt 3 umsetzen.
 - Kachelansicht: zwei kurze Striche oben links unter der Leiste prüfen (Rest vom großen Titel?).
+
+## Erledigt: UX-Audit „Faden aufnehmen“ und „Eingeschlafen?“
+
+Gebaut am 25.09.2026 (E84–E91 in `docs/ARCHITEKTUR.md`), iPhone-Checks oben in Schritt 3.
+
+1. ~~Play vom Sperrbildschirm/Kopfhörer startet die Suche statt einfach zu spielen~~ (E86; nachts und nach dem Timer, nie mit CarPlay; zweiter Druck in Probe 1 = „Kenne ich“)
+2. ~~Kopfhörer-Gesten 1×/2×/3×, auf dem Ergebnis 3× = etwas früher~~ (E85; in audio_service 0.18.19 geprüft)
+3. ~~Tipp nach langem Hören löscht den Verdacht nicht mehr~~ (E84: „Eingeschlafen?“ ab 60 Min, nachts ab 20 Min)
+4. ~~Kopfhörer-Akku leer nachts nach 20 Min: Verdacht bleibt~~ (E84, Vektoren 09, 14, 15)
+5. ~~Töne: Klick, tiefer Ton, Doppelton~~ (E85)
+6. ~~Gesperrtes Handy: Display bleibt an, Stille zwischen Proben, Antwortzeit ab Probenstart~~ (E85)
+7. ~~Ehrliche Ergebnis-Texte~~ (E88)
+8. ~~Einfache Sprache~~ (E89)
+9. ~~Langer Druck bricht nicht mehr ab; „Abbrechen“ ändert nichts~~ (E89)
+10. ~~Tagsüber „Weiterhören“ mit „Eingeschlafen? Stelle suchen“ darunter~~ (E86)
+11. ~~Lernen nur nachts, Einschlafzeiten wegwischen, Vorschlag nur breiter~~ (E90)
+12. ~~„Nochmal prüfen“~~ (E91)
+13. ~~Fenster bis 6 Min: nur Probe 1~~ (E87)
+
+Grenzen: Die Hörzeit für „Eingeschlafen?“ zählt nur, solange die App seit dem Abend lief; nach einem Neustart bleibt es bei „Faden aufnehmen“ aus den Events. Buchende im Schlaf fragt „Eingeschlafen?“, setzt aber weiter „Fertig“ (FINISHED zählt im Resolver als Wach-Beleg, unverändert).
 
 ## Erledigt: Faden-Suche lernt mit
 

@@ -125,5 +125,18 @@ class SleepLog {
     return writer.writeInBed(startWallMs: interval.start, endWallMs: interval.end);
   }
 
+  /// Forgets one onset (swiped away in "Deine Einschlafzeiten", E90):
+  /// it no longer counts for the learned prior or the suggestion. A night
+  /// already written to Health stays there (Health is the listener's).
+  Future<void> deleteOnset(String sessionId) {
+    return _queue = _queue.then((_) async {
+      try {
+        await _save(removeOnset(await onsets(), sessionId));
+      } catch (_) {
+        // Never in the way of listening.
+      }
+    });
+  }
+
   Future<void> _save(List<SleepOnsetRecord> onsets) => settings.setSleepOnsetsJson(encodeOnsets(onsets));
 }

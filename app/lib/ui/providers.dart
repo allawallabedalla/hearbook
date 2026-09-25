@@ -32,6 +32,7 @@ import '../domain/resolver.dart';
 import '../domain/sleep_learning.dart';
 import '../domain/sleep_onset.dart';
 import '../signals/night.dart';
+import '../signals/screen_awake.dart';
 import '../signals/screen_brightness.dart';
 import '../signals/sleep_timer.dart';
 
@@ -336,6 +337,10 @@ final fadenScreenOpenProvider = NotifierProvider<FadenScreenOpenController, bool
 /// passes the iOS channel; null elsewhere (Android, tests), which keeps the
 /// night view off.
 final screenBrightnessSourceProvider = Provider<ScreenBrightnessSource?>((ref) => null);
+
+/// Holds the display's auto-lock back while the Faden screen is open
+/// (decision E85). main.dart passes the platform channel; null in tests.
+final screenAwakeProvider = Provider<ScreenAwake?>((ref) => null);
 
 /// Whether the night view is on as main.dart saw it before the first frame
 /// (display brightness below 30 %), so the start screen is already black
@@ -902,7 +907,8 @@ class PlayerSessionController extends ChangeNotifier {
       }
 
       final events = await journal.eventsForBook(bookId);
-      final state = events.isEmpty ? _freshBookState(manifest) : resolve(events, manifest);
+      final state =
+          events.isEmpty ? _freshBookState(manifest) : resolve(events, manifest, settings: await _resolverSettings());
       bookState = state;
 
       if (downloads != null) {
@@ -1009,9 +1015,22 @@ class PlayerSessionController extends ChangeNotifier {
     final m = manifest;
     if (id == null || m == null) return;
     final events = await journal.eventsForBook(id);
+    final resolverSettings = await _resolverSettings();
     if (events.isEmpty || id != bookId || _disposed) return;
-    bookState = resolve(events, m);
+    bookState = resolve(events, m, settings: resolverSettings);
     _notify();
+  }
+
+  /// The listener's night window for rule 5 (E84: the player used the
+  /// default 20-06 so far, whatever was set).
+  Future<ResolverSettings> _resolverSettings() async {
+    final store = settings;
+    if (store == null) return const ResolverSettings();
+    try {
+      return ResolverSettings(nightStartMin: await store.nightStartMin(), nightEndMin: await store.nightEndMin());
+    } catch (_) {
+      return const ResolverSettings();
+    }
   }
 
   void _notify() {

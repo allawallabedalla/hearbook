@@ -1,5 +1,5 @@
 {
-  "description": "Verbindungsverlust (E80, E84): Nachtfenster, 15 Min ohne Wach-Beleg (unter 20 Min), die Session endet mit PAUSE data.reason=route_lost (Kopfhörer getrennt) -> kein sleep_suspected (ARCHITEKTUR.md 7, Regel 5).",
+  "description": "CarPlay getrennt in der Nacht (E84): Nachtfenster, 30 Min ohne Wach-Beleg, PAUSE data.reason=route_lost, route=car -> kein sleep_suspected: das Auto bleibt ausgenommen, auch nach 20 Min.",
   "settings": {
     "night_window": {
       "start_min": 1200,
@@ -82,7 +82,7 @@
       "session_id": "s1",
       "book_id": "book-1",
       "manifest_id": "m1",
-      "type": "PAUSE",
+      "type": "HEARTBEAT",
       "file_hash": "f1",
       "offset_ms": 900000,
       "hlc": {
@@ -91,25 +91,80 @@
       },
       "wall_ms": 1704237300000,
       "tz_min": 0,
+      "source": "ui",
+      "data": {}
+    },
+    {
+      "event_id": "e5",
+      "device_id": "dev-a",
+      "session_id": "s1",
+      "book_id": "book-1",
+      "manifest_id": "m1",
+      "type": "HEARTBEAT",
+      "file_hash": "f1",
+      "offset_ms": 1200000,
+      "hlc": {
+        "pt": 1704237600000,
+        "c": 0
+      },
+      "wall_ms": 1704237600000,
+      "tz_min": 0,
+      "source": "ui",
+      "data": {}
+    },
+    {
+      "event_id": "e6",
+      "device_id": "dev-a",
+      "session_id": "s1",
+      "book_id": "book-1",
+      "manifest_id": "m1",
+      "type": "HEARTBEAT",
+      "file_hash": "f1",
+      "offset_ms": 1500000,
+      "hlc": {
+        "pt": 1704237900000,
+        "c": 0
+      },
+      "wall_ms": 1704237900000,
+      "tz_min": 0,
+      "source": "ui",
+      "data": {}
+    },
+    {
+      "event_id": "e7",
+      "device_id": "dev-a",
+      "session_id": "s1",
+      "book_id": "book-1",
+      "manifest_id": "m1",
+      "type": "PAUSE",
+      "file_hash": "f1",
+      "offset_ms": 1800000,
+      "hlc": {
+        "pt": 1704238200000,
+        "c": 0
+      },
+      "wall_ms": 1704238200000,
+      "tz_min": 0,
       "source": "system",
       "data": {
-        "reason": "route_lost"
+        "reason": "route_lost",
+        "route": "car"
       }
     }
   ],
   "expect": {
     "position": {
       "file_hash": "f1",
-      "offset_ms": 900000
+      "offset_ms": 1800000
     },
-    "global_ms": 900000,
+    "global_ms": 1800000,
     "last_awake": {
       "file_hash": "f1",
       "offset_ms": 0
     },
     "stop": {
       "file_hash": "f1",
-      "offset_ms": 900000
+      "offset_ms": 1800000
     },
     "sleep_suspected": false,
     "history": [],

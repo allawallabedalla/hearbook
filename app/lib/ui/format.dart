@@ -113,3 +113,11 @@ String formatCellularEstimate({
     '${AppStrings.cellularPerHour(formatRemainingBytes(bytesPerHour), approximate: approximate)}'
     ' · '
     '${AppStrings.cellularChapterSize(AppStrings.chapterLabel(chapterNumber), formatRemainingBytes(chapterBytes), approximate: approximate)}';
+
+/// The local clock time "23:12" of wall time [wallMs] on a device with UTC
+/// offset [tzMin] (the event's `tz_min`), for "gehört gegen 23:12 Uhr"
+/// (decision E89).
+String formatClockOfDay(int wallMs, int tzMin) {
+  final local = DateTime.fromMillisecondsSinceEpoch(wallMs + tzMin * 60000, isUtc: true);
+  return '${local.hour.toString().padLeft(2, '0')}:${local.minute.toString().padLeft(2, '0')}';
+}

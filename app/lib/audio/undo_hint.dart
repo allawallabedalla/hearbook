@@ -13,7 +13,16 @@ class UndoHint {
   final Position target;
   final String message;
 
-  const UndoHint({required this.target, required this.message});
+  /// The SnackBar action; null: "Rückgängig".
+  final String? actionLabel;
+
+  const UndoHint({required this.target, required this.message, this.actionLabel});
+
+  /// After a start from the Faden search (decision E89): "Rückgängig:
+  /// wieder, wo es anhielt" with "Zurück" back to [target].
+  UndoHint.fromFaden(this.target)
+      : message = AppStrings.undoHintFaden,
+        actionLabel = AppStrings.undoActionBack;
 }
 
 /// Whether a jump from [fromGlobalMs] to [toGlobalMs] is "over 2 minutes"

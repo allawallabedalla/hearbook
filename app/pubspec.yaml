@@ -121,6 +121,13 @@ flutter:
 
   # Faden-Suche cue tone (docs/KONZEPT.md "Faden aufnehmen": "Ein leiser
   # Ton, dann eine 6 s lange Hörprobe", 4 or 8 s by setting), generated locally (no third-party
-  # asset, see docs/ARCHITEKTUR.md section 13).
+  # asset, see docs/ARCHITEKTUR.md section 13). Decision E85: a click for
+  # "Kenne ich", a soft tone for "Kenne ich nicht", a double tone for the
+  # result, and near-silence that keeps iOS from suspending the app between
+  # probes -- all generated with Python's stdlib `wave`/`math` as well.
   assets:
     - assets/sounds/ton.wav
+    - assets/sounds/klick.wav
+    - assets/sounds/ton_nein.wav
+    - assets/sounds/ton_ergebnis.wav
+    - assets/sounds/stille.wav

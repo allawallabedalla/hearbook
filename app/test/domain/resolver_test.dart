@@ -93,6 +93,14 @@ void main() {
         expectJson['needs_confirmation'],
         reason: 'needs_confirmation',
       );
+      // Optional keys (decision E84): what the player's offer and the
+      // learning read from the winning session.
+      if (expectJson.containsKey('in_night_window')) {
+        expect(state.inNightWindow, expectJson['in_night_window'], reason: 'in_night_window');
+      }
+      if (expectJson.containsKey('stop_reason')) {
+        expect(state.stopReason?.wireName, expectJson['stop_reason'], reason: 'stop_reason');
+      }
     });
   }
 }

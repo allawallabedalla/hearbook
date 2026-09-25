@@ -10,15 +10,14 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../audio/handler.dart';
 import '../audio/playback_status.dart';
 import '../data/settings_store.dart' show Appearance;
+import '../domain/faden_offer.dart';
 import '../domain/manifest.dart';
-import '../domain/pause_index.dart';
 import '../domain/position.dart';
-import '../domain/resolver.dart' show BookState;
 import '../l10n/strings.dart';
 import '../signals/sleep_timer.dart';
 import 'cover.dart';
 import 'details_sheet.dart';
-import 'faden_screen.dart';
+import 'faden_session.dart';
 import 'controls.dart';
 import 'format.dart';
 import 'library_screen.dart';
@@ -183,97 +182,12 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
     );
   }
 
-  /// docs/KONZEPT.md "Faden aufnehmen": the main button opens the full-screen
-  /// Faden-Modus (ui/faden_screen.dart) once `sleep_suspected` is true.
-  /// Silently declines (no crash, no navigation) if the book has no
-  /// playlist loaded yet (offline/no server -- rare, but Faden-Suche needs
-  /// real audio to probe) or the window can't be computed, which per
-  /// domain/resolver.dart rule 5 should not happen whenever
-  /// `sleep_suspected` is actually true (see docs/ARCHITEKTUR.md section
-  /// 13 for this belt-and-braces guard).
-  Future<void> _openFadenMode(
-    PlayerSessionController session,
-    BookState bookState,
-  ) async {
-    final manifest = session.manifest;
-    final sources = session.playlistSources;
-    if (manifest == null || sources == null) return;
-    final lo = manifest.globalMsFor(bookState.lastAwake);
-    var hi = manifest.globalMsFor(bookState.stop);
-    if (lo == null || hi == null || hi <= lo) return;
-    final stopMs = hi;
-    final pausen = globalPauseOffsets(manifest, session.pauseIndex);
-
-    // docs/ARCHITEKTUR.md section 9 / M6: shrink `hi` and/or supply a
-    // `prior` first guess from a local sleep-onset reading, if the user
-    // opted in and a reading is actually available -- a no-op (adjustment
-    // == null) reproduces M5 exactly (`hi` from `stop`, `prior: null`).
-    // `lo` itself is never touched here (invariant 9): only ever the
-    // Resolver-derived value above is passed on.
-    final optedIn = await ref.read(settingsStoreProvider).healthDataOptIn();
-    final adjustment = await session.sleepOnsetAdjustment(
-      dataSource: ref.read(sleepDataSourceProvider),
-      optedIn: optedIn,
-      lo: lo,
-      hi: hi,
-    );
-    int? prior;
-    if (adjustment != null) {
-      hi = adjustment.hi;
-      prior = adjustment.prior;
-    }
-    // Decision E78: without a health-data prior, the first bisection point
-    // comes from earlier searches (the median minutes from the last awake
-    // proof to the recognised passage); probe 1 still runs first.
-    final sleepLog = ref.read(sleepLogProvider);
-    var learned = false;
-    if (prior == null) {
-      prior = await sleepLog.learnedPriorFor(lo: lo, hi: hi);
-      learned = prior != null;
-    }
-    final probeLen = await ref.read(probeLengthProvider.future);
-    if (!mounted) return;
-    final sleepingSession = bookState.sessionId;
-    final bookId = session.bookId;
-    if (bookId == null) return;
-
-    // `hi` is reassigned above, so it is not promoted from `int?` to `int`
-    // inside the closure below (a local variable assigned anywhere in this
-    // function loses promotion in a closure literal) -- a final copy fixes
-    // that without changing anything about the value itself.
-    final resolvedHi = hi;
-    // Undo hints wait until the Faden screen closes (playback_announcer.dart).
-    final fadenOpen = ref.read(fadenScreenOpenProvider.notifier)..set(true);
-    try {
-      await Navigator.of(context).push(
-        MaterialPageRoute<void>(
-          builder: (_) => FadenScreen(
-            manifest: manifest,
-            lo: lo,
-            hi: resolvedHi,
-            stop: stopMs,
-            pausen: pausen,
-            prior: prior,
-            priorAfterFalseAlarm: learned,
-            probeLen: probeLen,
-            // Decision E79: every start from the result is remembered
-            // locally as this night's sleep onset (and, if wanted, goes to
-            // Health, E82) -- never an event.
-            onChosen: (globalMs, recognised) => sleepLog.recordChoice(
-              bookId: bookId,
-              sessionId: sleepingSession,
-              manifest: manifest,
-              loGlobalMs: lo,
-              chosenGlobalMs: globalMs,
-              recognised: recognised,
-            ),
-            playlistSources: sources,
-          ),
-        ),
-      );
-    } finally {
-      fadenOpen.set(false);
-    }
+  /// docs/KONZEPT.md "Faden aufnehmen": the main button (or, by day, the
+  /// line under it) starts the Faden search with the Resolver's window;
+  /// ui/faden_session_host.dart shows its screen (decision E85). Declines
+  /// silently without a playlist (offline, no server) or a window.
+  Future<void> _openFadenMode() async {
+    await ref.read(fadenStarterProvider).fromBookState();
   }
 
   /// Hands the current look to open sheets (E46) -- after the frame,
@@ -380,12 +294,15 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
                     // sleep timer in its last minute; screen buttons act normally.
                     onMainButton: () {
                       final bookState = session.bookState;
-                      if (bookState != null && bookState.sleepSuspected) {
-                        unawaited(_openFadenMode(session, bookState));
+                      // E86: at night and after the sleep timer the main
+                      // button searches; by day it stays "Weiterhören".
+                      if (bookState != null && fadenOfferFor(bookState) == FadenOffer.primary) {
+                        unawaited(_openFadenMode());
                         return;
                       }
                       unawaited(_handler.playPause());
                     },
+                    onFindPlace: () => unawaited(_openFadenMode()),
                     onSeek: (delta) {
                       unawaited(HapticFeedback.lightImpact());
                       unawaited(_handler.seekBySeconds(delta));
@@ -429,6 +346,9 @@ class PlayerBody extends ConsumerWidget {
   final VoidCallback onMainButton;
   final void Function(int deltaSeconds) onSeek;
   final VoidCallback onResumeFromStop;
+
+  /// "Eingeschlafen? Stelle suchen" under "Weiterhören" (E86).
+  final VoidCallback? onFindPlace;
   final VoidCallback onOpenDetails;
 
   /// The sleep timer's button (E61), at the right end of the bottom strip
@@ -443,6 +363,7 @@ class PlayerBody extends ConsumerWidget {
     required this.onMainButton,
     required this.onSeek,
     required this.onResumeFromStop,
+    this.onFindPlace,
     required this.onOpenDetails,
     this.sleepTimerButton,
   });
@@ -459,6 +380,7 @@ class PlayerBody extends ConsumerWidget {
     final bookState = session.bookState!;
     final handler = ref.watch(audioHandlerProvider);
     final initial = livePosition(handler, session);
+    final offer = fadenOfferFor(bookState);
 
     // Swipes up (details) and down (close, E63) are handled around this,
     // by the PlayerScreen, for the whole route.
@@ -530,7 +452,7 @@ class PlayerBody extends ConsumerWidget {
                         night: night,
                         playing: status.playing,
                         buffering: status.buffering,
-                        sleepSuspected: bookState.sleepSuspected,
+                        sleepSuspected: offer == FadenOffer.primary,
                         onPressed: onMainButton,
                       ),
                       const SizedBox(width: 28),
@@ -545,10 +467,10 @@ class PlayerBody extends ConsumerWidget {
                   );
                 },
               ),
-              // docs/KONZEPT.md "Faden aufnehmen": "Der Hauptbutton heißt
-              // jetzt 'Faden aufnehmen', darunter klein 'Ab Stopp
-              // weiterhören'."
-              if (bookState.sleepSuspected) ...[
+              // docs/KONZEPT.md "Faden aufnehmen": at night and after the
+              // sleep timer the main button is "Faden aufnehmen", with
+              // "Weiter, wo es anhielt" underneath (E86).
+              if (offer == FadenOffer.primary) ...[
                 // The button's name belongs to the button (E65): the same
                 // tap, and for VoiceOver one element (the button's label).
                 ExcludeSemantics(
@@ -583,6 +505,20 @@ class PlayerBody extends ConsumerWidget {
                   child: Text(AppStrings.resumeFromStop),
                 ),
               ],
+              // By day without a sleep timer "Weiterhören" stays; the
+              // search is one line below (E86).
+              if (offer == FadenOffer.secondary)
+                TextButton(
+                  onPressed: onFindPlace,
+                  style: TextButton.styleFrom(
+                    foregroundColor: tokens.faden,
+                    textStyle: const TextStyle(
+                      fontFamily: fadenFontFamily,
+                      fontSize: FadenTypeSizes.caption,
+                    ),
+                  ),
+                  child: Text(AppStrings.mainButtonAsleepSearch),
+                ),
               if (night) const Spacer() else SizedBox(height: 12 * gap),
               _BottomStrip(
                 manifest: manifest,

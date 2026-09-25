@@ -9,6 +9,16 @@ void main() {
   const min = 60 * 1000;
   const hour = 60 * min;
 
+  group('formatClockOfDay (E89)', () {
+    test('local HH:MM from wall time and UTC offset', () {
+      // 2024-01-02 22:12 UTC.
+      final wall = DateTime.utc(2024, 1, 2, 22, 12, 40).millisecondsSinceEpoch;
+      expect(formatClockOfDay(wall, 0), '22:12');
+      expect(formatClockOfDay(wall, 60), '23:12');
+      expect(formatClockOfDay(wall, 120), '00:12');
+    });
+  });
+
   group('formatRemaining', () {
     test('hours and minutes, no seconds', () {
       expect(formatRemaining(3 * hour + 45 * min), '3 Std. 45 Min.');

@@ -32,9 +32,9 @@ Frage listenerFor(int s) => (p, n) async => p <= s;
 /// `hi - lo`; pausen are scattered across the window (including some
 /// deliberately close to lo/hi, which [snap] must reject) so snapping is
 /// exercised, not just plain bisection.
-_Case _randomCase(Random rng, int maxWindowMs) {
+_Case _randomCase(Random rng, int maxWindowMs, {int minWindowMs = 0}) {
   final lo = rng.nextInt(2 * 60 * 60000); // up to 2 h into the book
-  final window = 1 + rng.nextInt(maxWindowMs);
+  final window = minWindowMs + 1 + rng.nextInt(maxWindowMs);
   final hi = lo + window;
   final s = lo + rng.nextInt(window + 1);
   final pausenCount = rng.nextInt(6);
@@ -69,10 +69,10 @@ void _properties(Random rng, int probeLen) {
     });
   });
 
-  group('property 2: window <= 30 min => S - start <= target + preroll', () {
-    test('holds across $_perLength random cases, $len with window <= 30 min', () async {
+  group('property 2: short window < window <= 30 min => S - start <= target + preroll', () {
+    test('holds across $_perLength random cases, $len with window in (6 min, 30 min]', () async {
       for (var i = 0; i < _perLength; i++) {
-        final c = _randomCase(rng, 30 * 60000); // window in (0, 30 min]
+        final c = _randomCase(rng, 30 * 60000 - shortWindow, minWindowMs: shortWindow); // (6, 30 min]
         final result = await fadenSuche(c.lo, c.hi, c.pausen, listenerFor(c.s), probeLen: probeLen);
         expect(
           c.s - result.start,
@@ -80,6 +80,23 @@ void _properties(Random rng, int probeLen) {
           reason: 'case #$i: lo=${c.lo} hi=${c.hi} s=${c.s} pausen=${c.pausen} '
               'start=${result.start} leiter=${result.leiter}',
         );
+      }
+    });
+  });
+
+  group('property 2b (E87): window <= 6 min => probe 1 only, else from lo', () {
+    test('holds across $_perLength random cases, $len with window in (0, 6 min]', () async {
+      for (var i = 0; i < _perLength; i++) {
+        final c = _randomCase(rng, shortWindow);
+        var probes = 0;
+        final result = await fadenSuche(c.lo, c.hi, c.pausen, (p, n) async {
+          probes++;
+          return p <= c.s;
+        }, probeLen: probeLen);
+        final why = 'case #$i: lo=${c.lo} hi=${c.hi} s=${c.s} start=${result.start} leiter=${result.leiter}';
+        expect(probes, lessThanOrEqualTo(1), reason: why);
+        expect(result.start, lessThanOrEqualTo(c.s), reason: why);
+        if (!result.falseAlarm) expect(result.start, max(c.lo - preroll, 0), reason: why);
       }
     });
   });
@@ -191,6 +208,7 @@ void _learnedPriorProperties(Random rng) {
           expect(p, lessThan(c.hi), reason: why);
         }
         if (window > target) {
+          expect(asked, isNotEmpty, reason: why);
           expect(asked.first, snap(c.hi - firstOffset, c.lo, c.hi, 2000, c.pausen, probeLen: probeLen),
               reason: 'probe 1 stays the Fehlalarm-Test: $why');
         }
@@ -200,7 +218,7 @@ void _learnedPriorProperties(Random rng) {
     test('a prior strictly inside the window after probe 1 is the second probe', () async {
       for (var i = 0; i < 2000; i++) {
         final lo = rng.nextInt(60 * 60000);
-        final hi = lo + target + 30000 + rng.nextInt(4 * 60 * 60000);
+        final hi = lo + shortWindow + 30000 + rng.nextInt(4 * 60 * 60000);
         final hiAfterProbe1 = hi - firstOffset;
         final prior = lo + 1 + rng.nextInt(hiAfterProbe1 - lo - 1);
         final asked = <int>[];

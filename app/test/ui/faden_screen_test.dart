@@ -22,6 +22,7 @@ import 'package:faden/domain/faden_search.dart' as fs;
 import 'package:faden/domain/manifest.dart';
 import 'package:faden/domain/position.dart';
 import 'package:faden/l10n/strings.dart';
+import 'package:faden/signals/screen_awake.dart';
 import 'package:faden/ui/faden_screen.dart';
 import 'package:faden/ui/format.dart';
 import 'package:faden/ui/providers.dart';
@@ -34,6 +35,8 @@ import 'package:just_audio/just_audio.dart' as ja;
 
 class _FakeProbePlayer implements ProbePlayer {
   int tones = 0;
+  final List<FadenCue> cues = [];
+  final List<bool> keepAlive = [];
   final List<({int fileIndex, int offsetMs, int fileDurationMs})> probes = [];
   final List<int> probeLengths = [];
   int stops = 0;
@@ -46,14 +49,22 @@ class _FakeProbePlayer implements ProbePlayer {
   Future<void> playTone() async => tones++;
 
   @override
+  Future<void> playCue(FadenCue cue) async => cues.add(cue);
+
+  @override
+  Future<void> setKeepAlive(bool on) async => keepAlive.add(on);
+
+  @override
   Future<void> playProbe({
     required int fileIndex,
     required int offsetMs,
     required int probeLenMs,
     required int fileDurationMs,
+    void Function()? onPlaying,
   }) async {
     probes.add((fileIndex: fileIndex, offsetMs: offsetMs, fileDurationMs: fileDurationMs));
     probeLengths.add(probeLenMs);
+    onPlaying?.call(); // plays at once
   }
 
   @override
@@ -78,6 +89,18 @@ class _RecordingHandler extends FadenAudioHandler {
 
   @override
   Future<void> resumeFromFaden(Position target, {required int? fileIndex}) async => resumes.add(target);
+
+  final List<EventSource> plays = [];
+
+  @override
+  Future<void> playFrom(EventSource source) async => plays.add(source);
+}
+
+class _FakeScreenAwake implements ScreenAwake {
+  final List<bool> calls = [];
+
+  @override
+  Future<void> keepOn(bool on) async => calls.add(on);
 }
 
 const _manifest = Manifest(manifestId: 'm1', files: [
@@ -175,6 +198,7 @@ void main() {
       Size size = proMax,
       double textScale = 1.0,
       int probeLen = fs.defaultProbeLen,
+      ScreenAwake? screenAwake,
     }) async {
       await tester.runAsync(() async {
         db = AppDatabase.memory();
@@ -191,7 +215,10 @@ void main() {
       final navigatorKey = GlobalKey<NavigatorState>();
       await tester.pumpWidget(
         ProviderScope(
-          overrides: [audioHandlerProvider.overrideWithValue(handler)],
+          overrides: [
+            audioHandlerProvider.overrideWithValue(handler),
+            screenAwakeProvider.overrideWithValue(screenAwake),
+          ],
           child: MaterialApp(
             navigatorKey: navigatorKey,
             theme: fadenThemeFor(FadenTokens.day),
@@ -269,7 +296,8 @@ void main() {
       final semantics = tester.ensureSemantics();
       await pumpFaden(tester);
       await tester.pump(const Duration(seconds: 1));
-      expect(find.text(AppStrings.fadenProbeCounter(1, fs.maxProbes)), findsOneWidget);
+      // "Noch höchstens 7 Fragen" (E89) instead of "Probe 1 von höchstens 8".
+      expect(find.text(AppStrings.fadenQuestionsLeft(fs.maxProbes - 1)), findsOneWidget);
       expect(find.text(AppStrings.fadenModePrompt), findsOneWidget);
       // Probe 1 lies 25 s before the stop (40:00 global = chapter 2, 20:00).
       expect(probeAt(0), hi - fs.firstOffset);
@@ -294,7 +322,7 @@ void main() {
       await answer(tester, known: false);
       expect(handler.probes.single.known, isFalse);
       expect(probePlayer.probes, hasLength(2), reason: 'no waiting for the rest of the window');
-      expect(find.text(AppStrings.fadenProbeCounter(2, fs.maxProbes)), findsOneWidget);
+      expect(find.text(AppStrings.fadenQuestionsLeft(fs.maxProbes - 2)), findsOneWidget);
       await tearDownFaden(tester);
     });
 
@@ -362,23 +390,69 @@ void main() {
       await tearDownFaden(tester);
     });
 
-    for (final how in ['"Abbrechen"', 'a long press']) {
-      testWidgets('$how aborts to the last safe wake point', (tester) async {
-        await pumpFaden(tester);
-        await tester.pump(const Duration(seconds: 1));
-        if (how == 'a long press') {
-          await tester.longPressAt(Offset(proMax.width / 2, proMax.height - 80));
-        } else {
-          await tester.tap(find.text(AppStrings.fadenAbort));
-        }
-        await tester.pump();
-        await tester.pump(const Duration(milliseconds: 400));
-        expect(handler.resumes, [_manifest.positionForGlobalMs(lo)]);
-        expect(handler.probes, isEmpty);
-        expect(find.text('player'), findsOneWidget);
-        await tearDownFaden(tester);
-      });
-    }
+    testWidgets('"Abbrechen" returns to the player: no position change, nothing plays (E89)', (tester) async {
+      await pumpFaden(tester);
+      await tester.pump(const Duration(seconds: 1));
+      await tester.tap(find.text(AppStrings.fadenAbort));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 400));
+      expect(handler.resumes, isEmpty);
+      expect(handler.probes, isEmpty);
+      expect(handler.fadenModeActive, isFalse);
+      expect(find.text('player'), findsOneWidget);
+      await tearDownFaden(tester);
+    });
+
+    testWidgets('a long press anywhere no longer aborts (E89)', (tester) async {
+      await pumpFaden(tester);
+      await tester.pump(const Duration(seconds: 1));
+      await tester.longPressAt(Offset(proMax.width / 2, proMax.height - 80));
+      await tester.pump(const Duration(milliseconds: 400));
+      expect(handler.resumes, isEmpty);
+      expect(find.text(AppStrings.fadenKnown), findsOneWidget, reason: 'still asking');
+      expect(handler.fadenModeActive, isTrue);
+      await tearDownFaden(tester);
+    });
+
+    testWidgets('headphones: 2x is "Kenne ich nicht", 3x is "Nochmal hören" (E85)', (tester) async {
+      await pumpFaden(tester);
+      await tester.pump(const Duration(seconds: 1));
+      await handler.rewind(); // 3x on iOS: skip back
+      await tester.pump(const Duration(milliseconds: 50));
+      expect(probePlayer.probes, hasLength(2), reason: 'the same passage again');
+      expect(probeAt(1), probeAt(0));
+      expect(handler.probes, isEmpty);
+      await handler.fastForward(); // 2x on iOS: skip forward
+      await tester.pump(const Duration(milliseconds: 50));
+      expect(handler.probes.single.known, isFalse);
+      await handler.skipToPrevious(); // 3x as "previous track" (other headphones)
+      await tester.pump(const Duration(milliseconds: 50));
+      await handler.skipToNext(); // 2x as "next track"
+      await tester.pump(const Duration(milliseconds: 50));
+      expect(handler.probes.map((p) => p.known), [false, false]);
+      await tearDownFaden(tester);
+    });
+
+    testWidgets('sounds: a click for "Kenne ich", a soft tone for "Kenne ich nicht" (E85)', (tester) async {
+      await pumpFaden(tester);
+      await tester.pump(const Duration(seconds: 1));
+      expect(probePlayer.keepAlive, [true], reason: 'near-silence between probes');
+      await answer(tester, known: false);
+      await answer(tester, known: true);
+      expect(probePlayer.cues, [FadenCue.unknown, FadenCue.known]);
+      await tearDownFaden(tester);
+    });
+
+    testWidgets('the display does not lock itself while the screen is open (E85)', (tester) async {
+      final awake = _FakeScreenAwake();
+      await pumpFaden(tester, screenAwake: awake);
+      expect(awake.calls, [true]);
+      await tester.tap(find.text(AppStrings.fadenAbort));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 400));
+      expect(awake.calls, [true, false]);
+      await tearDownFaden(tester);
+    });
 
     testWidgets('holding "Kenne ich" answers instead of aborting', (tester) async {
       await pumpFaden(tester);
@@ -389,7 +463,21 @@ void main() {
       // Probe 1 known (the false-alarm test): the result is that passage,
       // not the last wake point an abort would go to.
       expect(handler.resumes.map(_manifest.globalMsFor), [probeAt(0)]);
-      expect(find.text(AppStrings.fadenResultFound), findsOneWidget);
+      // E88: probe 1 recognised says so.
+      expect(find.text(AppStrings.fadenResultStillAwake), findsOneWidget);
+      expect(probePlayer.cues.last, FadenCue.result);
+      await tearDownFaden(tester);
+    });
+
+    testWidgets('nothing recognised says so and starts at the last touch (E88)', (tester) async {
+      await pumpFaden(tester);
+      for (var i = 0; i < 12 && handler.resumes.isEmpty; i++) {
+        await tester.pump(const Duration(milliseconds: 100));
+        if (handler.probes.length < probePlayer.probes.length) await answer(tester, known: false);
+      }
+      expect(handler.resumes.map(_manifest.globalMsFor), [lo - fs.preroll]);
+      await tester.pump();
+      expect(find.text(AppStrings.fadenResultNothing), findsOneWidget);
       await tearDownFaden(tester);
     });
 
@@ -449,6 +537,54 @@ void main() {
       await tearDownFaden(tester);
     });
 
+    testWidgets('"Nochmal prüfen" asks the earliest passage not recognised again (E91)', (tester) async {
+      await pumpFaden(tester);
+      await runToResult(tester, 20 * 60000);
+      final result = _manifest.globalMsFor(handler.resumes.last)!;
+      final unknownAfter = [
+        for (final p in handler.probes)
+          if (!p.known && _manifest.globalMsFor(p.position)! > result) _manifest.globalMsFor(p.position)!,
+      ]..sort();
+      expect(find.text(AppStrings.fadenRecheck), findsOneWidget);
+      await tester.tap(find.text(AppStrings.fadenRecheck));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 100));
+      expect(probeAt(probePlayer.probes.length - 1), unknownAfter.first);
+      expect(find.text(AppStrings.fadenKnown), findsOneWidget, reason: 'asked like any probe');
+      expect(handler.fadenModeActive, isTrue, reason: 'the buttons answer again');
+      await answer(tester, known: true);
+      await tester.pump(const Duration(milliseconds: 100));
+      expect(_manifest.globalMsFor(handler.resumes.last), unknownAfter.first, reason: 'moved forward by a "kenne ich"');
+      expect(find.text(AppStrings.fadenResultFound), findsOneWidget);
+      await tearDownFaden(tester);
+    });
+
+    testWidgets('"Abbrechen" during "Nochmal prüfen" lets the result play on where it was', (tester) async {
+      await pumpFaden(tester);
+      await runToResult(tester, 20 * 60000);
+      final resumes = handler.resumes.length;
+      await tester.tap(find.text(AppStrings.fadenRecheck));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 100));
+      await tester.tap(find.text(AppStrings.fadenAbort));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 600));
+      expect(handler.resumes, hasLength(resumes), reason: 'no new position');
+      expect(handler.plays, [EventSource.faden]);
+      expect(find.text('player'), findsOneWidget);
+      await tearDownFaden(tester);
+    });
+
+    testWidgets('on the result 3x on the headphones is "Etwas früher anfangen" (E85)', (tester) async {
+      await pumpFaden(tester);
+      await runToResult(tester, 20 * 60000);
+      final before = handler.resumes.length;
+      await handler.rewind();
+      await tester.pump(const Duration(milliseconds: 100));
+      expect(handler.resumes, hasLength(before + 1));
+      await tearDownFaden(tester);
+    });
+
     testWidgets('the result frees the headphone buttons before "Fertig"', (tester) async {
       await pumpFaden(tester);
       expect(handler.fadenModeActive, isTrue);
@@ -488,7 +624,7 @@ void main() {
             }
             expect(tester.takeException(), isNull);
             expect(heardRows(), findsWidgets);
-            expectOnScreen(tester, find.text(AppStrings.fadenProbeCounter(5, fs.maxProbes)));
+            expectOnScreen(tester, find.text(AppStrings.fadenQuestionsLeft(fs.maxProbes - 5)));
             expectOnScreen(tester, find.widgetWithText(OutlinedButton, AppStrings.fadenKnown));
             expectOnScreen(tester, find.widgetWithText(OutlinedButton, AppStrings.fadenUnknown));
             expectOnScreen(tester, find.text(AppStrings.fadenReplay));
@@ -502,6 +638,7 @@ void main() {
             await runToResult(tester, 20 * 60000);
             expect(tester.takeException(), isNull);
             expectOnScreen(tester, find.text(AppStrings.fadenResultFound));
+            expectOnScreen(tester, find.text(AppStrings.fadenRecheck));
             expectOnScreen(tester, find.text(AppStrings.fadenDone));
             // "Fertig" is a full-width capsule at the bottom (E76).
             final done = find.widgetWithText(FilledButton, AppStrings.fadenDone);
@@ -510,6 +647,10 @@ void main() {
             expect(tester.getTopLeft(done).dy, greaterThanOrEqualTo(tester.getBottomLeft(find.byType(ListView)).dy),
                 reason: 'below the list, which scrolls above it');
             expectOnScreen(tester, find.text(AppStrings.fadenLadderEarlier));
+            // "Nochmal prüfen" first (E91), the recognised passages below it
+            // in the same scrolling list.
+            await tester.dragUntilVisible(
+                find.byKey(const ValueKey('faden-alternative-1')), find.byType(ListView), const Offset(0, -40));
             expectOnScreen(tester, alternativeRows().first);
             await tearDownFaden(tester);
           });

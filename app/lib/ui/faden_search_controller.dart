@@ -40,6 +40,9 @@ class FadenProgress {
   /// probe + answer-window indicator.
   final int window;
 
+  /// "Nochmal prüfen" (E91) asks [current] after the result.
+  final bool rechecking;
+
   const FadenProgress({
     required this.lo,
     required this.hi,
@@ -49,6 +52,7 @@ class FadenProgress {
     this.heard = const [],
     this.listening = false,
     this.window = 0,
+    this.rechecking = false,
   });
 }
 
@@ -118,13 +122,31 @@ class FadenSearchController {
   /// "Früher" tap ([earlier]).
   final Future<void> Function(int startGlobalMs) onResumeAt;
 
-  /// Long-press abort (docs/KONZEPT.md: "Langer Druck auf den Screen bricht
-  /// ab und startet am letzten sicheren Wach-Punkt."). Called with [lo]
-  /// itself, unmodified by [fs.preroll] -- "der letzte sichere Wach-Punkt"
-  /// is a specific, already-known position, unlike the search's own
-  /// never-answered fallback ([fs.fadenSuche]'s `start` when nothing was
-  /// ever confirmed, which *does* subtract the preroll).
-  final Future<void> Function(int lastAwakeGlobalMs) onAborted;
+  /// Told once the search stopped after [abort] ("Abbrechen", decision
+  /// E89): nothing is resumed -- the position stays where it was and
+  /// nothing starts playing.
+  final Future<void> Function()? onAborted;
+
+  /// Feedback after each recorded answer (decision E85): a click for
+  /// "kenne ich", a soft tone for "kenne ich nicht" and for no answer.
+  final Future<void> Function(bool known)? answerCue;
+
+  /// Feedback right before the search's own result starts (E85).
+  final Future<void> Function()? resultCue;
+
+  /// "Nochmal prüfen" (E91) pauses what plays before asking again...
+  final Future<void> Function()? onRecheckStarts;
+
+  /// ...and, when the passage is still not recognised, lets it play on.
+  final Future<void> Function()? onRecheckFailed;
+
+  /// Decision E85: the answer window starts only once the probe actually
+  /// plays ([probePlaying]) -- a streamed chapter can take seconds to load
+  /// on a locked phone. False (tests): it starts with the probe call.
+  final bool waitForProbeStart;
+
+  /// The longest wait for [probePlaying] before the window runs anyway.
+  static const Duration maxProbeStartWait = Duration(seconds: 10);
 
   /// Told after every start from the result (the search's own finding, a
   /// tapped passage, "Früher"), once playback runs there: where it started
@@ -157,11 +179,18 @@ class FadenSearchController {
   Timer? _windowTimer;
 
   /// Set by [dispose]: the screen is gone (back gesture / route pop without
-  /// a result). Unlike a long-press [abort], this must end the search
-  /// silently -- no further `PROBE`, no `RESUME` via [onAborted] or
-  /// [onResumeAt], no playback start.
+  /// a result). Like [abort] this ends the search silently -- no further
+  /// `PROBE`, no `RESUME`, no playback start -- but tells nobody.
   bool _disposed = false;
   Completer<bool>? _pendingAnswer;
+
+  /// The answer window waiting for [probePlaying].
+  void Function()? _startPendingWindow;
+
+  /// Passages answered "kenne ich nicht" that "Nochmal prüfen" (E91) no
+  /// longer offers (asked again and still not recognised).
+  final Set<int> _recheckDeclined = {};
+  bool _rechecking = false;
 
   FadenSearchController({
     required this.lo,
@@ -175,8 +204,13 @@ class FadenSearchController {
     required this.stopProbe,
     required this.onProbeAnswered,
     required this.onResumeAt,
-    required this.onAborted,
+    this.onAborted,
     this.onChosen,
+    this.answerCue,
+    this.resultCue,
+    this.onRecheckStarts,
+    this.onRecheckFailed,
+    this.waitForProbeStart = false,
   }) {
     _leiter = [lo];
   }
@@ -199,6 +233,10 @@ class FadenSearchController {
   /// do not exist, entries before it are the earlier alternatives.
   int get resultIndex => _resultIndex;
 
+  /// Whether the search's first probe (the false-alarm test) was
+  /// recognised (E88).
+  bool get falseAlarm => _falseAlarm;
+
   /// Runs the search to completion (or until [abort] fires). Never throws:
   /// an abort is reported through [onAborted], not as an exception out of
   /// this method.
@@ -218,11 +256,13 @@ class FadenSearchController {
       _leiter = result.leiter;
       _falseAlarm = result.falseAlarm;
       _leiterIndex = _resultIndex = _leiter.length - 1;
+      await resultCue?.call();
+      if (_disposed) return;
       await onResumeAt(result.start);
       await _chosen(result.start);
     } on FadenAbortedException {
       if (_disposed) return;
-      await onAborted(lo);
+      await onAborted?.call();
     }
   }
 
@@ -242,6 +282,7 @@ class FadenSearchController {
       heard: List.unmodifiable(_heard),
       listening: _listening,
       window: _window,
+      rechecking: _rechecking,
     ));
   }
 
@@ -262,6 +303,7 @@ class FadenSearchController {
     } finally {
       _windowTimer?.cancel();
       _windowTimer = null;
+      _startPendingWindow = null;
       _pendingAnswer = null;
     }
 
@@ -275,6 +317,8 @@ class FadenSearchController {
     // Journal first (invariant 3), then show the answer as given.
     await onProbeAnswered(p, known);
     _heard.add(FadenProbe(p: p, probeNr: probeNr, known: known));
+    // Heard, not only seen (E85); the next tone follows it.
+    if (!_disposed) await answerCue?.call(known);
     if (known) {
       _lo = p;
     } else {
@@ -289,13 +333,35 @@ class FadenSearchController {
   /// answer_window, after which silence counts as "kenne ich nicht".
   void _startWindow(int p, Completer<bool> completer) {
     _windowTimer?.cancel();
-    unawaited(playProbe(p).catchError((Object _) {}));
-    _windowTimer = Timer(Duration(milliseconds: probeLen + fs.answerWindow), () {
-      if (!completer.isCompleted) completer.complete(false);
-    });
+    void run() {
+      _startPendingWindow = null;
+      _windowTimer?.cancel();
+      _windowTimer = Timer(Duration(milliseconds: probeLen + fs.answerWindow), () {
+        if (!completer.isCompleted) completer.complete(false);
+      });
+      _window++;
+      _emit();
+    }
+
     _listening = true;
-    _window++;
-    _emit();
+    if (waitForProbeStart) {
+      _startPendingWindow = run;
+      // Never waits forever: a probe that fails to load still gets its
+      // window (and then counts as "kenne ich nicht").
+      _windowTimer = Timer(maxProbeStartWait, run);
+      _emit();
+      unawaited(playProbe(p).catchError((Object _) {}));
+    } else {
+      unawaited(playProbe(p).catchError((Object _) {}));
+      run();
+    }
+  }
+
+  /// The probe being asked started to play (E85): its answer window runs
+  /// from now on. Ignored when no window waits for it.
+  void probePlaying() {
+    final pending = _startPendingWindow;
+    if (pending != null && !_disposed) pending();
   }
 
   /// The answer to the passage being asked (E64): "Kenne ich" ([known]
@@ -320,9 +386,10 @@ class FadenSearchController {
     _startWindow(current.p, pending);
   }
 
-  /// Long-press abort. Safe to call at any point during [start] (including
+  /// "Abbrechen" (E89). Safe to call at any point during [start] (including
   /// before the first probe, or between two probes while the cue tone is
-  /// playing) -- the running search stops at its next checkpoint.
+  /// playing) -- the running search stops at its next checkpoint, and
+  /// [onAborted] is told; nothing is resumed.
   void abort() {
     if (_aborted) return;
     _aborted = true;
@@ -363,6 +430,58 @@ class FadenSearchController {
     final pos = fs.positionAtLeiterIndex(_leiter, index);
     await onResumeAt(pos);
     await _chosen(pos);
+  }
+
+  /// "Nochmal prüfen" (decision E91): after the result, the earliest
+  /// passage answered "kenne ich nicht" -- the nearest one after where
+  /// playback started -- or null. Asking it again can only move the result
+  /// forward by a new "kenne ich" (invariant 9).
+  int? get recheckCandidate {
+    if (!resolved || _disposed || _rechecking) return null;
+    final from = _leiter[_resultIndex];
+    int? best;
+    for (final probe in _heard) {
+      if (probe.known != false || probe.p <= from || _recheckDeclined.contains(probe.p)) continue;
+      if (best == null || probe.p < best) best = probe.p;
+    }
+    return best;
+  }
+
+  /// Asks [recheckCandidate] once more (tone, probe, answer window, one
+  /// `PROBE`). Recognised now: it becomes the new result, played from
+  /// there (a `RESUME` of its own) and the ladder's newest step. Still not:
+  /// playback goes on where it was and the passage is not offered again.
+  Future<void> recheck() async {
+    final u = recheckCandidate;
+    if (u == null) return;
+    _rechecking = true;
+    _aborted = false;
+    _emit();
+    try {
+      await onRecheckStarts?.call();
+      if (_disposed) return;
+      final known = await _frage(u, _probeNr);
+      if (_disposed) return;
+      if (known) {
+        _leiter = [..._leiter.take(_resultIndex + 1), u];
+        _leiterIndex = _resultIndex = _leiter.length - 1;
+        _rechecking = false;
+        _emit();
+        await resultCue?.call();
+        if (_disposed) return;
+        await onResumeAt(u);
+        await _chosen(u);
+      } else {
+        _recheckDeclined.add(u);
+        _rechecking = false;
+        _emit();
+        await onRecheckFailed?.call();
+      }
+    } on FadenAbortedException {
+      // Left during the question: nothing more to do.
+    } finally {
+      _rechecking = false;
+    }
   }
 
   /// Ends the search for good (the screen was left, with or without a

@@ -17,7 +17,10 @@ import 'package:faden/data/api.dart';
 import 'package:faden/data/db.dart';
 import 'package:faden/data/journal.dart';
 import 'package:faden/data/sync.dart';
+import 'package:faden/domain/asleep_prompt.dart';
 import 'package:faden/domain/event.dart';
+import 'package:faden/domain/faden_gestures.dart';
+import 'package:faden/l10n/strings.dart';
 import 'package:faden/domain/pause_reason.dart';
 import 'package:faden/domain/manifest.dart';
 import 'package:faden/domain/position.dart';
@@ -273,7 +276,9 @@ void main() {
 
       expect(hints, hasLength(1));
       expect(hints.single.target, const Position(fileHash: 'h1', offsetMs: 10 * 60000));
-      expect(hints.single.message, contains('10:00'));
+      // E89: after the Faden search, the way back is where it stopped.
+      expect(hints.single.message, AppStrings.undoHintFaden);
+      expect(hints.single.actionLabel, AppStrings.undoActionBack);
       final resume = (await eventsFor('book')).single;
       expect(resume.type, EventType.resume);
     });
@@ -443,6 +448,119 @@ void main() {
       await sub.cancel();
       expect(answers, hasLength(1));
       expect(extendCalled, isFalse);
+    });
+  });
+
+  group('Faden gestures (E85)', () {
+    test('in the search every button is taken over and reported as its command', () async {
+      handler.enterFadenMode();
+      final commands = <RemoteCommand>[];
+      final sub = handler.fadenModeAnswers.listen(commands.add);
+      await handler.pause();
+      await handler.skipToNext();
+      await handler.fastForward();
+      await handler.skipToPrevious();
+      await handler.rewind();
+      await Future<void>.delayed(Duration.zero);
+      await sub.cancel();
+      expect(commands, [
+        RemoteCommand.pause,
+        RemoteCommand.next,
+        RemoteCommand.fastForward,
+        RemoteCommand.previous,
+        RemoteCommand.rewind,
+      ]);
+      expect(await eventsFor(''), isEmpty);
+    });
+
+    test('on the result only 3x is taken over, and only while there is an earlier passage', () async {
+      var earlier = true;
+      handler.enterFadenResultMode(canGoEarlier: () => earlier);
+      expect(handler.fadenModeActive, isFalse);
+      expect(handler.fadenSearchRunning, isTrue);
+      final commands = <RemoteCommand>[];
+      final sub = handler.fadenModeAnswers.listen(commands.add);
+      await handler.rewind();
+      await Future<void>.delayed(Duration.zero);
+      expect(commands, [RemoteCommand.rewind]);
+      expect(await eventsFor(''), isEmpty);
+
+      // A pause acts normally on the result.
+      await handler.pause();
+      expect((await eventsFor('')).first.type, EventType.pause);
+
+      earlier = false;
+      final before = (await eventsFor('')).length;
+      await handler.rewind(); // no earlier passage: an ordinary -30 s
+      await Future<void>.delayed(Duration.zero);
+      await sub.cancel();
+      expect(commands, hasLength(1));
+      expect((await eventsFor('')).length, before, reason: 'no book open: the seek is a no-op, not an answer');
+    });
+  });
+
+  group('a play from outside while sleep is suspected (E86)', () {
+    test('the hook takes the play over: no PLAY is written', () async {
+      var asked = 0;
+      handler.onRemotePlay = () async {
+        asked++;
+        return true;
+      };
+      await handler.play();
+      expect(asked, 1);
+      expect(await eventsFor(''), isEmpty);
+    });
+
+    test('in Faden mode the play is an answer, the hook is not asked', () async {
+      var asked = 0;
+      handler.onRemotePlay = () async {
+        asked++;
+        return true;
+      };
+      handler.enterFadenMode();
+      await handler.play();
+      expect(asked, 0);
+    });
+  });
+
+  group('the listening stretch (E84)', () {
+    test('follows the journaled events: a timer stop keeps it, a touch resets it', () async {
+      await openBook();
+      await fireAndWaitForJournal(() => handler.playFrom(EventSource.ui));
+      clock.ms += 70 * 60000;
+      await handler.pauseForSleepTimerExpiry();
+      var stretch = handler.stretch;
+      expect(stretch.state, StretchState.stoppedByItself);
+      expect(stretch.listenedMs, 70 * 60000);
+      expect(stretch.lastAwakeGlobalMs, 30 * 60000, reason: 'h1 10:00 = global 30:00');
+      clock.ms += 20000;
+      await handler.awake();
+      stretch = handler.stretch;
+      expect(stretch.state, StretchState.idle);
+      expect(stretch.listenedMs, 0);
+    });
+
+    test('"Ja, Stelle suchen" stops playback without an awake proof', () async {
+      await openBook();
+      await fireAndWaitForJournal(() => handler.playFrom(EventSource.ui));
+      // No real playback in this headless player: the pause path itself is
+      // what is checked (pauseFrom with source faden, reason unconscious).
+      await handler.pauseFrom(EventSource.faden, reason: PauseReason.unconscious);
+      final events = await eventsFor('book');
+      final pause = events.singleWhere((e) => e.type == EventType.pause);
+      expect(pause.source, EventSource.faden);
+      expect(pause.isAwakeProof, isFalse);
+      expect(pause.data['reason'], 'unconscious');
+      expect(events.where((e) => e.type == EventType.sleepHint), hasLength(1));
+    });
+
+    test('opening another book starts a new stretch', () async {
+      await openBook();
+      await fireAndWaitForJournal(() => handler.playFrom(EventSource.ui));
+      final id = handler.stretch.id;
+      await openBook();
+      expect(handler.stretch.id, isNot(id));
+      expect(handler.stretch.state, StretchState.idle);
     });
   });
 }

@@ -90,6 +90,46 @@ void main() {
       expect(result.leiter, [lo]);
     });
 
+    test('a short window (<= 6 min, E87) asks only probe 1, then starts at lo', () async {
+      const lo = 10 * 60000, hi = lo + 5 * 60000;
+      final calls = <int>[];
+      final result = await fadenSuche(lo, hi, const [], (p, n) async {
+        calls.add(p);
+        return false;
+      });
+      expect(calls, [hi - firstOffset]);
+      expect(result.start, lo - preroll);
+      expect(result.leiter, [lo]);
+      expect(result.falseAlarm, isFalse);
+    });
+
+    test('a short window: probe 1 recognised is the false alarm as before', () async {
+      const lo = 0, hi = shortWindow;
+      final result = await fadenSuche(lo, hi, const [], (p, n) async => true);
+      expect(result.falseAlarm, isTrue);
+      expect(result.start, hi - firstOffset);
+    });
+
+    test('a short window ignores a health prior: probe 1 stays the only question', () async {
+      const lo = 0, hi = 4 * 60000;
+      final calls = <int>[];
+      await fadenSuche(lo, hi, const [], (p, n) async {
+        calls.add(p);
+        return false;
+      }, prior: 60000);
+      expect(calls, [hi - firstOffset]);
+    });
+
+    test('just over 6 min the bisection runs as before', () async {
+      const lo = 0, hi = shortWindow + 60000;
+      var probes = 0;
+      await fadenSuche(lo, hi, const [], (p, n) async {
+        probes++;
+        return false;
+      });
+      expect(probes, greaterThan(1));
+    });
+
     test('never asks more than maxProbes probes', () async {
       final lo = 0, hi = 5 * 60 * 60000; // 5 h window
       var probes = 0;
@@ -178,6 +218,37 @@ void main() {
       final other = await fadenSuche(0, 40 * 60000, const [], (p, n) async => n == 2);
       expect(other.falseAlarm, isFalse);
       expect(other.leiter, hasLength(2));
+    });
+  });
+
+  group('fadenResultKind (E88: an honest result text)', () {
+    test('probe 1 recognised: still awake, just before it stopped', () {
+      expect(fadenResultKind(falseAlarm: true, leiterIndex: 1, resultIndex: 1), FadenResultKind.stillAwake);
+    });
+
+    test('nothing recognised: from the last touch', () {
+      expect(fadenResultKind(falseAlarm: false, leiterIndex: 0, resultIndex: 0), FadenResultKind.nothingRecognised);
+    });
+
+    test('a passage found', () {
+      expect(fadenResultKind(falseAlarm: false, leiterIndex: 3, resultIndex: 3), FadenResultKind.found);
+      expect(fadenResultKind(falseAlarm: false, leiterIndex: 2, resultIndex: 3), FadenResultKind.found);
+    });
+
+    test('stepped back to lo: from the last touch', () {
+      expect(fadenResultKind(falseAlarm: false, leiterIndex: 0, resultIndex: 2), FadenResultKind.lastTouch);
+      expect(fadenResultKind(falseAlarm: true, leiterIndex: 0, resultIndex: 1), FadenResultKind.lastTouch);
+    });
+  });
+
+  group('remainingQuestions (E89: "Noch höchstens 6 Fragen")', () {
+    test('counts down from the probe budget', () {
+      expect(remainingQuestions(probeNr: 2, windowMs: 60 * 60000), maxProbes - 2);
+      expect(remainingQuestions(probeNr: 8, windowMs: 60 * 60000), 0);
+    });
+
+    test('a short window has probe 1 only', () {
+      expect(remainingQuestions(probeNr: 1, windowMs: shortWindow), 0);
     });
   });
 
