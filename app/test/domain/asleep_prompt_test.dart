@@ -137,6 +137,52 @@ void main() {
       expect(t.snapshot(80 * _min).listenedMs, 70 * _min);
     });
 
+    test('the book end is remembered as such (E92)', () {
+      final t = _track([
+        _e(EventType.play, 0),
+        _e(EventType.finished, 70, source: EventSource.system),
+      ]);
+      expect(t.snapshot(80 * _min).endedAtBookEnd, isTrue);
+      t.onEvent(_e(EventType.awake, 81), globalMs: 70 * _min);
+      expect(t.snapshot(82 * _min).endedAtBookEnd, isFalse);
+    });
+
+    group('restored from the journal after an app restart (E93)', () {
+      test('a stretch that ended with a timer pause is the same as before', () {
+        final events = [
+          _e(EventType.play, 0),
+          _e(EventType.heartbeat, 30),
+          _e(EventType.pause, 70, source: EventSource.timer, data: {'reason': 'timer'}),
+          _e(EventType.sleepHint, 70, source: EventSource.timer),
+        ];
+        final t = ListeningStretchTracker()..restore(events, globalMsOf: (e) => e.offsetMs);
+        final s = t.snapshot(9 * 60 * _min);
+        expect(s.state, StretchState.stoppedByItself);
+        expect(s.listenedMs, 70 * _min);
+        expect(s.lastAwakeGlobalMs, 0);
+        expect(s.stopReason, PauseReason.timer);
+      });
+
+      test('the app died while playing: stopped at the last heartbeat, not still playing', () {
+        final events = [
+          _e(EventType.play, 0),
+          for (var m = 5; m <= 65; m += 5) _e(EventType.heartbeat, m),
+        ];
+        final t = ListeningStretchTracker()..restore(events, globalMsOf: (e) => e.offsetMs);
+        final s = t.snapshot(10 * 60 * _min);
+        expect(s.state, StretchState.stoppedByItself);
+        expect(s.listenedMs, 65 * _min);
+        expect(s.lastListenWallMs, 65 * _min);
+      });
+
+      test('nothing but awake proofs: idle', () {
+        final t = ListeningStretchTracker()
+          ..restore([_e(EventType.play, 0), _e(EventType.pause, 3, data: {'reason': 'conscious'})],
+              globalMsOf: (e) => e.offsetMs);
+        expect(t.snapshot(10 * _min).state, StretchState.idle);
+      });
+    });
+
     test('reset forgets everything (another book)', () {
       final t = _track([_e(EventType.play, 0)]);
       t.reset();

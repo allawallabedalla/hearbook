@@ -436,6 +436,11 @@ class FadenSearchController {
   /// passage answered "kenne ich nicht" -- the nearest one after where
   /// playback started -- or null. Asking it again can only move the result
   /// forward by a new "kenne ich" (invariant 9).
+  ///
+  /// Decision E95: only when that passage lies more than [fs.target] after
+  /// where the result starts -- after a search that ran its course it is
+  /// within 30 s, and asking again would win nothing (a long night whose
+  /// search ran out of probes leaves minutes).
   int? get recheckCandidate {
     if (!resolved || _disposed || _rechecking) return null;
     final from = _leiter[_resultIndex];
@@ -444,6 +449,7 @@ class FadenSearchController {
       if (probe.known != false || probe.p <= from || _recheckDeclined.contains(probe.p)) continue;
       if (best == null || probe.p < best) best = probe.p;
     }
+    if (best == null || best - fs.positionAtLeiterIndex(_leiter, _resultIndex) <= fs.target) return null;
     return best;
   }
 

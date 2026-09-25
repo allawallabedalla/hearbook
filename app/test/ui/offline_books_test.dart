@@ -37,11 +37,12 @@ class _Book {
   final String id;
   final Uint8List bytes;
   late final String hash = audioHashBytes(bytes);
+  final int durationMs;
   late final Manifest manifest = Manifest(manifestId: 'm-$id', files: [
-    ManifestFile(idx: 0, fileHash: hash, durationMs: 10 * 60000),
+    ManifestFile(idx: 0, fileHash: hash, durationMs: durationMs),
   ]);
 
-  _Book(this.id, int seed) : bytes = _audio(seed);
+  _Book(this.id, int seed, {this.durationMs = 10 * 60000}) : bytes = _audio(seed);
 
   Map<String, dynamic> get detail => {
         'book_id': id,
@@ -411,6 +412,34 @@ void main() {
       expect(await LibraryCache(Directory('${dir.path}/library')).loadBookDetail('F'), isNotNull,
           reason: 'the library cache stays');
       expect(downloads().stateFor('F').status, BookDownloadStatus.none);
+    });
+
+    test('the end reached after over an hour without a touch keeps the files until confirmed (E92)', () async {
+      final long = _Book('L', 11, durationMs: 90 * 60000);
+      server = _Server([long]);
+      await setUpWith(server, [
+        _event('L', EventType.play, fileHash: long.hash, offsetMs: 0, wallMs: _day),
+        for (var m = 5; m < 90; m += 5)
+          _event('L', EventType.heartbeat, fileHash: long.hash, offsetMs: m * 60000, wallMs: _day + m * 60000),
+        _event('L', EventType.finished,
+            fileHash: long.hash, offsetMs: 90 * 60000, wallMs: _day + 90 * 60000, source: EventSource.system),
+      ]);
+      await downloaded(long);
+      final cleanup = container.read(finishedCleanupProvider)!;
+      expect(await cleanup.cleanAll(), isEmpty);
+      expect(onDisk(long), isTrue, reason: 'slept through the end: not finished');
+
+      // "Nein, weiterhören": the end confirmed in a session of its own.
+      for (final e in [
+        _event('L', EventType.resume,
+            fileHash: long.hash, offsetMs: 90 * 60000, wallMs: _day + 10 * 3600000, session: 'c'),
+        _event('L', EventType.finished,
+            fileHash: long.hash, offsetMs: 90 * 60000, wallMs: _day + 10 * 3600000 + 1, session: 'c'),
+      ]) {
+        await journal.record(e, () async {});
+      }
+      expect(await cleanup.cleanAll(), {'L'});
+      expect(onDisk(long), isFalse);
     });
 
     test('a book still loaded in the player keeps its files until it is not', () async {

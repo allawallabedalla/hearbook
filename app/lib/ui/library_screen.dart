@@ -45,6 +45,18 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen> {
   final _search = TextEditingController();
   String _query = '';
 
+  /// Content scrolls under the collapsed title bar (E94): a soft fade
+  /// below the bar, so what peeks out underneath (the edge of a filter
+  /// pill, a card) never looks like a stray line.
+  bool _underBar = false;
+
+  bool _onScroll(ScrollNotification n) {
+    if (n.depth != 0 || n.metrics.axis != Axis.vertical) return false;
+    final under = n.metrics.pixels >= LargeTitleBar.largeHeightOf(context) - 0.5;
+    if (under != _underBar) setState(() => _underBar = under);
+    return false;
+  }
+
   /// Books shown under "Weiterhören".
   static const continueCount = 3;
 
@@ -115,12 +127,27 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen> {
     );
     return Scaffold(
       bottomNavigationBar: const MiniPlayer(),
-      body: RefreshIndicator(
-        onRefresh: controller.refresh,
-        edgeOffset: MediaQuery.paddingOf(context).top + kToolbarHeight,
-        child: CustomScrollView(
-          physics: const AlwaysScrollableScrollPhysics(),
-          slivers: [titleBar, ..._body(controller, view)],
+      body: NotificationListener<ScrollNotification>(
+        onNotification: _onScroll,
+        child: Stack(
+          children: [
+            RefreshIndicator(
+              onRefresh: controller.refresh,
+              edgeOffset: MediaQuery.paddingOf(context).top + kToolbarHeight,
+              child: CustomScrollView(
+                physics: const AlwaysScrollableScrollPhysics(),
+                slivers: [titleBar, ..._body(controller, view)],
+              ),
+            ),
+            if (_underBar)
+              Positioned(
+                top: MediaQuery.paddingOf(context).top + kToolbarHeight,
+                left: 0,
+                right: 0,
+                height: ScrollEdgeFade.height,
+                child: const ScrollEdgeFade(),
+              ),
+          ],
         ),
       ),
     );
@@ -306,9 +333,14 @@ class LargeTitleBar extends StatelessWidget {
 
   const LargeTitleBar({super.key, required this.title, this.actions = const []});
 
+  /// The height the large title adds to the bar: scrolled this far, the
+  /// bar is collapsed.
+  static double largeHeightOf(BuildContext context) =>
+      MediaQuery.textScalerOf(context).scale(FadenTypeSizes.display) * 1.25 + 14;
+
   @override
   Widget build(BuildContext context) {
-    final largeHeight = MediaQuery.textScalerOf(context).scale(FadenTypeSizes.display) * 1.25 + 14;
+    final largeHeight = largeHeightOf(context);
     return SliverAppBar(
       pinned: true,
       // The base of the app (E60): nothing to go back to.
@@ -316,6 +348,34 @@ class LargeTitleBar extends StatelessWidget {
       expandedHeight: kToolbarHeight + largeHeight,
       actions: actions,
       flexibleSpace: _CollapsingTitle(title: title, largeHeight: largeHeight),
+    );
+  }
+}
+
+/// Right below the collapsed title bar (E94): the background fading out,
+/// so content scrolling under the bar disappears softly instead of being
+/// cut into thin slivers (in "Kacheln" the filter pills' edges looked like
+/// two stray strokes). Touches pass through.
+class ScrollEdgeFade extends StatelessWidget {
+  static const double height = 14;
+
+  const ScrollEdgeFade({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    final grund = FadenTokens.of(context).grund;
+    return IgnorePointer(
+      child: ExcludeSemantics(
+        child: DecoratedBox(
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              begin: Alignment.topCenter,
+              end: Alignment.bottomCenter,
+              colors: [grund, grund.withValues(alpha: 0)],
+            ),
+          ),
+        ),
+      ),
     );
   }
 }

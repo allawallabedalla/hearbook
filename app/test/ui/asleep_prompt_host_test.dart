@@ -50,6 +50,11 @@ class _StretchHandler extends FakeAudioHandler {
 
   @override
   Future<void> resumeFromStop(Position target, {required int? fileIndex}) async => resumes.add(target);
+
+  int bookEndConfirmations = 0;
+
+  @override
+  Future<void> confirmBookEnd() async => bookEndConfirmations++;
 }
 
 class _RecordingStarter extends FadenStarter {
@@ -223,6 +228,28 @@ void main() {
     await tester.tap(find.text(AppStrings.asleepPromptNo));
     await tester.pumpAndSettle();
     expect(handler.resumes, [const Position(fileHash: 'h1', offsetMs: 70 * _min)]);
+    await tearDownHost(tester);
+  });
+
+  testWidgets('the book ended while asleep: "Nein" confirms the end, nothing plays (E92)', (tester) async {
+    await pumpHost(
+      tester,
+      stretch: ListeningStretch(
+        id: 9,
+        state: StretchState.stoppedByItself,
+        listenedMs: 70 * _min,
+        lastAwakeGlobalMs: 0,
+        lastListenWallMs: DateTime.now().millisecondsSinceEpoch,
+        endedAtBookEnd: true,
+      ),
+      playing: false,
+    );
+    await tester.tap(find.text('under'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text(AppStrings.asleepPromptNo));
+    await tester.pumpAndSettle();
+    expect(handler.bookEndConfirmations, 1);
+    expect(handler.resumes, isEmpty);
     await tearDownHost(tester);
   });
 

@@ -1119,6 +1119,26 @@ void main() {
       }
     });
 
+    testWidgets('"Kacheln": the large title shows at rest; scrolled under the bar, content fades out (E94)',
+        (tester) async {
+      await pump(tester, size: const Size(375, 667), view: const LibraryView(grouping: LibraryGrouping.grid));
+      final large = find.byWidgetPredicate(
+          (w) => w is Text && w.data == AppStrings.libraryTitle && w.style?.fontSize == FadenTypeSizes.display);
+      expect(large, findsOneWidget);
+      expect(find.byType(ScrollEdgeFade), findsNothing, reason: 'nothing under the bar yet');
+      await tester.drag(find.byType(CustomScrollView), const Offset(0, -600));
+      await tester.pumpAndSettle();
+      final fade = find.byType(ScrollEdgeFade);
+      expect(fade, findsOneWidget);
+      final bar = tester.getRect(find.byType(AppBar));
+      expect(tester.getRect(fade).top, closeTo(bar.bottom, 0.5), reason: 'right under the collapsed bar');
+      expect(tester.getSize(fade).height, ScrollEdgeFade.height);
+      await tester.drag(find.byType(CustomScrollView), const Offset(0, 900));
+      await tester.pumpAndSettle();
+      expect(find.byType(ScrollEdgeFade), findsNothing);
+      await tearDown(tester);
+    });
+
     testWidgets('bar buttons sit on tiles with a full tap target (E72)', (tester) async {
       await pump(tester);
       for (final tip in [AppStrings.librarySortTooltip, AppStrings.settingsTitle]) {

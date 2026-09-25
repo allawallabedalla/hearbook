@@ -103,6 +103,12 @@ class _FakeScreenAwake implements ScreenAwake {
   Future<void> keepOn(bool on) async => calls.add(on);
 }
 
+/// Eight hours in eight chapters: a night the search cannot narrow to
+/// 30 s with 8 probes.
+final _longManifest = Manifest(manifestId: 'm-long', files: [
+  for (var i = 0; i < 8; i++) ManifestFile(idx: i, fileHash: 'l$i', durationMs: 60 * 60000),
+]);
+
 const _manifest = Manifest(manifestId: 'm1', files: [
   ManifestFile(idx: 0, fileHash: 'h0', durationMs: 20 * 60000),
   ManifestFile(idx: 1, fileHash: 'h1', durationMs: 25 * 60000),
@@ -193,13 +199,18 @@ void main() {
     late _RecordingHandler handler;
     late _FakeProbePlayer probePlayer;
 
+    /// The manifest of the running screen ([_longManifest] for a long night).
+    var m = _manifest;
+
     Future<void> pumpFaden(
       WidgetTester tester, {
       Size size = proMax,
       double textScale = 1.0,
       int probeLen = fs.defaultProbeLen,
       ScreenAwake? screenAwake,
+      bool longNight = false,
     }) async {
+      m = longNight ? _longManifest : _manifest;
       await tester.runAsync(() async {
         db = AppDatabase.memory();
         handler = _RecordingHandler(Journal(db));
@@ -233,9 +244,9 @@ void main() {
       navigatorKey.currentState!.push(
         MaterialPageRoute<void>(
           builder: (_) => FadenScreen(
-            manifest: _manifest,
+            manifest: m,
             lo: lo,
-            hi: hi,
+            hi: longNight ? 6 * 60 * 60000 : hi,
             pausen: const [],
             playlistSources: const [],
             probePlayer: probePlayer,
@@ -268,7 +279,7 @@ void main() {
     /// Global ms of the [i]-th probe played.
     int probeAt(int i) {
       final probe = probePlayer.probes[i];
-      final before = _manifest.files.take(probe.fileIndex).fold(0, (sum, f) => sum + f.durationMs);
+      final before = m.files.take(probe.fileIndex).fold(0, (sum, f) => sum + f.durationMs);
       return before + probe.offsetMs;
     }
 
@@ -538,13 +549,14 @@ void main() {
     });
 
     testWidgets('"Nochmal prüfen" asks the earliest passage not recognised again (E91)', (tester) async {
-      await pumpFaden(tester);
+      await pumpFaden(tester, longNight: true);
       await runToResult(tester, 20 * 60000);
-      final result = _manifest.globalMsFor(handler.resumes.last)!;
+      final result = m.globalMsFor(handler.resumes.last)!;
       final unknownAfter = [
         for (final p in handler.probes)
-          if (!p.known && _manifest.globalMsFor(p.position)! > result) _manifest.globalMsFor(p.position)!,
+          if (!p.known && m.globalMsFor(p.position)! > result) m.globalMsFor(p.position)!,
       ]..sort();
+      expect(unknownAfter.first - result, greaterThan(fs.target), reason: 'a long night leaves minutes');
       expect(find.text(AppStrings.fadenRecheck), findsOneWidget);
       await tester.tap(find.text(AppStrings.fadenRecheck));
       await tester.pump();
@@ -554,13 +566,13 @@ void main() {
       expect(handler.fadenModeActive, isTrue, reason: 'the buttons answer again');
       await answer(tester, known: true);
       await tester.pump(const Duration(milliseconds: 100));
-      expect(_manifest.globalMsFor(handler.resumes.last), unknownAfter.first, reason: 'moved forward by a "kenne ich"');
+      expect(m.globalMsFor(handler.resumes.last), unknownAfter.first, reason: 'moved forward by a "kenne ich"');
       expect(find.text(AppStrings.fadenResultFound), findsOneWidget);
       await tearDownFaden(tester);
     });
 
     testWidgets('"Abbrechen" during "Nochmal prüfen" lets the result play on where it was', (tester) async {
-      await pumpFaden(tester);
+      await pumpFaden(tester, longNight: true);
       await runToResult(tester, 20 * 60000);
       final resumes = handler.resumes.length;
       await tester.tap(find.text(AppStrings.fadenRecheck));
@@ -634,7 +646,7 @@ void main() {
           });
 
           testWidgets('result, $name', (tester) async {
-            await pumpFaden(tester, size: size, textScale: scale);
+            await pumpFaden(tester, size: size, textScale: scale, longNight: true);
             await runToResult(tester, 20 * 60000);
             expect(tester.takeException(), isNull);
             expectOnScreen(tester, find.text(AppStrings.fadenResultFound));

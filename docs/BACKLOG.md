@@ -41,6 +41,9 @@ Stand: 25.09.2026 (Nachtrag). Erledigtes durchstreichen oder löschen.
      - Ergebnis-Texte: „Du warst noch wach …“, „Nichts wiedererkannt …“, „gehört gegen 23:12 Uhr“ stimmt ungefähr mit der Uhr?
      - „Nochmal prüfen“ auf dem Ergebnis; „Abbrechen“ ändert nichts und spielt nicht los
      - Einstellungen → „Deine Einschlafzeiten“: eine Zeile nach links wischen löscht sie
+     - Buchende im Schlaf (E92): ein kurzes Buch über eine Stunde ohne Tippen bis zum Ende laufen lassen → nicht „gehört“, Dateien bleiben; „Nein, weiterhören“ → „gehört“
+     - App nachts von iOS beenden lassen (oder wegwischen), morgens öffnen: kommt „Eingeschlafen?“ trotzdem (E93)?
+     - Bibliothek in „Kacheln“ ganz nach unten scrollen: keine Striche mehr unter der Leiste (E94)
 4. **Genres prüfen** (ca. 2 Min., frühestens 5 Min. nach Schritt 1). Token steht in `/volume1/docker/faden/.env` (`FADEN_TOKEN`):
    ```
    curl -s -H "Authorization: Bearer DEIN_TOKEN" http://192.168.178.114:8787/api/v1/books
@@ -74,7 +77,7 @@ Gebaut am 25.09.2026 (E84–E91 in `docs/ARCHITEKTUR.md`), iPhone-Checks oben in
 12. ~~„Nochmal prüfen“~~ (E91)
 13. ~~Fenster bis 6 Min: nur Probe 1~~ (E87)
 
-Grenzen: Die Hörzeit für „Eingeschlafen?“ zählt nur, solange die App seit dem Abend lief; nach einem Neustart bleibt es bei „Faden aufnehmen“ aus den Events. Buchende im Schlaf fragt „Eingeschlafen?“, setzt aber weiter „Fertig“ (FINISHED zählt im Resolver als Wach-Beleg, unverändert).
+Nachträge: ~~Buchende im Schlaf gilt nicht als fertig, Dateien bleiben bis zur Bestätigung~~ (E92); ~~Hörzeit übersteht einen Neustart~~ (E93); ~~Striche unter der Leiste in „Kacheln“~~ (E94); „Nochmal prüfen“ nur, wo es etwas bringt (E95).
 
 ## Erledigt: Faden-Suche lernt mit
 

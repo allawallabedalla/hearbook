@@ -1,0 +1,328 @@
+{
+  "description": "Buchende bestätigt (E92): wie 16, danach „Nein, weiterhören“ -> RESUME am Ende und FINISHED in einer neuen Session -> finished = true.",
+  "settings": {
+    "night_window": {
+      "start_min": 1200,
+      "end_min": 360
+    }
+  },
+  "manifest": {
+    "manifest_id": "m1",
+    "files": [
+      {
+        "idx": 0,
+        "file_hash": "f1",
+        "duration_ms": 3900000
+      }
+    ]
+  },
+  "events": [
+    {
+      "event_id": "e01",
+      "device_id": "dev-a",
+      "session_id": "s1",
+      "book_id": "book-1",
+      "manifest_id": "m1",
+      "type": "PLAY",
+      "file_hash": "f1",
+      "offset_ms": 0,
+      "hlc": {
+        "pt": 1704196800000,
+        "c": 0
+      },
+      "wall_ms": 1704196800000,
+      "tz_min": 120,
+      "source": "ui",
+      "data": {}
+    },
+    {
+      "event_id": "e02",
+      "device_id": "dev-a",
+      "session_id": "s1",
+      "book_id": "book-1",
+      "manifest_id": "m1",
+      "type": "HEARTBEAT",
+      "file_hash": "f1",
+      "offset_ms": 300000,
+      "hlc": {
+        "pt": 1704197100000,
+        "c": 0
+      },
+      "wall_ms": 1704197100000,
+      "tz_min": 120,
+      "source": "ui",
+      "data": {}
+    },
+    {
+      "event_id": "e03",
+      "device_id": "dev-a",
+      "session_id": "s1",
+      "book_id": "book-1",
+      "manifest_id": "m1",
+      "type": "HEARTBEAT",
+      "file_hash": "f1",
+      "offset_ms": 600000,
+      "hlc": {
+        "pt": 1704197400000,
+        "c": 0
+      },
+      "wall_ms": 1704197400000,
+      "tz_min": 120,
+      "source": "ui",
+      "data": {}
+    },
+    {
+      "event_id": "e04",
+      "device_id": "dev-a",
+      "session_id": "s1",
+      "book_id": "book-1",
+      "manifest_id": "m1",
+      "type": "HEARTBEAT",
+      "file_hash": "f1",
+      "offset_ms": 900000,
+      "hlc": {
+        "pt": 1704197700000,
+        "c": 0
+      },
+      "wall_ms": 1704197700000,
+      "tz_min": 120,
+      "source": "ui",
+      "data": {}
+    },
+    {
+      "event_id": "e05",
+      "device_id": "dev-a",
+      "session_id": "s1",
+      "book_id": "book-1",
+      "manifest_id": "m1",
+      "type": "HEARTBEAT",
+      "file_hash": "f1",
+      "offset_ms": 1200000,
+      "hlc": {
+        "pt": 1704198000000,
+        "c": 0
+      },
+      "wall_ms": 1704198000000,
+      "tz_min": 120,
+      "source": "ui",
+      "data": {}
+    },
+    {
+      "event_id": "e06",
+      "device_id": "dev-a",
+      "session_id": "s1",
+      "book_id": "book-1",
+      "manifest_id": "m1",
+      "type": "HEARTBEAT",
+      "file_hash": "f1",
+      "offset_ms": 1500000,
+      "hlc": {
+        "pt": 1704198300000,
+        "c": 0
+      },
+      "wall_ms": 1704198300000,
+      "tz_min": 120,
+      "source": "ui",
+      "data": {}
+    },
+    {
+      "event_id": "e07",
+      "device_id": "dev-a",
+      "session_id": "s1",
+      "book_id": "book-1",
+      "manifest_id": "m1",
+      "type": "HEARTBEAT",
+      "file_hash": "f1",
+      "offset_ms": 1800000,
+      "hlc": {
+        "pt": 1704198600000,
+        "c": 0
+      },
+      "wall_ms": 1704198600000,
+      "tz_min": 120,
+      "source": "ui",
+      "data": {}
+    },
+    {
+      "event_id": "e08",
+      "device_id": "dev-a",
+      "session_id": "s1",
+      "book_id": "book-1",
+      "manifest_id": "m1",
+      "type": "HEARTBEAT",
+      "file_hash": "f1",
+      "offset_ms": 2100000,
+      "hlc": {
+        "pt": 1704198900000,
+        "c": 0
+      },
+      "wall_ms": 1704198900000,
+      "tz_min": 120,
+      "source": "ui",
+      "data": {}
+    },
+    {
+      "event_id": "e09",
+      "device_id": "dev-a",
+      "session_id": "s1",
+      "book_id": "book-1",
+      "manifest_id": "m1",
+      "type": "HEARTBEAT",
+      "file_hash": "f1",
+      "offset_ms": 2400000,
+      "hlc": {
+        "pt": 1704199200000,
+        "c": 0
+      },
+      "wall_ms": 1704199200000,
+      "tz_min": 120,
+      "source": "ui",
+      "data": {}
+    },
+    {
+      "event_id": "e10",
+      "device_id": "dev-a",
+      "session_id": "s1",
+      "book_id": "book-1",
+      "manifest_id": "m1",
+      "type": "HEARTBEAT",
+      "file_hash": "f1",
+      "offset_ms": 2700000,
+      "hlc": {
+        "pt": 1704199500000,
+        "c": 0
+      },
+      "wall_ms": 1704199500000,
+      "tz_min": 120,
+      "source": "ui",
+      "data": {}
+    },
+    {
+      "event_id": "e11",
+      "device_id": "dev-a",
+      "session_id": "s1",
+      "book_id": "book-1",
+      "manifest_id": "m1",
+      "type": "HEARTBEAT",
+      "file_hash": "f1",
+      "offset_ms": 3000000,
+      "hlc": {
+        "pt": 1704199800000,
+        "c": 0
+      },
+      "wall_ms": 1704199800000,
+      "tz_min": 120,
+      "source": "ui",
+      "data": {}
+    },
+    {
+      "event_id": "e12",
+      "device_id": "dev-a",
+      "session_id": "s1",
+      "book_id": "book-1",
+      "manifest_id": "m1",
+      "type": "HEARTBEAT",
+      "file_hash": "f1",
+      "offset_ms": 3300000,
+      "hlc": {
+        "pt": 1704200100000,
+        "c": 0
+      },
+      "wall_ms": 1704200100000,
+      "tz_min": 120,
+      "source": "ui",
+      "data": {}
+    },
+    {
+      "event_id": "e13",
+      "device_id": "dev-a",
+      "session_id": "s1",
+      "book_id": "book-1",
+      "manifest_id": "m1",
+      "type": "HEARTBEAT",
+      "file_hash": "f1",
+      "offset_ms": 3600000,
+      "hlc": {
+        "pt": 1704200400000,
+        "c": 0
+      },
+      "wall_ms": 1704200400000,
+      "tz_min": 120,
+      "source": "ui",
+      "data": {}
+    },
+    {
+      "event_id": "e14",
+      "device_id": "dev-a",
+      "session_id": "s1",
+      "book_id": "book-1",
+      "manifest_id": "m1",
+      "type": "FINISHED",
+      "file_hash": "f1",
+      "offset_ms": 3900000,
+      "hlc": {
+        "pt": 1704200700000,
+        "c": 0
+      },
+      "wall_ms": 1704200700000,
+      "tz_min": 120,
+      "source": "system",
+      "data": {}
+    },
+    {
+      "event_id": "e90",
+      "device_id": "dev-a",
+      "session_id": "s2",
+      "book_id": "book-1",
+      "manifest_id": "m1",
+      "type": "RESUME",
+      "file_hash": "f1",
+      "offset_ms": 3900000,
+      "hlc": {
+        "pt": 1704229200000,
+        "c": 0
+      },
+      "wall_ms": 1704229200000,
+      "tz_min": 120,
+      "source": "ui",
+      "data": {}
+    },
+    {
+      "event_id": "e91",
+      "device_id": "dev-a",
+      "session_id": "s2",
+      "book_id": "book-1",
+      "manifest_id": "m1",
+      "type": "FINISHED",
+      "file_hash": "f1",
+      "offset_ms": 3900000,
+      "hlc": {
+        "pt": 1704229200001,
+        "c": 0
+      },
+      "wall_ms": 1704229200001,
+      "tz_min": 120,
+      "source": "ui",
+      "data": {}
+    }
+  ],
+  "expect": {
+    "position": {
+      "file_hash": "f1",
+      "offset_ms": 3900000
+    },
+    "global_ms": 3900000,
+    "last_awake": {
+      "file_hash": "f1",
+      "offset_ms": 3900000
+    },
+    "stop": {
+      "file_hash": "f1",
+      "offset_ms": 3900000
+    },
+    "sleep_suspected": false,
+    "history": [],
+    "finished": true,
+    "needs_confirmation": false
+  }
+}

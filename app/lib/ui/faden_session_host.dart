@@ -191,6 +191,11 @@ class _AsleepPromptHostState extends ConsumerState<AsleepPromptHost> {
       return;
     }
     if (!answered) return;
+    // E92: the book ended by itself and the listener heard the end.
+    if (handler.stretch.endedAtBookEnd) {
+      await handler.confirmBookEnd();
+      return;
+    }
     final manifest = handler.manifest;
     final at = handler.currentPosition();
     final idx = manifest?.indexOf(at.fileHash) ?? -1;

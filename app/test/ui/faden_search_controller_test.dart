@@ -780,7 +780,9 @@ void main() {
     /// but answers the probe at [missed] (the first unknown after the
     /// result would be) wrongly, so there is something to recheck.
     FadenSearchController resolvedSearch(_Recorder rec, FakeAsync async) {
-      final controller = rec.build(lo: 0, hi: 40 * 60000);
+      // A long night: 8 probes leave minutes between the result and the
+      // nearest passage not recognised.
+      final controller = rec.build(lo: 0, hi: 6 * 60 * 60000);
       controller.start();
       var n = 0;
       for (var i = 0; i < 20 && !controller.resolved; i++) {
@@ -845,6 +847,25 @@ void main() {
         expect(rec.cues.last, 'recheck-failed');
         expect(controller.leiter, leiter);
         expect(controller.recheckCandidate, isNot(u));
+        controller.dispose();
+      });
+    });
+
+    test('nothing to recheck when that passage is within 30 s of the result (E95)', () {
+      fakeAsync((async) {
+        final rec = _Recorder();
+        final controller = rec.build(lo: 0, hi: 40 * 60000);
+        controller.start();
+        var n = 0;
+        for (var i = 0; i < 20 && !controller.resolved; i++) {
+          async.elapse(const Duration(seconds: 1));
+          n++;
+          controller.answer(known: n == 2);
+          async.elapse(const Duration(seconds: 1));
+        }
+        async.elapse(const Duration(minutes: 5));
+        expect(controller.resolved, isTrue);
+        expect(controller.recheckCandidate, isNull);
         controller.dispose();
       });
     });

@@ -336,8 +336,18 @@ class FadenAudioHandler extends BaseAudioHandler {
     _sessionActive = false;
     _resumeAfterInterruption = false;
     _lastIndex = null;
-    _stretch.reset();
-    _stretchController.add(null);
+    // E93: the listening since the last touch survives an app restart --
+    // rebuilt from this device's events of the book.
+    try {
+      final own = [
+        for (final e in await journal.eventsForBook(bookId))
+          if (e.deviceId == deviceId) e,
+      ];
+      _stretch.restore(own, globalMsOf: (e) => manifest.globalMsFor(e.position));
+    } catch (_) {
+      _stretch.reset();
+    }
+    if (!_stretchController.isClosed) _stretchController.add(null);
     _setStatus(_status.copyWith(clearError: true));
     // Fold in the newest HLC of every stored event (own and remote), not
     // just this device's own: never lowers a clock already advanced by a
@@ -955,8 +965,28 @@ class FadenAudioHandler extends BaseAudioHandler {
     // sleep-suspicion itself. Invariant 5 ("nie automatisch ins naechste
     // Buch") holds by construction: the playlist is always exactly one
     // book's manifest, so there is no next book to advance into.
-    final event = _buildEvent(type: EventType.finished, position: position, source: EventSource.system);
+    // E92: in the car the end was not slept through.
+    final event = _buildEvent(
+      type: EventType.finished,
+      position: position,
+      source: EventSource.system,
+      data: _carRoute ? const {'route': carRouteName} : const {},
+    );
     await _journal(event, () async {});
+    unawaited(_sync());
+  }
+
+  /// "Eingeschlafen?" -> "Nein" after the book ended by itself (decision
+  /// E92): the listener heard the end. A RESUME at the end (a new session,
+  /// awake) and a FINISHED right after it, nothing plays; the Resolver then
+  /// calls the book finished (invariant 5) and E57 may clean it up.
+  Future<void> confirmBookEnd() async {
+    final position = _currentPosition();
+    if (position.fileHash.isEmpty) return;
+    _pausedAtWallMs = null;
+    await _journal(_buildEvent(type: EventType.resume, position: position, source: EventSource.ui), () async {});
+    await _journal(_buildEvent(type: EventType.finished, position: position, source: EventSource.ui), () async {});
+    _sessionActive = false;
     unawaited(_sync());
   }
 

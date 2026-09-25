@@ -1,3 +1,4 @@
+import 'asleep_prompt.dart' show asleepPromptAfterMs, nightStretchSuspectMs;
 import 'event.dart';
 import 'manifest.dart';
 import 'pause_reason.dart';
@@ -87,6 +88,29 @@ bool _inNightWindow(Event e, ResolverSettings settings) {
   return start < end ? (minute >= start && minute < end) : (minute >= start || minute < end);
 }
 
+/// Decision E92: whether the winning session reached the end of the book
+/// (its last FINISHED) at least [asleepPromptAfterMs] -- in the night
+/// window [nightStretchSuspectMs] -- of the book after its last awake proof
+/// before it (FINISHED itself excluded), and not in the car. The same rule
+/// as "Eingeschlafen?" (domain/asleep_prompt.dart), measured in listening
+/// distance like rule 5.
+bool _endReachedAsleep(List<Event> sessionEvents, Manifest manifest, {required bool inNightWindow}) {
+  final end = sessionEvents.lastIndexWhere((e) => e.type == EventType.finished);
+  if (end < 0) return false;
+  final finished = sessionEvents[end];
+  if (finished.data['route'] == carRouteName) return false;
+  Event? awakeBefore;
+  for (final e in sessionEvents.take(end)) {
+    if (e.isAwakeProof && e.type != EventType.finished) awakeBefore = e;
+  }
+  if (awakeBefore == null) return false;
+  final from = manifest.globalMsFor(awakeBefore.position);
+  final to = manifest.globalMsFor(finished.position);
+  if (from == null || to == null) return false;
+  final distance = to - from;
+  return distance >= asleepPromptAfterMs || (inNightWindow && distance >= nightStretchSuspectMs);
+}
+
 /// Derives [BookState] from a book's events, its active manifest and the
 /// night-window setting, per docs/ARCHITEKTUR.md section 7. Pure: the same
 /// event set always yields the same state, independent of the order events
@@ -148,12 +172,21 @@ BookState resolve(
   final position = sessionEvents.last.position;
   final stop = position; // see doc comment above
 
+  final inNightWindow = sessionEvents.any((e) => _inNightWindow(e, settings));
+
+  // Decision E92 (invariant 5): the end of the book reached after as long
+  // without an awake proof as "Eingeschlafen?" asks for (60 min, 20 min in
+  // the night window, never in the car) is no awake proof -- the listener
+  // most likely slept through it. Then FINISHED neither moves last_awake
+  // nor counts as finished, and sleep is suspected.
+  final endAsleep = _endReachedAsleep(sessionEvents, manifest, inNightWindow: inNightWindow);
+
   // Rule 4: last_awake = position of the winning session's last
   // awake-proof event. lastIntent is itself always awake-proof, so this is
   // never left unset.
   var lastAwake = lastIntent.position;
   for (final e in sessionEvents) {
-    if (e.isAwakeProof) lastAwake = e.position;
+    if (e.isAwakeProof && !(endAsleep && e.type == EventType.finished)) lastAwake = e.position;
   }
 
   // Rule 8: distances are computed over the active manifest's global ms;
@@ -201,7 +234,6 @@ BookState resolve(
   if (lastAwakeGlobalMs != null && stopGlobalMs != null) {
     sleepDistanceOk = (stopGlobalMs - lastAwakeGlobalMs).abs() >= sleepDistanceThresholdMs;
   }
-  final inNightWindow = sessionEvents.any((e) => _inNightWindow(e, settings));
   final containsSleepHint = sessionEvents.any((e) => e.type == EventType.sleepHint);
   final stopEvent = sessionEvents.last;
   final resumeAfterStop =
@@ -225,7 +257,7 @@ BookState resolve(
       stopGlobalMs - lastAwakeGlobalMs >= nightRouteLostSuspectMs;
   final ruledOut = stopPause != null && rulesOutSleep(stopPause) && !routeLostAsleep;
   final sleepSuspected =
-      sleepDistanceOk && (inNightWindow || containsSleepHint) && !resumeAfterStop && !ruledOut;
+      sleepDistanceOk && (inNightWindow || containsSleepHint || endAsleep) && !resumeAfterStop && !ruledOut;
 
   // Rule 7: finished.
   final containsFinished = sessionEvents.any((e) => e.type == EventType.finished);

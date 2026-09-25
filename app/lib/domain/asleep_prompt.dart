@@ -60,6 +60,9 @@ class ListeningStretch {
   /// and at the book end.
   final PauseReason? stopReason;
 
+  /// It stopped at the end of the book (E92): "Nein" confirms the end.
+  final bool endedAtBookEnd;
+
   const ListeningStretch({
     required this.id,
     required this.state,
@@ -68,6 +71,7 @@ class ListeningStretch {
     this.lastListenWallMs,
     this.stoppedInCar = false,
     this.stopReason,
+    this.endedAtBookEnd = false,
   });
 }
 
@@ -81,6 +85,7 @@ class ListeningStretchTracker {
   int? _lastListenWallMs;
   bool _stoppedInCar = false;
   PauseReason? _stopReason;
+  bool _bookEnd = false;
 
   /// Feeds one journaled event; [globalMs] is its position in the active
   /// manifest (null if unknown).
@@ -94,7 +99,8 @@ class ListeningStretchTracker {
       case EventType.finished:
         // Section 5 counts FINISHED as awake proof; for the stretch it is
         // just the end of the book, which a sleeper reaches too.
-        _stop(now, car: false, reason: null);
+        _stop(now, car: e.data['route'] == carRouteName, reason: null);
+        if (_state == StretchState.stoppedByItself) _bookEnd = true;
         return;
       case EventType.pause:
         if (e.isAwakeProof) {
@@ -132,6 +138,7 @@ class ListeningStretchTracker {
     _lastAwakeGlobalMs = globalMs;
     _stoppedInCar = false;
     _stopReason = null;
+    _bookEnd = false;
     _lastListenWallMs = now;
   }
 
@@ -157,6 +164,21 @@ class ListeningStretchTracker {
     _lastListenWallMs = null;
     _stoppedInCar = false;
     _stopReason = null;
+    _bookEnd = false;
+  }
+
+  /// Rebuilds the stretch from this device's journaled events of the open
+  /// book, oldest first (decision E93: it survives an app restart). A
+  /// stretch that was still playing when the app ended stopped at its last
+  /// event (usually a heartbeat).
+  void restore(List<Event> events, {required int? Function(Event e) globalMsOf}) {
+    reset();
+    int? lastWallMs;
+    for (final e in events) {
+      onEvent(e, globalMs: globalMsOf(e));
+      if (lastWallMs == null || e.wallMs > lastWallMs) lastWallMs = e.wallMs;
+    }
+    if (_state == StretchState.playing && lastWallMs != null) _stop(lastWallMs, car: false, reason: null);
   }
 
   ListeningStretch snapshot(int nowWallMs) {
@@ -170,6 +192,7 @@ class ListeningStretchTracker {
       lastListenWallMs: _state == StretchState.playing ? nowWallMs : _lastListenWallMs,
       stoppedInCar: _stoppedInCar,
       stopReason: _state == StretchState.stoppedByItself ? _stopReason : null,
+      endedAtBookEnd: _state == StretchState.stoppedByItself && _bookEnd,
     );
   }
 }

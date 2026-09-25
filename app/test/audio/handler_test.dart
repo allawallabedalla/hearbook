@@ -554,6 +554,30 @@ void main() {
       expect(events.where((e) => e.type == EventType.sleepHint), hasLength(1));
     });
 
+    test('survives an app restart: rebuilt from the journal (E93)', () async {
+      await openBook();
+      await fireAndWaitForJournal(() => handler.playFrom(EventSource.ui));
+      clock.ms += 65 * 60000;
+      await handler.pauseForSleepTimerExpiry();
+      await handler.dispose();
+      handler = FadenAudioHandler(journal: journal, deviceId: 'dev-a', clock: clock);
+      clock.ms += 8 * 3600000;
+      await openBook(at: const Position(fileHash: 'h1', offsetMs: 10 * 60000));
+      final stretch = handler.stretch;
+      expect(stretch.state, StretchState.stoppedByItself);
+      expect(stretch.listenedMs, 65 * 60000);
+      expect(stretch.stopReason, PauseReason.timer);
+    });
+
+    test('"Nein" after the book ended by itself confirms the end: finished (E92)', () async {
+      await openBook(at: const Position(fileHash: 'h1', offsetMs: 20 * 60000));
+      await handler.confirmBookEnd();
+      final events = await eventsFor('book');
+      expect(events.map((e) => e.type), [EventType.resume, EventType.finished]);
+      expect(events.first.sessionId, events.last.sessionId);
+      expect(resolve(events, _manifest).finished, isTrue);
+    });
+
     test('opening another book starts a new stretch', () async {
       await openBook();
       await fireAndWaitForJournal(() => handler.playFrom(EventSource.ui));
