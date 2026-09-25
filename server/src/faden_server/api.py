@@ -51,7 +51,7 @@ def _now() -> str:
 def _manifest_files_detail(conn: sqlite3.Connection, manifest_id: str) -> list[dict]:
     rows = conn.execute(
         """
-        SELECT mf.idx, f.file_hash, f.duration_ms, f.disc, f.track, f.title
+        SELECT mf.idx, f.file_hash, f.size AS size_bytes, f.duration_ms, f.disc, f.track, f.title
         FROM manifest_files mf
         JOIN files f ON f.file_hash = mf.file_hash
         WHERE mf.manifest_id = ?

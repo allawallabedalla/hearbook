@@ -124,6 +124,7 @@ def test_book_detail_has_active_manifest_with_files(make_mp3, settings, auth_hea
     detail = resp.json()
     assert detail["active_manifest"]["status"] == "active"
     assert len(detail["active_manifest"]["files"]) == 2
+    assert all(f["size_bytes"] > 0 for f in detail["active_manifest"]["files"])
     assert detail["candidates"] == []
 
 

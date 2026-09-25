@@ -274,7 +274,7 @@ Alle Endpunkte außer `/api/v1/health` verlangen `Authorization: Bearer <FADEN_T
 |---|---|---|
 | GET | `/api/v1/health` | Status |
 | GET | `/api/v1/books` | Bücher: id, Titel, Autor, Dauer, Status |
-| GET | `/api/v1/books/{book_id}` | aktives Manifest mit Dateien, dazu `pending` oder `needs_review`-Kandidaten |
+| GET | `/api/v1/books/{book_id}` | aktives Manifest mit Dateien (je `file_hash`, `size_bytes`, `duration_ms`, `disc`, `track`, `title`), dazu `pending` oder `needs_review`-Kandidaten |
 | GET | `/api/v1/books/{book_id}/cover` | Cover oder 404 |
 | GET | `/api/v1/books/{book_id}/pauses` | Pausen-Index je `file_hash` |
 | POST | `/api/v1/books/{book_id}/manifests/{manifest_id}/confirm` | Kandidat bestätigen → `active` |
