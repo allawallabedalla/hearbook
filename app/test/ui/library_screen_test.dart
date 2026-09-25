@@ -5,8 +5,10 @@
 // "Reihenfolge prüfen" dialog, which shows each candidate's real file
 // order instead of "Option 1 · 12 · needs_review".
 
+import 'dart:async';
 import 'dart:io';
 
+import 'package:faden/data/api.dart' show ApiClient;
 import 'package:faden/data/book_downloads.dart';
 import 'package:faden/data/db.dart';
 import 'package:faden/data/downloads.dart';
@@ -14,13 +16,18 @@ import 'package:faden/data/journal.dart';
 import 'package:faden/data/library.dart';
 import 'package:faden/domain/manifest.dart';
 import 'package:faden/domain/position.dart';
+import 'package:faden/domain/resolver.dart' show BookState;
 import 'package:faden/l10n/strings.dart';
+import 'package:faden/ui/cover.dart';
 import 'package:faden/ui/library_screen.dart';
+import 'package:faden/ui/player_screen.dart';
 import 'package:faden/ui/providers.dart';
 import 'package:faden/ui/settings_screen.dart';
+import 'package:faden/ui/theme.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_riverpod/misc.dart' show Override;
 import 'package:flutter_test/flutter_test.dart';
 
 import 'fake_audio_handler.dart';
@@ -104,6 +111,95 @@ class _FakeDownloads extends BookDownloads {
   }
 }
 
+ManifestCandidate _candidate(String id, List<String> hashes) => ManifestCandidate(
+      status: 'needs_review',
+      manifest: Manifest(manifestId: id, files: [
+        for (var i = 0; i < hashes.length; i++) ManifestFile(idx: i, fileHash: hashes[i], durationMs: 60000),
+      ]),
+    );
+
+/// A library with a server behind it for "Reihenfolge prüfen" only.
+class _ReviewController extends _FixedLibraryController {
+  _ReviewController({required super.books}) : super(progress: const {});
+
+  final _api = ApiClient.tryCreate(baseUrl: 'http://nas.local:8000', token: 'secret-token-1234');
+  Completer<List<ManifestCandidate>>? gate;
+  List<ManifestCandidate> candidates = const [];
+  bool failFetch = false;
+  bool failConfirm = false;
+  int fetches = 0;
+  final List<String> confirmed = [];
+
+  @override
+  ApiClient? get api => _api;
+
+  @override
+  Future<List<ManifestCandidate>> reviewCandidates(String bookId) async {
+    fetches++;
+    if (failFetch) throw Exception('offline');
+    return gate?.future ?? candidates;
+  }
+
+  @override
+  Future<void> confirmManifest(String bookId, String manifestId) async {
+    confirmed.add(manifestId);
+    if (failConfirm) throw Exception('409');
+  }
+}
+
+/// A session the gated opener below fills as opening a book would.
+class _Session extends PlayerSessionController {
+  _Session({required super.handler, required super.journal});
+
+  void show(String bookId, String title, {required bool resolved}) {
+    this
+      ..bookId = bookId
+      ..bookTitle = title
+      ..manifest = const Manifest(manifestId: 'm', files: [ManifestFile(idx: 0, fileHash: 'h', durationMs: 60000)])
+      ..bookState = resolved
+          ? const BookState(
+              position: Position(fileHash: 'h', offsetMs: 0),
+              globalMs: 0,
+              lastAwake: Position(fileHash: 'h', offsetMs: 0),
+              stop: Position(fileHash: 'h', offsetMs: 0),
+              sleepSuspected: false,
+              history: [],
+              finished: false,
+              needsConfirmation: false,
+              sessionId: 's',
+            )
+          : null;
+    notifyListeners();
+  }
+}
+
+/// Opens in two steps the test releases: the book is known ([start], the
+/// player may show), then resolved ([finish]).
+class _GatedOpener extends BookOpener {
+  _GatedOpener(super.ref);
+
+  final List<String> opened = [];
+  final _started = Completer<void>();
+  final _finished = Completer<void>();
+
+  void start() => _started.complete();
+  void finish() => _finished.complete();
+
+  @override
+  Future<OpenBookResult> open(String bookId, {void Function()? onStarted}) async {
+    opened.add(bookId);
+    await _started.future;
+    final session = _session!;
+    session.show(bookId, 'Momo', resolved: false);
+    onStarted?.call();
+    await _finished.future;
+    session.show(bookId, 'Momo', resolved: true);
+    return OpenBookResult.opened;
+  }
+}
+
+_Session? _session;
+
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
   TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger.setMockMethodCallHandler(
@@ -157,12 +253,21 @@ void main() {
   group('LibraryScreen', () {
     late AppDatabase db;
     late FakeAudioHandler handler;
+    late _Session session;
 
-    Future<void> pumpLibrary(WidgetTester tester, LibraryController controller) async {
+    Future<void> pumpLibrary(
+      WidgetTester tester,
+      LibraryController controller, {
+      bool withNavigator = false,
+      FadenTokens tokens = FadenTokens.day,
+      List<Override> extra = const [],
+    }) async {
       await tester.runAsync(() async {
         db = AppDatabase.memory();
         handler = FakeAudioHandler(Journal(db));
+        session = _Session(handler: handler, journal: Journal(db));
       });
+      _session = session;
       tester.view.physicalSize = const Size(430 * 3, 1400 * 3);
       tester.view.devicePixelRatio = 3;
       addTearDown(tester.view.reset);
@@ -172,8 +277,14 @@ void main() {
             appDatabaseProvider.overrideWithValue(db),
             audioHandlerProvider.overrideWithValue(handler),
             libraryControllerProvider.overrideWith((ref) => controller),
+            playerSessionProvider.overrideWith((ref) => session),
+            ...extra,
           ],
-          child: const MaterialApp(home: LibraryScreen()),
+          child: MaterialApp(
+            theme: fadenThemeFor(tokens),
+            home: withNavigator ? null : const LibraryScreen(),
+            onGenerateRoute: withNavigator ? (_) => LibraryScreen.route() : null,
+          ),
         ),
       );
       await tester.pump();
@@ -206,21 +317,29 @@ void main() {
       await tearDownLibrary(tester);
     });
 
-    testWidgets('"Weiterhören" lists unfinished recent books above all books', (tester) async {
+    testWidgets('"Weiterhören" lists unfinished recent books as cards above all books, not twice (E65)',
+        (tester) async {
       await pumpLibrary(tester, _FixedLibraryController(books: _books, progress: _progressByBook));
       expect(find.text(AppStrings.libraryContinueSection), findsOneWidget);
       expect(find.text(AppStrings.libraryAllBooks), findsOneWidget);
-      // Momo and Zauberberg appear twice (Weiterhören + all), Über Nacht once.
-      expect(find.text('Momo'), findsNWidgets(2));
-      expect(find.text('Der Zauberberg'), findsNWidgets(2));
+      // Momo and Zauberberg as cards only, not repeated in the list.
+      expect(find.text('Momo'), findsOneWidget);
+      expect(find.text('Der Zauberberg'), findsOneWidget);
       expect(find.text('Über Nacht'), findsOneWidget);
+      expect(find.ancestor(of: find.text('Momo'), matching: find.byType(ContinueCard)), findsOneWidget);
+      expect(find.ancestor(of: find.text('Der Zauberberg'), matching: find.byType(ContinueCard)), findsOneWidget);
+      expect(find.byType(BookRow), findsNWidgets(3));
       final section = top(tester, AppStrings.libraryContinueSection);
       final all = top(tester, AppStrings.libraryAllBooks);
-      final firstMomo = tester.getTopLeft(find.text('Momo').first).dy;
-      final firstZauber = tester.getTopLeft(find.text('Der Zauberberg').first).dy;
-      expect(section, lessThan(firstMomo));
-      expect(firstMomo, lessThan(firstZauber));
-      expect(firstZauber, lessThan(all));
+      final momo = top(tester, 'Momo');
+      final zauber = top(tester, 'Der Zauberberg');
+      expect(section, lessThan(momo));
+      expect(momo, lessThan(zauber));
+      expect(zauber, lessThan(all));
+      // Set apart from the rows: a larger cover and title.
+      expect(tester.getSize(find.descendant(of: find.byType(ContinueCard).first, matching: find.byType(BookCover))).width,
+          greaterThan(BookRow.coverSize));
+      expect(tester.widget<Text>(find.text('Momo')).style?.fontSize, FadenTypeSizes.title);
       // Progress, finished and new books, and the author at caption size.
       expect(find.text(AppStrings.remainingTime('5 Std.')), findsWidgets);
       expect(find.text(AppStrings.libraryProgressFinished), findsOneWidget);
@@ -234,7 +353,9 @@ void main() {
       await tester.enterText(find.byType(TextField), 'mann');
       await tester.pump();
       expect(find.text(AppStrings.libraryContinueSection), findsNothing);
+      // A "Weiterhören" book is still found (E65): the results are complete.
       expect(find.text('Der Zauberberg'), findsOneWidget);
+      expect(find.ancestor(of: find.text('Der Zauberberg'), matching: find.byType(BookRow)), findsOneWidget);
       expect(find.text('Momo'), findsNothing);
       await tester.enterText(find.byType(TextField), 'xyz');
       await tester.pump();
@@ -249,8 +370,8 @@ void main() {
       await tester.pumpAndSettle();
       await tester.tap(find.text(AppStrings.librarySortTitle));
       await tester.pumpAndSettle();
-      expect(top(tester, 'Anonyme Briefe'), lessThan(top(tester, 'Über Nacht')));
-      expect(top(tester, 'Halbe Sachen'), lessThan(top(tester, 'Momo')));
+      expect(top(tester, 'Anonyme Briefe'), lessThan(top(tester, 'Halbe Sachen')));
+      expect(top(tester, 'Halbe Sachen'), lessThan(top(tester, 'Über Nacht')));
       await tearDownLibrary(tester);
     });
 
@@ -327,11 +448,126 @@ void main() {
       await tearDownLibrary(tester);
     });
 
+    testWidgets('a large title collapses into the bar as the list scrolls (E65)', (tester) async {
+      final many = [for (var i = 0; i < 30; i++) _book('b$i', 'Buch $i', 'Autor $i')];
+      await pumpLibrary(tester, _FixedLibraryController(books: many, progress: const {}));
+      Text title(int i) => tester.widget<Text>(find.text(AppStrings.libraryTitle).at(i));
+      double opacityOf(int i) => tester
+          .widget<Opacity>(find.ancestor(of: find.text(AppStrings.libraryTitle).at(i), matching: find.byType(Opacity)))
+          .opacity;
+      // [0] the small title in the bar, [1] the large one below it.
+      expect(title(1).style?.fontSize, FadenTypeSizes.display);
+      expect(tester.getTopLeft(find.text(AppStrings.libraryTitle).at(1)).dx, 16, reason: 'left-aligned');
+      expect(opacityOf(0), 0, reason: 'expanded: only the large title');
+      await tester.drag(find.byType(CustomScrollView), const Offset(0, -400));
+      await tester.pump();
+      expect(opacityOf(0), 1, reason: 'collapsed: the small title in the bar');
+      await tearDownLibrary(tester);
+    });
+
+    testWidgets('a tap shows the player at once, with a spinner in the row; further taps wait (E65)',
+        (tester) async {
+      late _GatedOpener opener;
+      final controller = _FixedLibraryController(books: _books, progress: const {});
+      await pumpLibrary(
+        tester,
+        controller,
+        withNavigator: true,
+        extra: [bookOpenerProvider.overrideWith((ref) => opener = _GatedOpener(ref))],
+      );
+      await tester.tap(find.text('Momo'));
+      await tester.pump();
+      expect(opener.opened, ['b-momo']);
+      final momo = find.ancestor(of: find.text('Momo'), matching: find.byType(BookRow));
+      expect(find.descendant(of: momo, matching: find.byType(CircularProgressIndicator)), findsOneWidget);
+      // A second tap, on another book, while the first is still opening.
+      await tester.tap(find.text('Anonyme Briefe'));
+      await tester.pump();
+      expect(opener.opened, ['b-momo'], reason: 'never two openings at once');
+
+      opener.start();
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 500));
+      expect(find.byType(PlayerScreen), findsOneWidget, reason: 'up before the book is ready (sync, cover)');
+      expect(find.byType(PlayerLoading), findsOneWidget);
+      expect(find.descendant(of: find.byType(PlayerLoading), matching: find.text('Momo')), findsOneWidget);
+
+      opener.finish();
+      await tester.pumpAndSettle();
+      expect(find.byType(PlayerScreen), findsOneWidget, reason: 'still one player');
+      expect(find.byType(PlayerLoading), findsNothing);
+      expect(find.byType(PlayerBody), findsOneWidget);
+      await tearDownLibrary(tester);
+    });
+
+    testWidgets('"Reihenfolge prüfen" says why it cannot, shows a spinner and reports errors (E65)', (tester) async {
+      final review = [
+        BookSummary(bookId: 'b-review', title: 'Umsortiert', author: null, durationMs: _hour, serverStatus: 'needs_review'),
+      ];
+      Finder spinner() => find.byType(CircularProgressIndicator);
+
+      // Offline: no server to ask.
+      var controller = _ReviewController(books: review)..offline = true;
+      await pumpLibrary(tester, controller);
+      await tester.tap(find.text('Umsortiert'));
+      await tester.pump();
+      expect(find.text(AppStrings.reviewOffline), findsOneWidget);
+      expect(controller.fetches, 0);
+      await tearDownLibrary(tester);
+
+      // The candidates are loading: a spinner in the row; none offered.
+      controller = _ReviewController(books: review)..gate = Completer<List<ManifestCandidate>>();
+      await pumpLibrary(tester, controller);
+      await tester.tap(find.text('Umsortiert'));
+      await tester.pump();
+      expect(spinner(), findsOneWidget);
+      controller.gate!.complete(const []);
+      await tester.pump();
+      await tester.pump();
+      expect(spinner(), findsNothing);
+      expect(find.text(AppStrings.reviewNothingToChoose), findsOneWidget);
+      await tearDownLibrary(tester);
+
+      // Loading fails.
+      controller = _ReviewController(books: review)..failFetch = true;
+      await pumpLibrary(tester, controller);
+      await tester.tap(find.text('Umsortiert'));
+      await tester.pump();
+      await tester.pump();
+      expect(find.text(AppStrings.reviewLoadFailed), findsOneWidget);
+      await tearDownLibrary(tester);
+
+      // Confirming fails.
+      controller = _ReviewController(books: review)
+        ..candidates = [_candidate('m-a', ['h1', 'h2']), _candidate('m-b', ['h2', 'h1'])]
+        ..failConfirm = true;
+      await pumpLibrary(tester, controller);
+      await tester.tap(find.text('Umsortiert'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text(AppStrings.reviewDialogChoose).first);
+      await tester.pump();
+      await tester.pump();
+      expect(controller.confirmed, ['m-a']);
+      expect(find.text(AppStrings.confirmManifestFailed), findsOneWidget);
+      expect(find.text(AppStrings.confirmManifestSuccess), findsNothing);
+      await tearDownLibrary(tester);
+    });
+
     testWidgets('offline with known books shows the small banner', (tester) async {
       final controller = _FixedLibraryController(books: _books, progress: const {})..offline = true;
       await pumpLibrary(tester, controller);
       expect(find.text(AppStrings.offlineBanner), findsOneWidget);
       expect(find.text('Momo'), findsOneWidget);
+      await tearDownLibrary(tester);
+    });
+
+    testWidgets('secondary text on the raised surfaces keeps 4.5:1 at night (E65)', (tester) async {
+      final controller = _FixedLibraryController(books: _books, progress: const {})..offline = true;
+      await pumpLibrary(tester, controller, tokens: FadenTokens.night);
+      final banner = tester.widget<Text>(find.text(AppStrings.offlineBanner));
+      expect(banner.style?.color, FadenTokens.night.tinte);
+      final theme = Theme.of(tester.element(find.byType(TextField)));
+      expect(theme.inputDecorationTheme.hintStyle?.color, FadenTokens.night.tinte);
       await tearDownLibrary(tester);
     });
   });

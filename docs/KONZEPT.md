@@ -45,16 +45,16 @@ Regeln:
 
 Aufbau: Die Bibliothek ist die Basis der App, der Player liegt darüber. Schließt du den Player, bist du in der Bibliothek; der Mini-Player oder ein Buch aus der Liste schiebt ihn wieder hoch. Es gibt immer nur einen Player.
 
-1. **Start ist der Player:** War ein Buch offen, startet die App im Player (über der Bibliothek), sonst in der Bibliothek. Cover, Titel, Autor, Kapitel, Restzeit in Minuten („noch 3 Std. 45 Min.“), der Faden als Buchfortschritt (nicht ziehbar), großer Button, unten ein Griff zu den Details und rechts daneben der Sleep-Timer (Mond; läuft er, steht dort die Restzeit, „12 Min.“ oder „Kapitelende“). Oben links schließt ein Pfeil nach unten den Player, ebenso Ziehen nach unten: Der ganze Player folgt dem Finger, dahinter liegt die Bibliothek mit dem Mini-Player. Losgelassen nach mehr als einem Viertel der Höhe oder mit Schwung nach unten gleitet er weiter hinaus, sonst federt er zurück. Auf Faden und Kapitel-Scrubber beginnt kein Ziehen.
-2. **Details (nach oben wischen oder Griff antippen):** Scrubber für das aktuelle Kapitel mit verstrichener und verbleibender Zeit, Tempo, Sleep-Timer (derselbe wie im Player), Verlauf, alle Kapitel mit Titel und Dauer, der Weg zurück zur Bibliothek.
+1. **Start ist der Player:** War ein Buch offen, startet die App im Player (über der Bibliothek), sonst in der Bibliothek. Cover, Titel, Autor, Kapitel, der Faden als Buchfortschritt (nicht ziehbar) mit der Restzeit in Minuten direkt darunter („noch 3 Std. 45 Min.“), darunter der Kapitel-Scrubber, großer Button, unten ein Griff zu den Details und rechts daneben der Sleep-Timer (Mond; läuft er, steht dort die Restzeit, „12 Min.“ oder „Kapitelende“). Oben links schließt ein Pfeil nach unten den Player, ebenso Ziehen nach unten: Der ganze Player folgt dem Finger, dahinter liegt die Bibliothek mit dem Mini-Player. Losgelassen nach mehr als einem Viertel der Höhe oder mit Schwung nach unten gleitet er weiter hinaus, sonst federt er zurück. Auf Faden und Kapitel-Scrubber beginnt kein Ziehen.
+2. **Details (nach oben wischen oder Griff antippen):** Scrubber für das aktuelle Kapitel mit verstrichener und verbleibender Zeit, Tempo, Sleep-Timer (eine Zeile, die dieselbe Auswahl wie der Mond im Player öffnet), Verlauf, alle Kapitel mit Titel und Dauer, der Weg zurück zur Bibliothek.
 3. **Faden-Modus:** Vollbild, dunkel, siehe oben.
-4. **Bibliothek:** die Basis, ohne Zurück-Pfeil; oben Sortierung und Einstellungen, unten der Mini-Player, solange ein Buch offen ist. Oben „Weiterhören“ (zuletzt gehört), darunter alle Bücher mit Suche und Sortierung (zuletzt gehört, Titel, Autor). Je Buch Cover, Autor, Fortschritt als dünner Faden mit Restzeit oder „neu“/„gehört“, Download-Status (geladen, lädt mit der Restmenge „noch 240 MB“ und Abbrechen, Fehler mit „Erneut versuchen“), „Reihenfolge prüfen“. Download löschen per Wischen oder langem Druck. Ohne Server zuerst „Server einrichten“. Offline sind nicht geladene Bücher gedimmt und als „nur online“ markiert.
-5. **Einstellungen (aus der Bibliothek):** Server mit „Verbindung prüfen“, Nachtfenster, Sleep-Timer-Standard, Erscheinungsbild (Wie iPhone, Hell, Dunkel), Speicher (geladene Bücher; zu Ende gehörte werden automatisch gelöscht), „Aktuelle Bücher automatisch laden“ (im WLAN das offene und das nächste Buch aus „Weiterhören“), Schlafdaten erlauben, Belegung der Kopfhörertasten.
+4. **Bibliothek:** die Basis, ohne Zurück-Pfeil; oben Sortierung und Einstellungen, unten der Mini-Player, solange ein Buch offen ist. Großer Titel, der beim Scrollen in die Leiste wandert. Oben „Weiterhören“ (zuletzt gehört) als größere Karten, darunter die übrigen Bücher mit Suche (sie findet alle) und Sortierung (zuletzt gehört, Titel, Autor). Je Buch Cover, Autor, Fortschritt als dünner Faden mit Restzeit oder „neu“/„gehört“, Download-Status (geladen, lädt mit der Restmenge „noch 240 MB“ und Abbrechen, Fehler mit „Erneut versuchen“), „Reihenfolge prüfen“. Download löschen per Wischen oder langem Druck. Ohne Server zuerst „Server einrichten“. Offline sind nicht geladene Bücher gedimmt und als „nur online“ markiert.
+5. **Einstellungen (aus der Bibliothek):** gruppiert wie auf dem iPhone, Erklärungen unter den Zeilen. Server mit „Verbindung prüfen“, Nachtfenster, Sleep-Timer-Standard, Erscheinungsbild (Wie iPhone, Hell, Dunkel), Speicher (geladene Bücher; zu Ende gehörte werden automatisch gelöscht), „Aktuelle Bücher automatisch laden“ (im WLAN das offene und das nächste Buch aus „Weiterhören“), Schlafdaten erlauben, Belegung der Kopfhörertasten.
 
 ## Nachtmodus
 
 - Aktiv, solange die Bildschirmhelligkeit unter 30 % steht; aus erst wieder über 35 %, damit die Ansicht an der Schwelle nicht flackert. Nachtfenster und Sleep-Timer schalten die Ansicht nicht um; das Nachtfenster zählt nur für „Faden aufnehmen“.
-- Echtes Schwarz, Cover stark abgedunkelt. Buchtitel und aktuelles Kapitel klein und gedimmt in `tinte-leise`, darunter Faden, Kapitel-Scrubber, Hauptbutton und ±30 s. Details, Bibliothek und Einstellungen sind dann ebenfalls dunkel.
+- Echtes Schwarz, Cover stark abgedunkelt. Buchtitel klein und gedimmt in `tinte-leise`, darunter Faden und Kapitel-Scrubber (das Kapitel steht nur dort, ebenso gedimmt), Hauptbutton und ±30 s. Keine leuchtenden Flächen: Auswahl und Knöpfe nur als Ring. Details, Bibliothek und Einstellungen sind dann ebenfalls dunkel.
 - Keine Tastensperre: Alle Bildschirmtasten und die Details bleiben bedienbar. Jede Berührung zählt als Wach-Beleg.
 - Sleep-Timer: 15, 30, 45, 60 Min oder Kapitelende, direkt im Player über den Mond oder in den Details. Die letzten 30 s werden leiser. In der letzten Minute verlängert jede Kopfhörertaste den Timer um die gewählte Dauer, statt zu pausieren, und zählt als Wach-Beleg.
 
@@ -73,7 +73,7 @@ Leitbild ist ein einzelner Faden. Er zeigt den Fortschritt im ganzen Buch und is
 
 Tagsüber indigo gefärbtes Garn auf kühlem Weiß. Nachts warmes Bernstein ohne Blauanteil, gedimmte Schrift, echtes Schwarz für OLED. Alle Text-Kombinationen erreichen mindestens 4,5:1 Kontrast.
 
-- **Faden:** 3 dp Linie über die volle Breite. Gehörter Teil in `faden`, Rest in `tinte-leise` mit 40 % Deckkraft, Position als 10 dp Knoten. Kapitelgrenzen sind 2 dp Lücken im Faden.
+- **Faden:** 3 dp Linie über die volle Breite. Gehörter Teil in `faden`, Rest in `tinte-leise` mit 40 % Deckkraft, Position als kleiner 6 dp Knoten in `faden`, kein Griff: ziehbar ist nur der Kapitel-Scrubber darunter. Kapitelgrenzen sind 2 dp Lücken im Faden.
 - **Hauptbutton:** mindestens 88 dp. Tagsüber gefüllt in `faden` mit Symbol in `grund`; nachts nur ein Ring in `faden`, damit wenig Licht entsteht.
 - **Schrift:** eine Familie, Atkinson Hyperlegible Next (OFL, für Lesbarkeit entworfen; Fallback Atkinson Hyperlegible), im App-Bundle. Größen 28, 20, 17, 14 sp. Keine Großbuchstaben-Labels.
 - **Layout:** eine Spalte. Im Player zentriert, Listen linksbündig. Alle Tippziele mindestens 56 dp.
@@ -105,6 +105,7 @@ Tagsüber indigo gefärbtes Garn auf kühlem Weiß. Nachts warmes Bernstein ohne
 | Offline, Bücher bekannt | Offline – geladene Bücher spielen weiter |
 | Restzeit | noch 3 Std. 45 Min. |
 | Download läuft | noch 240 MB |
+| Server-Adresse, Beispiel | http://nas.local:8000 |
 | Wiedergabefehler | Kann nicht abspielen |
 | Nicht geladen, Server aus | Nicht geladen – der Server ist gerade nicht erreichbar. |
 

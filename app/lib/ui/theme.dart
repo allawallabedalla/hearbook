@@ -62,6 +62,12 @@ class FadenTokens extends ThemeExtension<FadenTokens> {
   /// black-ish at night and never adds a new hue.
   Color get flaeche => Color.alphaBlend(tinte.withValues(alpha: isDark ? 0.10 : 0.06), grund);
 
+  /// Secondary text on [flaeche] (search field, offline hint, grouped
+  /// settings rows). By day [tinteLeise] keeps 4.5:1 there; at night it
+  /// drops to 4.15:1 on the raised surface, so it takes [tinte] instead
+  /// (decision E65).
+  Color get leiseAufFlaeche => isDark ? tinte : tinteLeise;
+
   /// Hairlines and borders.
   Color get linie => Color.alphaBlend(tinteLeise.withValues(alpha: 0.35), grund);
 
@@ -304,11 +310,12 @@ ThemeData buildFadenTheme(FadenTokens tokens) {
     inputDecorationTheme: InputDecorationTheme(
       filled: true,
       fillColor: tokens.flaeche,
-      labelStyle: style(FadenTypeSizes.body, tokens.tinteLeise),
-      floatingLabelStyle: style(FadenTypeSizes.caption, tokens.tinteLeise),
-      hintStyle: style(FadenTypeSizes.body, tokens.tinteLeise),
-      prefixIconColor: tokens.tinteLeise,
-      suffixIconColor: tokens.tinteLeise,
+      // On the filled field ([FadenTokens.flaeche]), E65.
+      labelStyle: style(FadenTypeSizes.body, tokens.leiseAufFlaeche),
+      floatingLabelStyle: style(FadenTypeSizes.caption, tokens.leiseAufFlaeche),
+      hintStyle: style(FadenTypeSizes.body, tokens.leiseAufFlaeche),
+      prefixIconColor: tokens.leiseAufFlaeche,
+      suffixIconColor: tokens.leiseAufFlaeche,
       contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
       border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
       enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
@@ -322,12 +329,16 @@ ThemeData buildFadenTheme(FadenTokens tokens) {
       selectionColor: tokens.faden.withValues(alpha: 0.3),
       selectionHandleColor: tokens.faden,
     ),
+    // By day a filled button; with the night colours only a ring in
+    // `faden`, like the main button (KONZEPT.md "Hauptbutton"), so no lit
+    // amber surface glows in the dark (decision E65).
     filledButtonTheme: FilledButtonThemeData(
       style: FilledButton.styleFrom(
-        backgroundColor: tokens.faden,
-        foregroundColor: tokens.grund,
+        backgroundColor: dark ? Colors.transparent : tokens.faden,
+        foregroundColor: dark ? tokens.faden : tokens.grund,
         minimumSize: minTap,
-        textStyle: style(FadenTypeSizes.body, tokens.grund, weight: FontWeight.w700),
+        side: dark ? BorderSide(color: tokens.faden, width: 1.5) : null,
+        textStyle: style(FadenTypeSizes.body, dark ? tokens.faden : tokens.grund, weight: FontWeight.w700),
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
       ),
     ),
@@ -356,8 +367,41 @@ ThemeData buildFadenTheme(FadenTokens tokens) {
     ),
     visualDensity: VisualDensity.standard,
     materialTapTargetSize: MaterialTapTargetSize.padded,
+    adaptations: [_CupertinoSwitchColors(tokens)],
     extensions: [tokens],
   );
+}
+
+/// On iOS the adaptive switch drops the Material [SwitchThemeData] and
+/// falls back to the system green (Flutter's default adaptation), the
+/// brightest thing on a black night screen. This keeps it in the token
+/// colours (decision E65): the track in [FadenTokens.faden] when on, a
+/// quiet thread-rest grey when off; the thumb stays light by day and
+/// dims to [FadenTokens.tinte] at night.
+class _CupertinoSwitchColors extends Adaptation<SwitchThemeData> {
+  final FadenTokens tokens;
+
+  const _CupertinoSwitchColors(this.tokens);
+
+  @override
+  SwitchThemeData adapt(ThemeData theme, SwitchThemeData defaultValue) {
+    switch (theme.platform) {
+      case TargetPlatform.iOS:
+      case TargetPlatform.macOS:
+        final thumb = tokens.isDark ? tokens.tinte : Colors.white;
+        return SwitchThemeData(
+          thumbColor: WidgetStateProperty.all(thumb),
+          trackColor: WidgetStateProperty.resolveWith(
+            (s) => s.contains(WidgetState.selected) ? tokens.faden : tokens.tinteLeiseFaden,
+          ),
+        );
+      case TargetPlatform.android:
+      case TargetPlatform.fuchsia:
+      case TargetPlatform.linux:
+      case TargetPlatform.windows:
+        return defaultValue;
+    }
+  }
 }
 
 final Map<FadenTokens, ThemeData> _themeCache = {};

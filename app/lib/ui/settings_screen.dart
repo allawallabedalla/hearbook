@@ -20,6 +20,11 @@ import 'theme.dart';
 /// (decision E28), storage, sleep data. Headphone-button remapping beyond
 /// the fixed +/-30s of section 9 stays out of scope (M7).
 ///
+/// Laid out like the iPhone's settings (decision E65): grouped sections
+/// with their explanation below, choices as check-mark rows, switches in
+/// the token colours. On first setup, a save that reaches the server
+/// returns to the library.
+///
 /// Everything but the server is saved the moment it changes. Server
 /// address and token keep an explicit save, which takes effect at once --
 /// API client, downloads, sync and library are rebuilt, no restart
@@ -38,6 +43,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   bool _loaded = false;
   bool _saved = false;
   bool _checking = false;
+  bool _showToken = false;
   ConnectionCheck? _check;
 
   @override
@@ -63,6 +69,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
 
   Future<void> _saveServer() async {
     FocusScope.of(context).unfocus();
+    final firstSetup = !ref.read(serverConfigProvider).isConfigured;
     // Applies at once: API client, downloads and sync are rebuilt (E37).
     final saved = await ref
         .read(serverConfigProvider.notifier)
@@ -73,6 +80,14 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       _saved = true;
     });
     await _checkConnection();
+    if (!mounted || !firstSetup || _check != ConnectionCheck.ok) return;
+    // First setup done (E65): back to the library, which loads the books
+    // of the new server by itself; the confirmation goes along.
+    final navigator = Navigator.of(context);
+    if (!navigator.canPop()) return;
+    final messenger = ScaffoldMessenger.maybeOf(context);
+    navigator.pop();
+    messenger?.showSnackBar(SnackBar(content: Text(AppStrings.connectionOk)));
   }
 
   /// "Verbindung prüfen": the address and token as typed (E37).
@@ -180,130 +195,172 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final tokens = FadenTokens.of(context);
     final window = ref.watch(nightWindowProvider).value ?? NightWindow.defaults;
     final appearance = ref.watch(appearanceProvider);
     final sleepDefault = ref.watch(sleepTimerDefaultProvider).value ?? 30;
     final autoDownload = ref.watch(autoDownloadSettingProvider).value ?? true;
-    final secondary = TextStyle(color: tokens.tinteLeise, fontSize: FadenTypeSizes.caption);
     final ios = Theme.of(context).platform == TargetPlatform.iOS;
 
+    // Grouped sections as in the iPhone's settings, explanations below
+    // the rows (decision E65).
     return Scaffold(
       appBar: AppBar(title: Text(AppStrings.settingsTitle)),
       bottomNavigationBar: const MiniPlayer(),
       body: ListView(
-        padding: const EdgeInsets.fromLTRB(16, 8, 16, 32),
+        padding: const EdgeInsets.fromLTRB(16, 16, 16, 32),
         children: [
-          SectionTitle(AppStrings.settingsServerSection),
-          TextField(
-            controller: _urlController,
-            decoration: InputDecoration(labelText: AppStrings.settingsServerUrl),
-            keyboardType: TextInputType.url,
-            autocorrect: false,
-          ),
-          const SizedBox(height: 12),
-          TextField(
-            controller: _tokenController,
-            decoration: InputDecoration(labelText: AppStrings.settingsServerToken),
-            obscureText: true,
-            autocorrect: false,
-          ),
-          const SizedBox(height: 12),
-          Wrap(
-            spacing: 12,
-            runSpacing: 8,
-            children: [
-              FilledButton(onPressed: _checking ? null : _saveServer, child: Text(AppStrings.settingsSave)),
-              OutlinedButton(
-                onPressed: _checking ? null : _checkConnection,
-                child: Text(_checking ? AppStrings.settingsChecking : AppStrings.settingsCheckConnection),
+          FadenGroup(
+            header: AppStrings.settingsServerSection,
+            rows: [
+              _FieldRow(
+                child: TextField(
+                  controller: _urlController,
+                  decoration: _fieldDecoration(
+                    label: AppStrings.settingsServerUrl,
+                    hint: AppStrings.settingsServerUrlHint,
+                  ),
+                  keyboardType: TextInputType.url,
+                  autocorrect: false,
+                ),
+              ),
+              _FieldRow(
+                child: TextField(
+                  controller: _tokenController,
+                  decoration: _fieldDecoration(
+                    label: AppStrings.settingsServerToken,
+                    suffix: IconButton(
+                      tooltip: _showToken ? AppStrings.settingsTokenHide : AppStrings.settingsTokenShow,
+                      icon: Icon(_showToken ? Icons.visibility_off_outlined : Icons.visibility_outlined),
+                      onPressed: () => setState(() => _showToken = !_showToken),
+                    ),
+                  ),
+                  obscureText: !_showToken,
+                  autocorrect: false,
+                  enableSuggestions: false,
+                ),
               ),
             ],
-          ),
-          if (_saved || _check != null)
-            Padding(
-              padding: const EdgeInsets.only(top: 12),
-              child: ConnectionCheckMessage(check: _check, saved: _saved),
-            ),
-          const SizedBox(height: 32),
-          SectionTitle(AppStrings.settingsNightWindowTitle),
-          Text(AppStrings.settingsNightWindowExplanation, style: secondary),
-          const SizedBox(height: 8),
-          _TimeRow(
-            label: AppStrings.settingsNightWindowStart,
-            value: formatMinutesOfDay(window.startMin),
-            onTap: () => _editStart(window),
-          ),
-          _TimeRow(
-            label: AppStrings.settingsNightWindowEnd,
-            value: formatMinutesOfDay(window.endMin),
-            onTap: () => _editEnd(window),
-          ),
-          const SizedBox(height: 32),
-          SectionTitle(AppStrings.detailsSleepTimer),
-          Text(AppStrings.settingsSleepTimerExplanation, style: secondary),
-          const SizedBox(height: 12),
-          FadenSegmented<int>(
-            values: sleepTimerPresetMinutes,
-            selected: sleepDefault,
-            label: AppStrings.sleepTimerMinutes,
-            onChanged: (m) => ref.read(sleepTimerDefaultProvider.notifier).set(m),
-          ),
-          const SizedBox(height: 8),
-          FadenSegmented<int>(
-            values: const [0],
-            selected: sleepDefault <= 0 ? 0 : null,
-            label: (_) => AppStrings.sleepTimerChapterEnd,
-            onChanged: (_) => ref.read(sleepTimerDefaultProvider.notifier).set(0),
-          ),
-          const SizedBox(height: 32),
-          SectionTitle(AppStrings.settingsAppearanceTitle),
-          RadioGroup<Appearance>(
-            groupValue: appearance,
-            onChanged: (value) {
-              if (value != null) ref.read(appearanceProvider.notifier).set(value);
-            },
-            child: Column(
+            footer: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                for (final option in Appearance.values)
-                  RadioListTile<Appearance>.adaptive(
-                    contentPadding: EdgeInsets.zero,
-                    minTileHeight: fadenMinTapTarget,
-                    value: option,
-                    title: Text(_appearanceLabel(option)),
+                const SizedBox(height: 6),
+                Wrap(
+                  spacing: 12,
+                  runSpacing: 8,
+                  children: [
+                    FilledButton(onPressed: _checking ? null : _saveServer, child: Text(AppStrings.settingsSave)),
+                    OutlinedButton(
+                      onPressed: _checking ? null : _checkConnection,
+                      child: Text(_checking ? AppStrings.settingsChecking : AppStrings.settingsCheckConnection),
+                    ),
+                  ],
+                ),
+                if (_saved || _check != null)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 12),
+                    child: ConnectionCheckMessage(check: _check, saved: _saved),
                   ),
               ],
             ),
           ),
-          Text(AppStrings.settingsAppearanceNightNote, style: secondary),
-          const SizedBox(height: 32),
-          const _StorageSection(),
-          const SizedBox(height: 8),
-          // Decision E56: the open and the next "Weiterhören" book, Wi-Fi only.
-          SwitchListTile.adaptive(
-            contentPadding: EdgeInsets.zero,
-            value: autoDownload,
-            onChanged: (on) => ref.read(autoDownloadSettingProvider.notifier).set(on),
-            title: Text(AppStrings.settingsAutoDownload),
-            subtitle: Text(AppStrings.settingsAutoDownloadDescription, style: secondary),
+          FadenGroup(
+            header: AppStrings.settingsNightWindowTitle,
+            rows: [
+              _TimeRow(
+                label: AppStrings.settingsNightWindowStart,
+                value: formatMinutesOfDay(window.startMin),
+                onTap: () => _editStart(window),
+              ),
+              _TimeRow(
+                label: AppStrings.settingsNightWindowEnd,
+                value: formatMinutesOfDay(window.endMin),
+                onTap: () => _editEnd(window),
+              ),
+            ],
+            footer: Text(AppStrings.settingsNightWindowExplanation),
           ),
-          const SizedBox(height: 32),
-          SwitchListTile.adaptive(
-            contentPadding: EdgeInsets.zero,
-            value: _healthDataOptIn,
-            onChanged: _setHealthDataOptIn,
-            title: Text(AppStrings.settingsHealthDataOptIn),
-            subtitle: Text(
+          FadenGroup(
+            header: AppStrings.detailsSleepTimer,
+            rows: [
+              for (final minutes in [...sleepTimerPresetMinutes, 0])
+                FadenCheckRow(
+                  label: minutes <= 0 ? AppStrings.sleepTimerChapterEnd : AppStrings.sleepTimerMinutes(minutes),
+                  selected: minutes <= 0 ? sleepDefault <= 0 : sleepDefault == minutes,
+                  onTap: () => ref.read(sleepTimerDefaultProvider.notifier).set(minutes),
+                ),
+            ],
+            footer: Text(AppStrings.settingsSleepTimerExplanation),
+          ),
+          FadenGroup(
+            header: AppStrings.settingsAppearanceTitle,
+            rows: [
+              for (final option in Appearance.values)
+                FadenCheckRow(
+                  label: _appearanceLabel(option),
+                  selected: option == appearance,
+                  onTap: () => ref.read(appearanceProvider.notifier).set(option),
+                ),
+            ],
+            footer: Text(AppStrings.settingsAppearanceNightNote),
+          ),
+          const _StorageSection(),
+          // Decision E56: the open and the next "Weiterhören" book, Wi-Fi only.
+          FadenGroup(
+            rows: [
+              SwitchListTile.adaptive(
+                value: autoDownload,
+                onChanged: (on) => ref.read(autoDownloadSettingProvider.notifier).set(on),
+                title: Text(AppStrings.settingsAutoDownload),
+              ),
+            ],
+            footer: Text(AppStrings.settingsAutoDownloadDescription),
+          ),
+          FadenGroup(
+            rows: [
+              SwitchListTile.adaptive(
+                value: _healthDataOptIn,
+                onChanged: _setHealthDataOptIn,
+                title: Text(AppStrings.settingsHealthDataOptIn),
+              ),
+            ],
+            footer: Text(
               AppStrings.settingsHealthDataOptInDescription(
                 ios ? AppStrings.healthSourceIos : AppStrings.healthSourceAndroid,
               ),
-              style: secondary,
             ),
           ),
         ],
       ),
     );
   }
+
+  /// A text field inside a grouped row: no own fill or border (the group
+  /// draws the surface), the label always above, so an empty field shows
+  /// its example ([hint]) from the start.
+  InputDecoration _fieldDecoration({required String label, String? hint, Widget? suffix}) => InputDecoration(
+        labelText: label,
+        hintText: hint,
+        floatingLabelBehavior: FloatingLabelBehavior.always,
+        filled: false,
+        border: InputBorder.none,
+        enabledBorder: InputBorder.none,
+        focusedBorder: InputBorder.none,
+        contentPadding: const EdgeInsets.fromLTRB(FadenGroup.inset, 10, FadenGroup.inset, 10),
+        suffixIcon: suffix,
+      );
+}
+
+/// A text field as a row of a [FadenGroup], at least one tap target high.
+class _FieldRow extends StatelessWidget {
+  final Widget child;
+
+  const _FieldRow({required this.child});
+
+  @override
+  Widget build(BuildContext context) => ConstrainedBox(
+        constraints: const BoxConstraints(minHeight: fadenMinTapTarget),
+        child: Center(child: child),
+      );
 }
 
 /// The result of "Speichern"/"Verbindung prüfen", one distinct message per
@@ -354,7 +411,6 @@ class _TimeRow extends StatelessWidget {
   Widget build(BuildContext context) {
     final tokens = FadenTokens.of(context);
     return ListTile(
-      contentPadding: EdgeInsets.zero,
       minTileHeight: fadenMinTapTarget,
       title: Text(label),
       trailing: Text(
@@ -396,28 +452,26 @@ class _StorageSectionState extends ConsumerState<_StorageSection> {
       _total = downloads?.totalBytesOnDisk();
     }
 
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        SectionTitle(
-          AppStrings.settingsStorageTitle,
-          trailing: FutureBuilder<int>(
-            future: _total,
-            builder: (context, snap) {
-              final bytes = snap.data;
-              if (bytes == null || bytes <= 0) return const SizedBox.shrink();
-              return Text(
-                AppStrings.storageTotal(formatBytes(bytes)),
-                style: TextStyle(color: tokens.tinteLeise, fontSize: FadenTypeSizes.caption),
-              );
-            },
-          ),
-        ),
+    return FadenGroup(
+      header: AppStrings.settingsStorageTitle,
+      headerTrailing: FutureBuilder<int>(
+        future: _total,
+        builder: (context, snap) {
+          final bytes = snap.data;
+          if (bytes == null || bytes <= 0) return const SizedBox.shrink();
+          return Text(AppStrings.storageTotal(formatBytes(bytes)));
+        },
+      ),
+      rows: [
         if (stored.isEmpty)
-          Text(AppStrings.storageNone, style: TextStyle(color: tokens.tinteLeise, fontSize: FadenTypeSizes.caption)),
+          ListTile(
+            title: Text(
+              AppStrings.storageNone,
+              style: TextStyle(color: tokens.leiseAufFlaeche, fontSize: FadenTypeSizes.body),
+            ),
+          ),
         for (final entry in stored)
           ListTile(
-            contentPadding: EdgeInsets.zero,
             title: Text(titles[entry.key] ?? entry.key, maxLines: 1, overflow: TextOverflow.ellipsis),
             subtitle: Text(formatBytes(entry.value.bytesOnDisk)),
             trailing: IconButton(
@@ -431,10 +485,9 @@ class _StorageSectionState extends ConsumerState<_StorageSection> {
               },
             ),
           ),
-        // Decision E57: finished books leave the device by themselves.
-        const SizedBox(height: 4),
-        Text(AppStrings.storageFinishedNote, style: TextStyle(color: tokens.tinteLeise, fontSize: FadenTypeSizes.caption)),
       ],
+      // Decision E57: finished books leave the device by themselves.
+      footer: Text(AppStrings.storageFinishedNote),
     );
   }
 }

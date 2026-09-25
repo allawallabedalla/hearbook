@@ -417,6 +417,29 @@ class LibrarySortController extends Notifier<LibrarySort> {
 final librarySortProvider =
     NotifierProvider<LibrarySortController, LibrarySort>(LibrarySortController.new);
 
+/// The book the library is busy with (decision E65): being opened (until
+/// the player has it) or loading its "Reihenfolge prüfen" choice. Its row
+/// shows a spinner, and further taps on books are ignored meanwhile, so a
+/// second tap never starts a second opening.
+class LibraryBusyBookController extends Notifier<String?> {
+  @override
+  String? build() => null;
+
+  /// Marks [bookId] busy; false (and nothing changes) while another book is.
+  bool begin(String bookId) {
+    if (state != null) return false;
+    state = bookId;
+    return true;
+  }
+
+  void end(String bookId) {
+    if (state == bookId) state = null;
+  }
+}
+
+final libraryBusyBookProvider =
+    NotifierProvider<LibraryBusyBookController, String?>(LibraryBusyBookController.new);
+
 /// "Verbindung prüfen" in the settings (decision E37): checks an address
 /// and token as typed, without saving them. A provider so widget tests can
 /// answer without a network.
@@ -803,13 +826,18 @@ class PlayerSessionController extends ChangeNotifier {
   }) async {
     _opening = true;
     loading = true;
-    _notify();
+    // Another book: its resolved state is not this one's. The player shows
+    // its loading state until the new one is resolved (E65).
+    if (this.bookId != bookId) bookState = null;
     this.bookId = bookId;
     this.bookTitle = bookTitle;
     bookAuthor = author;
     this.manifest = manifest;
     playlistSources = null;
     pauseIndex = {};
+    // Notified with the new book in place, so a player shown right away
+    // (the library pushes it at once, E65) never shows the previous one.
+    _notify();
 
     try {
       // E31: pull what other devices did before resolving, so the player
@@ -1092,7 +1120,11 @@ class BookOpener {
 
   BookOpener(this._ref);
 
-  Future<OpenBookResult> open(String bookId) async {
+  /// [onStarted] runs once the book is known to open and the session
+  /// already shows it as loading -- before the sync wait (E31, up to 2 s)
+  /// and the lock-screen cover (up to 3 s). The library shows the player
+  /// then, so a tap answers at once (decision E65).
+  Future<OpenBookResult> open(String bookId, {void Function()? onStarted}) async {
     final session = _ref.read(playerSessionProvider);
     final handler = _ref.read(audioHandlerProvider);
     if (session.bookId == bookId && handler.bookId == bookId && session.manifest != null) {
@@ -1106,7 +1138,10 @@ class BookOpener {
 
     await _ref.read(settingsStoreProvider).setLastOpenedBookId(bookId);
     final previous = handler.bookId;
-    await _openWith(detail, manifest);
+    // openBook puts the new book into the session before its first await.
+    final opening = _openWith(detail, manifest);
+    onStarted?.call();
+    await opening;
     if (cached != null) unawaited(_refreshInBackground(bookId, manifest.manifestId));
     _afterOpen(bookId, previous);
     return OpenBookResult.opened;

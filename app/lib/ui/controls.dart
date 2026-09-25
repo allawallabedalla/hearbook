@@ -1,5 +1,8 @@
+import 'dart:async';
+
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart' show HapticFeedback;
 
 import '../l10n/strings.dart';
 import 'theme.dart';
@@ -8,7 +11,9 @@ import 'theme.dart';
 /// segments, so a changed selection never moves or resizes anything (the
 /// chips it replaces jumped in width with their check mark). Labels scale
 /// down to fit rather than overflow at large text sizes. Height is the
-/// 56 dp minimum tap target.
+/// 56 dp minimum tap target. The selected segment is filled in `faden` by
+/// day and only outlined at night (decision E65: like the main button, no
+/// lit amber surface in the dark). A choice ticks like an iOS picker.
 class FadenSegmented<T> extends StatelessWidget {
   final List<T> values;
   final T? selected;
@@ -38,7 +43,12 @@ class FadenSegmented<T> extends StatelessWidget {
                 text: label(value),
                 selected: value == selected,
                 tokens: tokens,
-                onTap: onChanged == null ? null : () => onChanged!(value),
+                onTap: onChanged == null
+                    ? null
+                    : () {
+                        unawaited(HapticFeedback.selectionClick());
+                        onChanged!(value);
+                      },
               ),
             ),
         ],
@@ -57,6 +67,9 @@ class _Segment extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // At night a ring, not a lit surface (E65).
+    final outline = tokens.isDark;
+    final Color textColor = !selected ? tokens.tinte : (outline ? tokens.faden : tokens.grund);
     return Semantics(
       button: true,
       selected: selected,
@@ -68,7 +81,8 @@ class _Segment extends StatelessWidget {
         onTap: onTap,
         child: DecoratedBox(
           decoration: BoxDecoration(
-            color: selected ? tokens.faden : Colors.transparent,
+            color: selected && !outline ? tokens.faden : Colors.transparent,
+            border: selected && outline ? Border.all(color: tokens.faden, width: 1.5) : null,
             borderRadius: BorderRadius.circular(9),
           ),
           child: Center(
@@ -81,7 +95,7 @@ class _Segment extends StatelessWidget {
                   maxLines: 1,
                   style: TextStyle(
                     fontSize: FadenTypeSizes.body,
-                    color: selected ? tokens.grund : tokens.tinte,
+                    color: textColor,
                     fontWeight: selected ? FontWeight.w700 : FontWeight.w400,
                   ),
                 ),
@@ -118,6 +132,105 @@ class SectionTitle extends StatelessWidget {
           ),
           ?trailing,
         ],
+      ),
+    );
+  }
+}
+
+/// An iOS-style grouped section (decision E65): an optional small header,
+/// the rows on one rounded [FadenTokens.flaeche] surface divided by
+/// hairlines, and an explanation *below* ([footer]), as in the iPhone's
+/// own settings. Rows are usually [ListTile]s; they draw their pressed
+/// state on the section's surface.
+class FadenGroup extends StatelessWidget {
+  final String? header;
+  final Widget? headerTrailing;
+  final List<Widget> rows;
+  final Widget? footer;
+
+  const FadenGroup({super.key, this.header, this.headerTrailing, required this.rows, this.footer});
+
+  /// Side padding of rows inside a group.
+  static const double inset = 16;
+
+  @override
+  Widget build(BuildContext context) {
+    final tokens = FadenTokens.of(context);
+    final quiet = TextStyle(color: tokens.tinteLeise, fontSize: FadenTypeSizes.caption, height: 1.3);
+    final divided = <Widget>[];
+    for (var i = 0; i < rows.length; i++) {
+      if (i > 0) divided.add(Divider(height: 0.5, thickness: 0.5, indent: inset, color: tokens.linie));
+      divided.add(rows[i]);
+    }
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 28),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          if (header != null)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(inset, 0, inset, 6),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.baseline,
+                textBaseline: TextBaseline.alphabetic,
+                children: [
+                  Expanded(child: Semantics(header: true, child: Text(header!, style: quiet))),
+                  if (headerTrailing != null) DefaultTextStyle.merge(style: quiet, child: headerTrailing!),
+                ],
+              ),
+            ),
+          if (divided.isNotEmpty)
+            Material(
+              color: tokens.flaeche,
+              borderRadius: BorderRadius.circular(12),
+              clipBehavior: Clip.antiAlias,
+              child: ListTileTheme.merge(
+                contentPadding: const EdgeInsets.symmetric(horizontal: inset),
+                // Secondary text on the raised surface keeps 4.5:1 (E65).
+                subtitleTextStyle: TextStyle(
+                  fontFamily: fadenFontFamily,
+                  fontSize: FadenTypeSizes.caption,
+                  color: tokens.leiseAufFlaeche,
+                  height: 1.25,
+                ),
+                child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: divided),
+              ),
+            ),
+          if (footer != null)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(inset, 6, inset, 0),
+              child: DefaultTextStyle.merge(style: quiet, child: footer!),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+/// One choice in a list of choices, marked with a trailing check mark
+/// like the iPhone's settings and the sleep-timer sheet (E61, E65) instead
+/// of a radio button.
+class FadenCheckRow extends StatelessWidget {
+  final String label;
+  final bool selected;
+  final VoidCallback onTap;
+
+  const FadenCheckRow({super.key, required this.label, required this.selected, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    final tokens = FadenTokens.of(context);
+    return Semantics(
+      selected: selected,
+      inMutuallyExclusiveGroup: true,
+      child: ListTile(
+        minTileHeight: fadenMinTapTarget,
+        title: Text(label),
+        trailing: selected ? Icon(Icons.check, color: tokens.faden) : null,
+        onTap: () {
+          unawaited(HapticFeedback.selectionClick());
+          onTap();
+        },
       ),
     );
   }

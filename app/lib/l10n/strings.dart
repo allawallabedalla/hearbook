@@ -159,6 +159,14 @@ class AppStrings {
     'fadenAlternativesTitle': 'Erkannte Stellen',
     'fadenPlaying': 'läuft',
     'fadenDone': 'Fertig',
+    'reviewOffline': 'Reihenfolge prüfen geht nur mit Verbindung zum Server.',
+    'reviewNothingToChoose': 'Keine andere Reihenfolge zur Auswahl. Zum Aktualisieren nach unten ziehen.',
+    'reviewLoadFailed': 'Die Reihenfolgen ließen sich nicht laden. Bitte erneut versuchen.',
+    'confirmManifestFailed': 'Die Reihenfolge ließ sich nicht übernehmen. Bitte erneut versuchen.',
+    'libraryOpening': 'Öffnet …',
+    'settingsServerUrlHint': 'http://nas.local:8000',
+    'settingsTokenShow': 'Token zeigen',
+    'settingsTokenHide': 'Token verbergen',
   };
 
   static String _of(String key) {
@@ -283,6 +291,14 @@ class AppStrings {
   static String get fadenAlternativesTitle => _of('fadenAlternativesTitle');
   static String get fadenPlaying => _of('fadenPlaying');
   static String get fadenDone => _of('fadenDone');
+  static String get reviewOffline => _of('reviewOffline');
+  static String get reviewNothingToChoose => _of('reviewNothingToChoose');
+  static String get reviewLoadFailed => _of('reviewLoadFailed');
+  static String get confirmManifestFailed => _of('confirmManifestFailed');
+  static String get libraryOpening => _of('libraryOpening');
+  static String get settingsServerUrlHint => _of('settingsServerUrlHint');
+  static String get settingsTokenShow => _of('settingsTokenShow');
+  static String get settingsTokenHide => _of('settingsTokenHide');
 
   static String fadenProbeCounter(int n, int max) =>
       _of('fadenProbeCounter').replaceAll('{n}', '$n').replaceAll('{max}', '$max');

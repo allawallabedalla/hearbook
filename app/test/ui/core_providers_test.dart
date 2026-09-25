@@ -211,6 +211,33 @@ void main() {
       expect(await container.read(bookOpenerProvider).open('never-seen'), OpenBookResult.unavailable);
     });
 
+    test('onStarted runs once the new book is in the session, before it is resolved (E65)', () async {
+      container = make(api: server.api);
+      final opener = container.read(bookOpenerProvider);
+      expect(await opener.open('book-1'), OpenBookResult.opened);
+      final session = container.read(playerSessionProvider);
+      expect(session.bookState, isNotNull);
+
+      String? startedWith;
+      Object? stateAtStart = 'unset';
+      var calls = 0;
+      final result = await opener.open('book-2', onStarted: () {
+        calls++;
+        startedWith = session.bookId;
+        stateAtStart = session.bookState;
+      });
+      expect(result, OpenBookResult.opened);
+      expect(calls, 1);
+      expect(startedWith, 'book-2');
+      expect(stateAtStart, isNull, reason: 'never the previous book\'s state under the new title');
+      expect(session.bookState, isNotNull);
+
+      calls = 0;
+      server.online = false;
+      expect(await opener.open('never-seen', onStarted: () => calls++), OpenBookResult.unavailable);
+      expect(calls, 0);
+    });
+
     test('the library lists at once, before any book detail has arrived', () async {
       container = make(api: server.api);
       final library = container.read(libraryControllerProvider);

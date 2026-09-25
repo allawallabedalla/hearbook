@@ -24,6 +24,11 @@ import 'theme.dart';
 /// E60): the root route, no back button; the player is pushed on top of
 /// it and closes back onto it. Shows the mini player at the bottom while a
 /// book is open (decision E29).
+///
+/// Decision E65: a large title that collapses into the bar like on the
+/// iPhone; "Weiterhören" as larger cards, and its books are not repeated
+/// under "Alle Bücher" (a search still lists every match). A tap on a
+/// book shows the player at once and opens the book behind it.
 class LibraryScreen extends ConsumerStatefulWidget {
   const LibraryScreen({super.key});
 
@@ -66,123 +71,244 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen> {
   Widget build(BuildContext context) {
     final controller = ref.watch(libraryControllerProvider);
     final sort = ref.watch(librarySortProvider);
+    final titleBar = LargeTitleBar(
+      title: AppStrings.libraryTitle,
+      actions: [
+        if (controller.books.isNotEmpty)
+          PopupMenuButton<LibrarySort>(
+            tooltip: AppStrings.librarySortTooltip,
+            icon: const Icon(Icons.swap_vert),
+            initialValue: sort,
+            onSelected: ref.read(librarySortProvider.notifier).set,
+            itemBuilder: (context) => [
+              for (final option in LibrarySort.values)
+                CheckedPopupMenuItem<LibrarySort>(
+                  value: option,
+                  checked: option == sort,
+                  child: Text(librarySortLabel(option)),
+                ),
+            ],
+          ),
+        IconButton(
+          tooltip: AppStrings.settingsTitle,
+          icon: const Icon(Icons.settings_outlined),
+          onPressed: _openSettings,
+        ),
+      ],
+    );
     return Scaffold(
       bottomNavigationBar: const MiniPlayer(),
-      appBar: AppBar(
-        // The base of the app (E60): nothing to go back to.
-        automaticallyImplyLeading: false,
-        title: Text(AppStrings.libraryTitle),
-        actions: [
-          if (controller.books.isNotEmpty)
-            PopupMenuButton<LibrarySort>(
-              tooltip: AppStrings.librarySortTooltip,
-              icon: const Icon(Icons.swap_vert),
-              initialValue: sort,
-              onSelected: ref.read(librarySortProvider.notifier).set,
-              itemBuilder: (context) => [
-                for (final option in LibrarySort.values)
-                  CheckedPopupMenuItem<LibrarySort>(
-                    value: option,
-                    checked: option == sort,
-                    child: Text(librarySortLabel(option)),
-                  ),
-              ],
-            ),
-          IconButton(
-            tooltip: AppStrings.settingsTitle,
-            icon: const Icon(Icons.settings_outlined),
-            onPressed: _openSettings,
-          ),
-        ],
-      ),
       body: RefreshIndicator(
         onRefresh: controller.refresh,
-        child: _body(controller, sort),
+        edgeOffset: MediaQuery.paddingOf(context).top + kToolbarHeight,
+        child: CustomScrollView(
+          physics: const AlwaysScrollableScrollPhysics(),
+          slivers: [titleBar, ..._body(controller, sort)],
+        ),
       ),
     );
   }
 
-  Widget _body(LibraryController controller, LibrarySort sort) {
+  List<Widget> _body(LibraryController controller, LibrarySort sort) {
     final configured = ref.watch(serverConfigProvider).isConfigured;
     if (controller.books.isEmpty) {
       if (!configured) {
         // First launch: nothing to retry yet, only something to set up.
-        return _EmptyState(
-          icon: Icons.menu_book_outlined,
-          title: AppStrings.setupTitle,
-          body: AppStrings.setupBody,
-          action: FilledButton(onPressed: _openSettings, child: Text(AppStrings.setupAction)),
-        );
+        return [
+          _EmptyState(
+            icon: Icons.menu_book_outlined,
+            title: AppStrings.setupTitle,
+            body: AppStrings.setupBody,
+            action: FilledButton(onPressed: _openSettings, child: Text(AppStrings.setupAction)),
+          ),
+        ];
       }
       if (controller.offline) {
-        return _EmptyState(
-          icon: Icons.cloud_off_outlined,
-          title: AppStrings.offlineNotice,
-          action: FilledButton(onPressed: controller.refresh, child: Text(AppStrings.libraryRetry)),
-          secondary: TextButton(onPressed: _openSettings, child: Text(AppStrings.settingsTitle)),
-        );
+        return [
+          _EmptyState(
+            icon: Icons.cloud_off_outlined,
+            title: AppStrings.offlineNotice,
+            action: FilledButton(onPressed: controller.refresh, child: Text(AppStrings.libraryRetry)),
+            secondary: TextButton(onPressed: _openSettings, child: Text(AppStrings.settingsTitle)),
+          ),
+        ];
       }
-      if (controller.loading) return const Center(child: CircularProgressIndicator());
-      return _EmptyState(
-        icon: Icons.menu_book_outlined,
-        title: AppStrings.libraryEmpty,
-        body: AppStrings.libraryEmptyHint,
-      );
+      if (controller.loading) {
+        return const [SliverFillRemaining(hasScrollBody: false, child: Center(child: CircularProgressIndicator()))];
+      }
+      return [
+        _EmptyState(
+          icon: Icons.menu_book_outlined,
+          title: AppStrings.libraryEmpty,
+          body: AppStrings.libraryEmptyHint,
+        ),
+      ];
     }
 
     final progress = controller.progressByBook;
-    final arranged = arrangeBooks(books: controller.books, progress: progress, sort: sort, query: _query);
     final continueBooks = _query.isEmpty ? continueListening(controller) : const <BookSummary>[];
+    // "Weiterhören" books are not repeated below (E65); a search lists
+    // every match, so it never hides a book.
+    final shownAbove = {for (final b in continueBooks) b.bookId};
+    final arranged = arrangeBooks(
+      books: [
+        for (final b in controller.books)
+          if (!shownAbove.contains(b.bookId)) b,
+      ],
+      progress: progress,
+      sort: sort,
+      query: _query,
+    );
 
-    return CustomScrollView(
-      physics: const AlwaysScrollableScrollPhysics(),
-      slivers: [
-        if (controller.offline) const SliverToBoxAdapter(child: _OfflineBanner()),
-        SliverToBoxAdapter(
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
-            child: TextField(
-              controller: _search,
-              textInputAction: TextInputAction.search,
-              decoration: InputDecoration(
-                hintText: AppStrings.librarySearchHint,
-                prefixIcon: const Icon(Icons.search),
-                suffixIcon: _query.isEmpty
-                    ? null
-                    : IconButton(
-                        tooltip: AppStrings.cancelAction,
-                        icon: const Icon(Icons.close),
-                        onPressed: _search.clear,
-                      ),
-              ),
+    return [
+      if (controller.offline) const SliverToBoxAdapter(child: _OfflineBanner()),
+      SliverToBoxAdapter(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
+          child: TextField(
+            controller: _search,
+            textInputAction: TextInputAction.search,
+            decoration: InputDecoration(
+              hintText: AppStrings.librarySearchHint,
+              prefixIcon: const Icon(Icons.search),
+              suffixIcon: _query.isEmpty
+                  ? null
+                  : IconButton(
+                      tooltip: AppStrings.cancelAction,
+                      icon: const Icon(Icons.close),
+                      onPressed: _search.clear,
+                    ),
             ),
           ),
         ),
-        if (continueBooks.isNotEmpty) ...[
-          SliverToBoxAdapter(child: _SectionHeader(AppStrings.libraryContinueSection)),
-          SliverList.list(children: [for (final b in continueBooks) BookRow(book: b)]),
-          SliverToBoxAdapter(child: _SectionHeader(AppStrings.libraryAllBooks)),
-        ],
-        if (arranged.isEmpty)
-          SliverToBoxAdapter(
-            child: Padding(
-              padding: const EdgeInsets.all(24),
-              child: Text(AppStrings.libraryNoMatches, textAlign: TextAlign.center),
-            ),
-          )
-        else
-          SliverList.builder(
-            itemCount: arranged.length,
-            itemBuilder: (context, i) => BookRow(book: arranged[i]),
-          ),
-        const SliverToBoxAdapter(child: SizedBox(height: 24)),
+      ),
+      if (continueBooks.isNotEmpty) ...[
+        SliverToBoxAdapter(child: _SectionHeader(AppStrings.libraryContinueSection)),
+        SliverList.list(children: [for (final b in continueBooks) ContinueCard(book: b)]),
+        if (arranged.isNotEmpty) SliverToBoxAdapter(child: _SectionHeader(AppStrings.libraryAllBooks)),
       ],
-    );
+      if (arranged.isEmpty && continueBooks.isEmpty)
+        SliverToBoxAdapter(
+          child: Padding(
+            padding: const EdgeInsets.all(24),
+            child: Text(AppStrings.libraryNoMatches, textAlign: TextAlign.center),
+          ),
+        )
+      else
+        SliverList.builder(
+          itemCount: arranged.length,
+          itemBuilder: (context, i) => BookRow(book: arranged[i]),
+        ),
+      const SliverToBoxAdapter(child: SizedBox(height: 24)),
+    ];
   }
 
   /// "Weiterhören": the most recently played books that are not finished.
   List<BookSummary> continueListening(LibraryController controller) =>
       controller.continueListening.take(continueCount).toList();
+}
+
+/// A large title that collapses into the bar as the list scrolls, like an
+/// iPhone navigation bar (decision E65): expanded, the title stands large
+/// and left-aligned under the bar; scrolled away, a small centred title
+/// fades into the bar. Driven by the scroll position only, no animation.
+class LargeTitleBar extends StatelessWidget {
+  final String title;
+  final List<Widget> actions;
+
+  const LargeTitleBar({super.key, required this.title, this.actions = const []});
+
+  @override
+  Widget build(BuildContext context) {
+    final largeHeight = MediaQuery.textScalerOf(context).scale(FadenTypeSizes.display) * 1.25 + 14;
+    return SliverAppBar(
+      pinned: true,
+      // The base of the app (E60): nothing to go back to.
+      automaticallyImplyLeading: false,
+      expandedHeight: kToolbarHeight + largeHeight,
+      actions: actions,
+      flexibleSpace: _CollapsingTitle(title: title, largeHeight: largeHeight),
+    );
+  }
+}
+
+class _CollapsingTitle extends StatelessWidget {
+  final String title;
+  final double largeHeight;
+
+  const _CollapsingTitle({required this.title, required this.largeHeight});
+
+  @override
+  Widget build(BuildContext context) {
+    final tokens = FadenTokens.of(context);
+    final settings = context.dependOnInheritedWidgetOfExactType<FlexibleSpaceBarSettings>();
+    // 1 fully expanded, 0 collapsed into the bar.
+    var expanded = 1.0;
+    var barHeight = MediaQuery.paddingOf(context).top + kToolbarHeight;
+    if (settings != null) {
+      barHeight = settings.minExtent;
+      final range = settings.maxExtent - settings.minExtent;
+      expanded = range <= 0 ? 0 : ((settings.currentExtent - settings.minExtent) / range).clamp(0.0, 1.0);
+    }
+    final smallOpacity = ((0.35 - expanded) / 0.35).clamp(0.0, 1.0);
+    final topPadding = MediaQuery.paddingOf(context).top;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        SizedBox(
+          height: barHeight,
+          child: Padding(
+            padding: EdgeInsets.only(top: topPadding, left: 120, right: 120),
+            child: ExcludeSemantics(
+              excluding: smallOpacity < 0.5,
+              child: Opacity(
+                opacity: smallOpacity,
+                child: Center(
+                  child: Text(
+                    title,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(color: tokens.tinte, fontSize: FadenTypeSizes.body, fontWeight: FontWeight.w700),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+        Expanded(
+          child: ClipRect(
+            child: OverflowBox(
+              alignment: Alignment.bottomLeft,
+              minHeight: largeHeight,
+              maxHeight: largeHeight,
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+                child: Align(
+                  alignment: Alignment.bottomLeft,
+                  child: ExcludeSemantics(
+                    excluding: smallOpacity >= 0.5,
+                    child: Semantics(
+                      header: true,
+                      child: Text(
+                        title,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          color: tokens.tinte,
+                          fontSize: FadenTypeSizes.display,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
 }
 
 String librarySortLabel(LibrarySort sort) => switch (sort) {
@@ -265,12 +391,13 @@ class _OfflineBanner extends StatelessWidget {
       decoration: BoxDecoration(color: tokens.flaeche, borderRadius: BorderRadius.circular(12)),
       child: Row(
         children: [
-          Icon(Icons.cloud_off_outlined, size: 18, color: tokens.tinteLeise),
+          // On the raised surface: 4.5:1 at night too (E65).
+          Icon(Icons.cloud_off_outlined, size: 18, color: tokens.leiseAufFlaeche),
           const SizedBox(width: 10),
           Expanded(
             child: Text(
               AppStrings.offlineBanner,
-              style: TextStyle(color: tokens.tinteLeise, fontSize: FadenTypeSizes.caption),
+              style: TextStyle(color: tokens.leiseAufFlaeche, fontSize: FadenTypeSizes.caption),
             ),
           ),
         ],
@@ -291,31 +418,269 @@ class _EmptyState extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final tokens = FadenTokens.of(context);
-    // A list, so pull-to-refresh works here too.
-    return ListView(
-      physics: const AlwaysScrollableScrollPhysics(),
-      padding: const EdgeInsets.fromLTRB(32, 72, 32, 32),
-      children: [
-        Icon(icon, size: 48, color: tokens.faden),
-        const SizedBox(height: 16),
-        Text(
-          title,
-          textAlign: TextAlign.center,
-          style: TextStyle(color: tokens.tinte, fontSize: FadenTypeSizes.title),
+    // Part of the scroll view, so pull-to-refresh works here too.
+    return SliverFillRemaining(
+      hasScrollBody: false,
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(32, 40, 32, 32),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Icon(icon, size: 48, color: tokens.faden),
+            const SizedBox(height: 16),
+            Text(
+              title,
+              textAlign: TextAlign.center,
+              style: TextStyle(color: tokens.tinte, fontSize: FadenTypeSizes.title),
+            ),
+            if (body != null) ...[
+              const SizedBox(height: 8),
+              Text(
+                body!,
+                textAlign: TextAlign.center,
+                style: TextStyle(color: tokens.tinteLeise, fontSize: FadenTypeSizes.body),
+              ),
+            ],
+            if (action != null) ...[const SizedBox(height: 24), Center(child: action)],
+            if (secondary != null) ...[const SizedBox(height: 8), Center(child: secondary)],
+          ],
         ),
-        if (body != null) ...[
-          const SizedBox(height: 8),
-          Text(
-            body!,
-            textAlign: TextAlign.center,
-            style: TextStyle(color: tokens.tinteLeise, fontSize: FadenTypeSizes.body),
-          ),
-        ],
-        if (action != null) ...[const SizedBox(height: 24), Center(child: action)],
-        if (secondary != null) ...[const SizedBox(height: 8), Center(child: secondary)],
-      ],
+      ),
     );
   }
+}
+
+/// Not openable on the server ("unvollständig", "keine Dateien").
+bool _unavailable(BookSummary book) => book.serverStatus == 'incomplete' || book.serverStatus == 'empty';
+
+/// A tap on a book, from its row or its "Weiterhören" card.
+///
+/// "Reihenfolge prüfen" (invariant 4) loads the server's candidates with a
+/// spinner in the row, and says so when it cannot (offline, nothing to
+/// choose, a failed request) instead of doing nothing (decision E65).
+///
+/// Opening (E65): the player slides up as soon as the book is known to
+/// open and shows its loading state; the sync wait and the lock-screen
+/// cover happen behind it. Until then the row shows a spinner, and taps on
+/// other books are ignored, so a double tap never opens twice. Still one
+/// player only ([showPlayerScreen], E29/E60).
+Future<void> openBookFromLibrary(BuildContext context, WidgetRef ref, BookSummary book) async {
+  final messenger = ScaffoldMessenger.of(context);
+  final controller = ref.read(libraryControllerProvider);
+  final busy = ref.read(libraryBusyBookProvider.notifier);
+  void say(String text) => messenger.showSnackBar(SnackBar(content: Text(text)));
+
+  if (book.needsReview) {
+    await _reviewOrder(context, controller, busy, book, say);
+    return;
+  }
+  if (_unavailable(book)) {
+    // Not openable, so say why instead of doing nothing.
+    say(book.serverStatus == 'empty' ? AppStrings.libraryEmptyExplain : AppStrings.libraryIncompleteExplain);
+    return;
+  }
+  if (!busy.begin(book.bookId)) return;
+  final navigator = Navigator.of(context);
+  final opener = ref.read(bookOpenerProvider);
+  var shown = false;
+  void show() {
+    if (shown) return;
+    shown = true;
+    // The one player slides up over the library (E29, E60).
+    showPlayerScreen(navigator);
+  }
+
+  try {
+    // Cache first (decision E30): opens offline, too.
+    final result = await opener.open(book.bookId, onStarted: show);
+    if (result == OpenBookResult.unavailable) {
+      say(AppStrings.libraryOpenFailed);
+      return;
+    }
+    show();
+  } catch (_) {
+    // A player left waiting for a book that never came goes again.
+    final player = PlayerRoute.activeIn(navigator);
+    if (shown && player != null && player.isCurrent) navigator.pop();
+    say(AppStrings.libraryOpenFailed);
+  } finally {
+    busy.end(book.bookId);
+  }
+}
+
+Future<void> _reviewOrder(
+  BuildContext context,
+  LibraryController controller,
+  LibraryBusyBookController busy,
+  BookSummary book,
+  void Function(String text) say,
+) async {
+  if (controller.api == null || controller.offline) {
+    say(AppStrings.reviewOffline);
+    return;
+  }
+  if (!busy.begin(book.bookId)) return;
+  final List<ManifestCandidate> candidates;
+  try {
+    candidates = await controller.reviewCandidates(book.bookId);
+  } catch (_) {
+    say(AppStrings.reviewLoadFailed);
+    return;
+  } finally {
+    busy.end(book.bookId);
+  }
+  if (candidates.isEmpty) {
+    say(AppStrings.reviewNothingToChoose);
+    return;
+  }
+  if (!context.mounted) return;
+  final manifestId = await showReviewDialog(context, candidates);
+  if (manifestId == null || !busy.begin(book.bookId)) return;
+  try {
+    await controller.confirmManifest(book.bookId, manifestId);
+    say(AppStrings.confirmManifestSuccess);
+  } catch (_) {
+    say(AppStrings.confirmManifestFailed);
+  } finally {
+    busy.end(book.bookId);
+  }
+}
+
+/// Long press on a downloaded book: delete its download (the progress
+/// stays).
+Future<void> _showDownloadActions(
+  BuildContext context,
+  LibraryController controller,
+  BookSummary book,
+  BookDownloadState download,
+) async {
+  final delete = await showModalBottomSheet<bool>(
+    context: context,
+    builder: (context) => SafeArea(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const SizedBox(height: 8),
+          ListTile(
+            leading: Icon(Icons.delete_outline, color: FadenTokens.of(context).fehler),
+            title: Text(AppStrings.downloadDeleteWithSize(formatBytes(download.bytesOnDisk))),
+            onTap: () => Navigator.of(context).pop(true),
+          ),
+          ListTile(
+            leading: const Icon(Icons.close),
+            title: Text(AppStrings.cancelAction),
+            onTap: () => Navigator.of(context).pop(false),
+          ),
+        ],
+      ),
+    ),
+  );
+  if (delete == true) await controller.deleteDownload(book.bookId);
+}
+
+/// A "Weiterhören" book (decision E65): a larger card with a bigger cover
+/// and title, set apart by a hairline frame, so the section does not look
+/// like the list below it. Same tap, long press and download control as a
+/// [BookRow].
+class ContinueCard extends ConsumerWidget {
+  final BookSummary book;
+
+  const ContinueCard({super.key, required this.book});
+
+  static const double coverSize = 88;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final controller = ref.watch(libraryControllerProvider);
+    final busy = ref.watch(libraryBusyBookProvider) == book.bookId;
+    final tokens = FadenTokens.of(context);
+    final download = controller.downloadStateFor(book.bookId);
+    final progress = controller.progressByBook[book.bookId];
+    final author = book.author?.trim();
+    final canDelete = download.bytesOnDisk > 0;
+    final onlineOnly = BookRow.onlineOnly(controller, book, download);
+    final radius = BorderRadius.circular(16);
+
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+      child: Material(
+        color: tokens.grund,
+        shape: RoundedRectangleBorder(borderRadius: radius, side: BorderSide(color: tokens.linie)),
+        clipBehavior: Clip.antiAlias,
+        child: InkWell(
+          onTap: () => openBookFromLibrary(context, ref, book),
+          onLongPress: canDelete ? () => _showDownloadActions(context, controller, book, download) : null,
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(12, 12, 4, 12),
+            child: Row(
+              children: [
+                Opacity(
+                  opacity: onlineOnly ? 0.5 : 1,
+                  child: BookCover(
+                    bookId: book.bookId,
+                    title: book.title,
+                    size: coverSize,
+                    radius: 8,
+                    thumbnail: true,
+                  ),
+                ),
+                const SizedBox(width: 14),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        book.title,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(fontSize: FadenTypeSizes.title, color: tokens.tinte, height: 1.2),
+                      ),
+                      if (author != null && author.isNotEmpty)
+                        Text(
+                          author,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(fontSize: FadenTypeSizes.caption, color: tokens.tinteLeise),
+                        ),
+                      const SizedBox(height: 8),
+                      _StatusLine(
+                        book: book,
+                        progress: progress,
+                        download: download,
+                        tokens: tokens,
+                        onlineOnly: onlineOnly,
+                        threadWidth: 72,
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(width: 4),
+                busy
+                    ? const _BusySpinner()
+                    : _DownloadControl(book: book, download: download, controller: controller, tokens: tokens),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// A book being opened or reviewed (E65), in place of its download control.
+class _BusySpinner extends StatelessWidget {
+  const _BusySpinner();
+
+  @override
+  Widget build(BuildContext context) => Semantics(
+        label: AppStrings.libraryOpening,
+        child: const SizedBox.square(
+          dimension: fadenMinTapTarget,
+          child: Center(
+            child: SizedBox.square(dimension: 22, child: CircularProgressIndicator(strokeWidth: 2.5)),
+          ),
+        ),
+      );
 }
 
 /// One book: cover, title, author, progress, download state.
@@ -326,8 +691,6 @@ class BookRow extends ConsumerWidget {
 
   static const double coverSize = 56;
 
-  bool get _unavailable => book.serverStatus == 'incomplete' || book.serverStatus == 'empty';
-
   /// Decision E58: while the server is unreachable, a book that is not
   /// fully downloaded cannot play; the row is dimmed and says "nur online".
   static bool onlineOnly(LibraryController controller, BookSummary book, BookDownloadState download) =>
@@ -336,16 +699,17 @@ class BookRow extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final controller = ref.watch(libraryControllerProvider);
+    final busy = ref.watch(libraryBusyBookProvider) == book.bookId;
     final tokens = FadenTokens.of(context);
     final download = controller.downloadStateFor(book.bookId);
     final progress = controller.progressByBook[book.bookId];
     final author = book.author?.trim();
     final canDelete = download.bytesOnDisk > 0;
-    final dimmed = _unavailable || onlineOnly(controller, book, download);
+    final dimmed = _unavailable(book) || onlineOnly(controller, book, download);
 
     Widget row = InkWell(
-      onTap: () => _onTap(context, ref, controller),
-      onLongPress: canDelete ? () => _showActions(context, controller, download) : null,
+      onTap: () => openBookFromLibrary(context, ref, book),
+      onLongPress: canDelete ? () => _showDownloadActions(context, controller, book, download) : null,
       child: Padding(
         padding: const EdgeInsets.fromLTRB(16, 10, 4, 10),
         child: Row(
@@ -393,7 +757,9 @@ class BookRow extends ConsumerWidget {
               ),
             ),
             const SizedBox(width: 4),
-            _DownloadControl(book: book, download: download, controller: controller, tokens: tokens),
+            busy
+                ? const _BusySpinner()
+                : _DownloadControl(book: book, download: download, controller: controller, tokens: tokens),
           ],
         ),
       ),
@@ -424,62 +790,6 @@ class BookRow extends ConsumerWidget {
     }
     return row;
   }
-
-  Future<void> _showActions(BuildContext context, LibraryController controller, BookDownloadState download) async {
-    final delete = await showModalBottomSheet<bool>(
-      context: context,
-      builder: (context) => SafeArea(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const SizedBox(height: 8),
-            ListTile(
-              leading: Icon(Icons.delete_outline, color: FadenTokens.of(context).fehler),
-              title: Text(AppStrings.downloadDeleteWithSize(formatBytes(download.bytesOnDisk))),
-              onTap: () => Navigator.of(context).pop(true),
-            ),
-            ListTile(
-              leading: const Icon(Icons.close),
-              title: Text(AppStrings.cancelAction),
-              onTap: () => Navigator.of(context).pop(false),
-            ),
-          ],
-        ),
-      ),
-    );
-    if (delete == true) await controller.deleteDownload(book.bookId);
-  }
-
-  Future<void> _onTap(BuildContext context, WidgetRef ref, LibraryController controller) async {
-    final messenger = ScaffoldMessenger.of(context);
-    if (book.needsReview) {
-      final candidates = await controller.reviewCandidates(book.bookId);
-      if (!context.mounted || candidates.isEmpty) return;
-      final manifestId = await showReviewDialog(context, candidates);
-      if (manifestId == null) return;
-      await controller.confirmManifest(book.bookId, manifestId);
-      messenger.showSnackBar(SnackBar(content: Text(AppStrings.confirmManifestSuccess)));
-      return;
-    }
-    if (_unavailable) {
-      // Not openable, so say why instead of doing nothing.
-      messenger.showSnackBar(SnackBar(
-        content: Text(
-          book.serverStatus == 'empty' ? AppStrings.libraryEmptyExplain : AppStrings.libraryIncompleteExplain,
-        ),
-      ));
-      return;
-    }
-    // Cache first (decision E30): opens offline, too.
-    final result = await ref.read(bookOpenerProvider).open(book.bookId);
-    if (!context.mounted) return;
-    if (result == OpenBookResult.unavailable) {
-      messenger.showSnackBar(SnackBar(content: Text(AppStrings.libraryOpenFailed)));
-      return;
-    }
-    // The one player slides up over the library (E29, E60).
-    showPlayerScreen(Navigator.of(context));
-  }
 }
 
 class _StatusLine extends StatelessWidget {
@@ -489,12 +799,16 @@ class _StatusLine extends StatelessWidget {
   final FadenTokens tokens;
   final bool onlineOnly;
 
+  /// Length of the little progress thread.
+  final double threadWidth;
+
   const _StatusLine({
     required this.book,
     required this.progress,
     required this.download,
     required this.tokens,
     this.onlineOnly = false,
+    this.threadWidth = 48,
   });
 
   @override
@@ -538,7 +852,7 @@ class _StatusLine extends StatelessWidget {
       children: [
         if (thread != null) ...[
           SizedBox(
-            width: 48,
+            width: threadWidth,
             height: 2,
             child: ColoredBox(
               color: tokens.tinteLeiseFaden,

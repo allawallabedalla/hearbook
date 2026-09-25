@@ -84,9 +84,10 @@ class _FakeOpener extends BookOpener {
   _FakeOpener(super.ref, this.session);
 
   @override
-  Future<OpenBookResult> open(String bookId) async {
+  Future<OpenBookResult> open(String bookId, {void Function()? onStarted}) async {
     opened.add(bookId);
     session.opened(bookId);
+    onStarted?.call();
     return OpenBookResult.opened;
   }
 }

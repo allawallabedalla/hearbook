@@ -15,6 +15,8 @@
 //   the drag down follows the finger 1:1 and closes or springs back on
 //   release (E63), never starting on the chapter scrubber.
 
+import 'dart:math' as math;
+
 import 'package:faden/audio/playback_status.dart';
 import 'package:faden/data/db.dart';
 import 'package:faden/data/journal.dart';
@@ -299,6 +301,109 @@ void main() {
     await tearDownPlayer(tester);
   });
 
+  group('audit fixes (E65)', () {
+    testWidgets('the book\'s time left is the thread\'s caption, between thread and chapter', (tester) async {
+      await pumpPlayer(tester);
+      final remaining = find.text(AppStrings.remainingTime(formatRemaining(_manifest.totalDurationMs - 25 * 60000)));
+      expect(remaining, findsOneWidget);
+      final threadBottom = tester.getBottomLeft(find.byType(PlayerThread)).dy;
+      expect(tester.getTopLeft(remaining).dy, inInclusiveRange(threadBottom, threadBottom + 12));
+      expect(tester.getBottomLeft(remaining).dy, lessThan(tester.getTopLeft(find.text('Kapitel 2: Ein Titel')).dy));
+      expect(tester.getTopRight(remaining).dx, closeTo(tester.getTopRight(find.byType(PlayerThread)).dx, 0.5),
+          reason: 'under the unheard rest, like "−16:00" under the scrubber');
+      await tearDownPlayer(tester);
+    });
+
+    testWidgets('thread, scrubber and its times share one left and right edge', (tester) async {
+      await pumpPlayer(tester);
+      final slider = find.descendant(of: find.byType(PlayerBody), matching: find.byType(Slider));
+      final thread = tester.getRect(find.byType(PlayerThread));
+      final track = tester.getRect(slider);
+      expect(track.left, thread.left);
+      expect(track.right, thread.right);
+      expect(tester.getTopLeft(find.text(formatClock(5 * 60000)).last).dx, thread.left);
+      expect(tester.getTopRight(find.text(AppStrings.scrubberRemaining(formatClock(16 * 60000))).last).dx,
+          closeTo(thread.right, 0.5));
+      expect(tester.getSize(slider).height, greaterThanOrEqualTo(44), reason: 'still easy to grab');
+      await tearDownPlayer(tester);
+    });
+
+    testWidgets('"Faden aufnehmen" under the button is part of it; "Ab Stopp" is in the house font', (tester) async {
+      final semantics = tester.ensureSemantics();
+      await pumpPlayer(tester, sleepSuspected: true);
+      final body = tester.widget<PlayerBody>(find.byType(PlayerBody));
+      final caption = find.descendant(of: find.byType(PlayerBody), matching: find.text(AppStrings.mainButtonRecordThread));
+      expect(caption, findsOneWidget);
+      final tap = tester.widget<GestureDetector>(
+          find.ancestor(of: caption, matching: find.byType(GestureDetector)).first);
+      expect(tap.onTap, same(body.onMainButton), reason: 'a tap on the name is a tap on the button');
+      expect(find.bySemanticsLabel(AppStrings.mainButtonRecordThread), findsOneWidget,
+          reason: 'one VoiceOver element, the button');
+      final gap = tester.getTopLeft(caption).dy - tester.getBottomLeft(find.byType(PlayerMainButton)).dy;
+      expect(gap, inInclusiveRange(0, 8));
+      final resume = tester.widget<TextButton>(find.widgetWithText(TextButton, AppStrings.resumeFromStop));
+      expect(resume.style?.textStyle?.resolve({})?.fontFamily, fadenFontFamily);
+      semantics.dispose();
+      await tearDownPlayer(tester);
+    });
+
+    testWidgets('the details grip keeps 3:1 against the background', (tester) async {
+      for (final night in [false, true]) {
+        await pumpPlayer(tester, night: night);
+        final tokens = night ? FadenTokens.night : FadenTokens.day;
+        final grip = tester.widget<Container>(find.descendant(
+            of: find.bySemanticsLabel(AppStrings.detailsOpen), matching: find.byType(Container)));
+        final color = (grip.decoration! as BoxDecoration).color!;
+        final l1 = color.computeLuminance();
+        final l2 = tokens.grund.computeLuminance();
+        final ratio = (math.max(l1, l2) + 0.05) / (math.min(l1, l2) + 0.05);
+        expect(ratio, greaterThanOrEqualTo(3), reason: night ? 'night' : 'day');
+        await tearDownPlayer(tester);
+      }
+    });
+
+    testWidgets('±30 s, a speed and a sleep-timer choice tick (haptics)', (tester) async {
+      final haptics = <String>[];
+      final messenger = TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+      messenger.setMockMethodCallHandler(SystemChannels.platform, (call) async {
+        if (call.method == 'HapticFeedback.vibrate') haptics.add(call.arguments as String);
+        return null;
+      });
+      addTearDown(() => messenger.setMockMethodCallHandler(SystemChannels.platform, null));
+      await pumpPlayer(tester);
+      await tester.tap(find.bySemanticsLabel(AppStrings.seekBackAction));
+      await tester.pump();
+      expect(haptics, ['HapticFeedbackType.lightImpact']);
+      await tester.tap(find.bySemanticsLabel(AppStrings.detailsOpen));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('1,5×'));
+      await tester.pump();
+      expect(haptics.last, 'HapticFeedbackType.selectionClick');
+      haptics.clear();
+      await tester.tap(find.byType(SleepTimerRow));
+      await tester.pumpAndSettle();
+      await tester.tap(find.widgetWithText(ListTile, AppStrings.sleepTimerMinutes(30)));
+      await tester.pumpAndSettle();
+      expect(haptics, ['HapticFeedbackType.selectionClick']);
+      ProviderScope.containerOf(tester.element(find.byType(PlayerBody))).read(sleepTimerProvider).cancel();
+      await tearDownPlayer(tester);
+    });
+
+    testWidgets('while the book is still opening, the player shows its title and a spinner', (tester) async {
+      await pumpPlayer(tester);
+      session.bookState = null;
+      // ignore: invalid_use_of_protected_member, invalid_use_of_visible_for_testing_member
+      session.notifyListeners();
+      await tester.pump();
+      expect(find.byType(PlayerBody), findsNothing);
+      expect(find.byType(PlayerLoading), findsOneWidget);
+      expect(find.text('Der Zauberberg'), findsOneWidget);
+      expect(find.byType(CircularProgressIndicator), findsOneWidget);
+      expect(find.byTooltip(AppStrings.playerClose), findsOneWidget, reason: 'the way back stays');
+      await tearDownPlayer(tester);
+    });
+  });
+
   group('closing the player (E60)', () {
     testWidgets('a swipe down slides the player down onto the library; the mini player brings it back',
         (tester) async {
@@ -515,10 +620,11 @@ void main() {
             isSemantics(label: AppStrings.detailsSleepTimer, value: AppStrings.sleepTimerMinutes(12), isButton: true));
         semantics.dispose();
 
-        // The details sheet shows the very same timer.
+        // The details sheet shows the very same timer, as one row (E65).
         await tester.tap(find.bySemanticsLabel(AppStrings.detailsOpen));
         await tester.pumpAndSettle();
-        expect(find.text(AppStrings.sleepTimerRunning('12:00')), findsOneWidget);
+        expect(find.descendant(of: find.byType(SleepTimerRow), matching: find.text(AppStrings.sleepTimerMinutes(12))),
+            findsOneWidget);
         Navigator.of(tester.element(find.byType(DetailsSheetContent))).pop();
         await tester.pumpAndSettle();
 
@@ -541,16 +647,26 @@ void main() {
       await tester.pumpAndSettle();
       expect(inMoon(find.text(AppStrings.sleepTimerChapterEnd)), findsOneWidget);
 
+      // The details sheet's row opens the very same choice (E65).
       await tester.tap(find.bySemanticsLabel(AppStrings.detailsOpen));
       await tester.pumpAndSettle();
-      await tester.tap(find.text(AppStrings.sleepTimerMinutes(45)));
-      await tester.pump();
-      await tester.pump();
+      expect(find.descendant(of: find.byType(SleepTimerRow), matching: find.text(AppStrings.sleepTimerChapterEnd)),
+          findsOneWidget);
+      await tester.tap(find.byType(SleepTimerRow));
+      await tester.pumpAndSettle();
+      expect(find.byType(SleepTimerChoices), findsOneWidget);
+      await tester.tap(find.widgetWithText(ListTile, AppStrings.sleepTimerMinutes(45)));
+      await tester.pumpAndSettle();
+      expect(find.byType(SleepTimerChoices), findsNothing);
+      expect(find.byType(DetailsSheetContent), findsOneWidget, reason: 'back in the details');
       expect(inMoon(find.text(AppStrings.sleepTimerMinutes(45))), findsOneWidget);
-      await tester.tap(find.text(AppStrings.sleepTimerOff));
-      await tester.pump();
-      await tester.pump();
+      await tester.tap(find.byType(SleepTimerRow));
+      await tester.pumpAndSettle();
+      await tester.tap(find.widgetWithText(ListTile, AppStrings.sleepTimerOff));
+      await tester.pumpAndSettle();
       expect(inMoon(find.byType(Text)), findsNothing);
+      expect(find.descendant(of: find.byType(SleepTimerRow), matching: find.text(AppStrings.sleepTimerOff)),
+          findsOneWidget);
       await tearDownPlayer(tester);
     });
 
@@ -691,11 +807,12 @@ void main() {
       expect(scaffoldColor(tester), FadenTokens.day.grund);
       expect(find.byType(CoverMonogram), findsOneWidget);
       handler.fakePlaying = true;
+      await tester.tap(find.byType(SleepTimerButton));
+      await tester.pumpAndSettle();
+      await tester.tap(find.widgetWithText(ListTile, AppStrings.sleepTimerMinutes(15)));
+      await tester.pumpAndSettle();
       await tester.tap(find.bySemanticsLabel(AppStrings.detailsOpen));
       await tester.pumpAndSettle();
-      await tester.tap(find.text(AppStrings.sleepTimerMinutes(15)));
-      await tester.pump();
-      await tester.pump();
       expect(tester.widget<Material>(find.byKey(detailsSheetSurfaceKey)).color, FadenTokens.day.grund);
       expect(scaffoldColor(tester), FadenTokens.day.grund);
       handler.fakePlaying = false;
@@ -712,21 +829,24 @@ void main() {
       await tearDownPlayer(tester);
     });
 
-    testWidgets('shows a dimmed cover, title and chapter small and dimmed', (tester) async {
+    testWidgets('shows a dimmed cover, title and chapter small and dimmed; the chapter only once (E65)',
+        (tester) async {
       await pumpPlayer(tester, night: true);
       final dim = find.ancestor(of: find.byType(BookCover), matching: find.byType(Opacity));
       expect(dim, findsOneWidget);
       expect(tester.widget<Opacity>(dim).opacity, lessThan(0.6));
       expect(find.text('Thomas Mann'), findsNothing);
+      expect(find.text('Kapitel 2: Ein Titel'), findsOneWidget, reason: 'the scrubber names it, the header not again');
       for (final text in ['Der Zauberberg', 'Kapitel 2: Ein Titel']) {
-        final widget = tester.widget<Text>(find.text(text).first);
+        final widget = tester.widget<Text>(find.text(text));
         expect(widget.style?.color, FadenTokens.night.tinteLeise, reason: text);
         expect(widget.style?.fontSize, inInclusiveRange(FadenTypeSizes.caption, FadenTypeSizes.body), reason: text);
         expect(widget.maxLines, inInclusiveRange(1, 2), reason: text);
       }
       final thread = tester.getTopLeft(find.byType(PlayerThread)).dy;
-      expect(tester.getBottomLeft(find.text('Kapitel 2: Ein Titel').first).dy, lessThanOrEqualTo(thread),
-          reason: 'title and chapter sit above the thread');
+      expect(tester.getBottomLeft(find.text('Der Zauberberg')).dy, lessThanOrEqualTo(thread),
+          reason: 'the title sits above the thread');
+      expect(find.textContaining('noch '), findsNothing, reason: 'no remaining time at night');
       await tearDownPlayer(tester);
     });
 
@@ -843,22 +963,68 @@ void main() {
       await tearDownPlayer(tester);
     });
 
-    testWidgets('a chosen sleep timer stays marked while it counts down', (tester) async {
+    testWidgets('one sleep-timer row opens the moon\'s choice; the chosen one stays marked (E65)', (tester) async {
       final semantics = tester.ensureSemantics();
       await pumpPlayer(tester);
       handler.fakePlaying = true;
       await openSheet(tester);
-      await tester.tap(find.text(AppStrings.sleepTimerMinutes(15)));
-      await tester.pump();
+      Finder inSheet(Finder f) => find.descendant(of: find.byType(DetailsSheetContent), matching: f);
+      expect(inSheet(find.text(AppStrings.sleepTimerMinutes(15))), findsNothing, reason: 'no second set of presets');
+      expect(inSheet(find.textContaining('Starten')), findsNothing);
+      expect(tester.getSemantics(find.byType(SleepTimerRow)),
+          isSemantics(label: AppStrings.detailsSleepTimer, value: AppStrings.sleepTimerOff, isButton: true));
+      await tester.tap(find.byType(SleepTimerRow));
+      await tester.pumpAndSettle();
+      await tester.tap(find.widgetWithText(ListTile, AppStrings.sleepTimerMinutes(15)));
+      await tester.pumpAndSettle();
       await tester.pump(const Duration(minutes: 3));
       await tester.pump();
-      expect(tester.getSemantics(find.text(AppStrings.sleepTimerMinutes(15))), isSemantics(isSelected: true));
-      expect(tester.getSemantics(find.text(AppStrings.sleepTimerMinutes(30))), isSemantics(isSelected: false));
+      expect(inSheet(find.text(AppStrings.sleepTimerMinutes(12))), findsOneWidget);
+      await tester.tap(find.byType(SleepTimerRow));
+      await tester.pumpAndSettle();
       expect(find.text(AppStrings.sleepTimerRunning('12:00')), findsOneWidget);
+      Finder check(String label) =>
+          find.descendant(of: find.widgetWithText(ListTile, label), matching: find.byIcon(Icons.check));
+      expect(check(AppStrings.sleepTimerMinutes(15)), findsOneWidget);
+      expect(check(AppStrings.sleepTimerMinutes(30)), findsNothing);
       handler.fakePlaying = false;
       semantics.dispose();
       await tearDownPlayer(tester);
     });
+
+    testWidgets('the chapter scrubber has a VoiceOver label (E65)', (tester) async {
+      final semantics = tester.ensureSemantics();
+      await pumpPlayer(tester);
+      await openSheet(tester);
+      final slider = find.descendant(of: find.byType(DetailsSheetContent), matching: find.byType(Slider));
+      final node = tester.getSemantics(slider).getSemanticsData();
+      expect(node.flagsCollection.isSlider, isTrue, reason: 'one element: the label on the slider itself');
+      expect(node.label, contains(AppStrings.scrubberLabel));
+      expect(node.value, formatClock(5 * 60000));
+      semantics.dispose();
+      await tearDownPlayer(tester);
+    });
+
+    for (final night in [false, true]) {
+      testWidgets('${night ? 'night' : 'day'}: the selected speed is ${night ? 'a ring' : 'filled'} (E65)',
+          (tester) async {
+        await pumpPlayer(tester, night: night);
+        await openSheet(tester);
+        final tokens = night ? FadenTokens.night : FadenTokens.day;
+        final box = tester.widget<DecoratedBox>(
+            find.ancestor(of: find.text('1×'), matching: find.byType(DecoratedBox)).first);
+        final decoration = box.decoration as BoxDecoration;
+        if (night) {
+          expect(decoration.color, Colors.transparent);
+          expect((decoration.border! as Border).top.color, tokens.faden);
+          expect(tester.widget<Text>(find.text('1×')).style?.color, tokens.faden);
+        } else {
+          expect(decoration.color, tokens.faden);
+          expect(decoration.border, isNull);
+        }
+        await tearDownPlayer(tester);
+      });
+    }
 
     testWidgets('history comes before the chapters; the chapter list marks the current one', (tester) async {
       await pumpPlayer(tester);

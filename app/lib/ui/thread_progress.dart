@@ -61,20 +61,28 @@ List<double> visibleChapterGaps(List<double> boundariesPx, {required double widt
   return kept;
 }
 
+/// The position is a small knot in the thread's own colour, not a round
+/// thumb in `knoten` (decision E65): on the player the chapter scrubber
+/// right below has the draggable thumb, and two alike handles read as two
+/// sliders. The knot only marks where the heard part ends.
 class ThreadProgress extends StatelessWidget {
   final ThreadLayout layout;
   final FadenTokens tokens;
 
   static const double lineThickness = 3;
-  static const double nodeDiameter = 10;
+  static const double nodeDiameter = 6;
   static const double gapWidth = 2;
+
+  /// Height of the widget (the former 10 dp node), so the layout around it
+  /// stays put.
+  static const double height = 10;
 
   const ThreadProgress({super.key, required this.layout, required this.tokens});
 
   @override
   Widget build(BuildContext context) {
     return SizedBox(
-      height: nodeDiameter,
+      height: height,
       width: double.infinity,
       child: CustomPaint(
         painter: _ThreadPainter(layout: layout, tokens: tokens),
@@ -94,7 +102,7 @@ class _ThreadPainter extends CustomPainter {
     final centerY = size.height / 2;
     final heardPaint = Paint()..color = tokens.faden;
     final unheardPaint = Paint()..color = tokens.tinteLeiseFaden;
-    final nodePaint = Paint()..color = tokens.knoten;
+    final nodePaint = Paint()..color = tokens.faden;
 
     final boundariesPx = visibleChapterGaps(
       layout.chapterBoundaryFractions.map((f) => f * size.width).toList(),

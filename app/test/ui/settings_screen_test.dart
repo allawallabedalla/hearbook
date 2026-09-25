@@ -10,7 +10,9 @@ import 'package:faden/data/journal.dart';
 import 'package:faden/data/settings_store.dart';
 import 'package:faden/l10n/strings.dart';
 import 'package:faden/ui/providers.dart';
+import 'package:faden/ui/controls.dart';
 import 'package:faden/ui/settings_screen.dart';
+import 'package:faden/ui/theme.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -30,7 +32,12 @@ void main() {
   late SettingsStore store;
   late FakeAudioHandler handler;
 
-  Future<void> pumpSettings(WidgetTester tester, {ConnectionCheck check = ConnectionCheck.ok}) async {
+  Future<void> pumpSettings(
+    WidgetTester tester, {
+    ConnectionCheck check = ConnectionCheck.ok,
+    bool overLibrary = false,
+    ServerConfig server = ServerConfig.empty,
+  }) async {
     await tester.runAsync(() async {
       db = AppDatabase.memory();
       store = SettingsStore(db);
@@ -47,10 +54,27 @@ void main() {
           settingsStoreProvider.overrideWithValue(store),
           audioHandlerProvider.overrideWithValue(handler),
           connectionCheckerProvider.overrideWithValue((url, token) async => check),
+          initialServerConfigProvider.overrideWithValue(server),
         ],
-        child: const MaterialApp(home: SettingsScreen()),
+        child: MaterialApp(
+          home: overLibrary
+              ? Builder(
+                  builder: (context) => Scaffold(
+                    body: TextButton(
+                      onPressed: () =>
+                          Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => const SettingsScreen())),
+                      child: const Text('Bibliothek darunter'),
+                    ),
+                  ),
+                )
+              : const SettingsScreen(),
+        ),
       ),
     );
+    if (overLibrary) {
+      await tester.tap(find.text('Bibliothek darunter'));
+      await tester.pumpAndSettle();
+    }
     await settle(tester);
   }
 
@@ -205,6 +229,79 @@ void main() {
     expect(await tester.runAsync(store.autoDownload), isFalse);
     expect(tester.widget<SwitchListTile>(tile).value, isFalse);
     await tearDownAll(tester);
+  });
+
+  testWidgets('grouped sections: explanations below their rows, check marks instead of radios (E65)', (tester) async {
+    await pumpSettings(tester);
+    expect(find.byType(FadenGroup), findsWidgets);
+    expect(tester.getTopLeft(find.text(AppStrings.settingsNightWindowExplanation)).dy,
+        greaterThan(tester.getBottomLeft(find.text(AppStrings.settingsNightWindowEnd)).dy));
+    expect(tester.getTopLeft(find.text(AppStrings.settingsAppearanceNightNote)).dy,
+        greaterThan(tester.getBottomLeft(find.text(AppStrings.settingsAppearanceDark)).dy));
+    expect(find.byType(Radio<Appearance>), findsNothing);
+    expect(find.byType(RadioListTile<Appearance>), findsNothing);
+    Finder check(String label) =>
+        find.descendant(of: find.widgetWithText(ListTile, label), matching: find.byIcon(Icons.check));
+    expect(check(AppStrings.settingsAppearanceSystem), findsOneWidget, reason: 'the stored choice');
+    expect(check(AppStrings.settingsAppearanceDark), findsNothing);
+    expect(check(AppStrings.sleepTimerMinutes(30)), findsOneWidget, reason: 'the stored default');
+    await tester.tap(find.text(AppStrings.settingsAppearanceDark));
+    await settle(tester);
+    expect(check(AppStrings.settingsAppearanceDark), findsOneWidget);
+    expect(check(AppStrings.settingsAppearanceSystem), findsNothing);
+    await tearDownAll(tester);
+  });
+
+  testWidgets('the server fields show an example address and a token eye (E65)', (tester) async {
+    await pumpSettings(tester);
+    expect(find.text(AppStrings.settingsServerUrlHint), findsOneWidget);
+    TextField token() => tester.widget<TextField>(find.widgetWithText(TextField, AppStrings.settingsServerToken));
+    expect(token().obscureText, isTrue);
+    await tester.tap(find.byTooltip(AppStrings.settingsTokenShow));
+    await tester.pump();
+    expect(token().obscureText, isFalse);
+    await tester.tap(find.byTooltip(AppStrings.settingsTokenHide));
+    await tester.pump();
+    expect(token().obscureText, isTrue);
+    await tearDownAll(tester);
+  });
+
+  testWidgets('first setup: after "Verbindung steht." it goes back to the library (E65)', (tester) async {
+    await pumpSettings(tester, overLibrary: true);
+    await tester.enterText(find.widgetWithText(TextField, AppStrings.settingsServerUrl), 'nas.local:8000');
+    await tester.enterText(find.widgetWithText(TextField, AppStrings.settingsServerToken), 'secret-token-123');
+    await tester.tap(find.text(AppStrings.settingsSave));
+    await settle(tester);
+    expect(find.byType(SettingsScreen), findsNothing);
+    expect(find.text('Bibliothek darunter'), findsOneWidget);
+    expect(find.text(AppStrings.connectionOk), findsOneWidget, reason: 'the confirmation goes along');
+    await tearDownAll(tester);
+  });
+
+  testWidgets('changing a working server stays in the settings', (tester) async {
+    await pumpSettings(
+      tester,
+      overLibrary: true,
+      server: const ServerConfig(url: 'http://nas.local:8000', token: 'secret-token-123'),
+    );
+    await tester.tap(find.text(AppStrings.settingsSave));
+    await settle(tester);
+    expect(find.byType(SettingsScreen), findsOneWidget);
+    expect(find.text('${AppStrings.settingsSaved} ${AppStrings.connectionOk}'), findsOneWidget);
+    await tearDownAll(tester);
+  });
+
+  test('on the iPhone, switches are in the thread colour, not system green (E65)', () {
+    for (final tokens in [FadenTokens.day, FadenTokens.night]) {
+      final theme = buildFadenTheme(tokens).copyWith(platform: TargetPlatform.iOS);
+      final adapted = theme.getAdaptation<SwitchThemeData>()!.adapt(theme, theme.switchTheme);
+      expect(adapted.trackColor!.resolve({WidgetState.selected}), tokens.faden);
+      expect(adapted.trackColor!.resolve({}), tokens.tinteLeiseFaden);
+      final thumb = adapted.thumbColor!.resolve({WidgetState.selected})!;
+      expect(thumb, tokens.isDark ? tokens.tinte : Colors.white, reason: 'no white thumb in the dark');
+    }
+    final android = buildFadenTheme(FadenTokens.day).copyWith(platform: TargetPlatform.android);
+    expect(android.getAdaptation<SwitchThemeData>()!.adapt(android, android.switchTheme), android.switchTheme);
   });
 
   test('formatMinutesOfDay pads hours and minutes', () {

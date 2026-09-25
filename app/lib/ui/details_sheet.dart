@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart' show HapticFeedback;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../audio/handler.dart';
@@ -55,7 +56,9 @@ class DetailsSheetHooks {
 const detailsSheetSurfaceKey = ValueKey('details-sheet-surface');
 
 /// docs/KONZEPT.md "Screens": "2. Details (nach oben wischen): Kapitel,
-/// Zeitleiste mit Scrubber, Tempo, Sleep-Timer, Verlauf." Themed from
+/// Zeitleiste mit Scrubber, Tempo, Sleep-Timer, Verlauf." The sleep timer
+/// is one row that opens the moon button's own choice (decision E65), so
+/// there is one sleep-timer UI, not two. Themed from
 /// [chrome] for as long as it is open, so it turns dark the moment the
 /// night view starts (the display is dimmed below 30 %, E54).
 Future<void> showDetailsSheet(
@@ -91,10 +94,11 @@ Future<void> showDetailsSheet(
   );
 }
 
-/// The player's own sleep-timer choice (decision E61): 15, 30, 45, 60 Min.,
-/// Kapitelende, Aus. Themed from [chrome] like the details sheet, acting on
-/// the same [sleepTimer] as the details sheet's [SleepTimerControl]. A
-/// choice starts (or stops) the timer, is remembered as the default via
+/// The sleep-timer choice (decision E61): 15, 30, 45, 60 Min., Kapitelende,
+/// Aus. Opened by the player's moon button and by the details sheet's
+/// sleep-timer row (E65) -- the one sleep-timer UI. Themed from [chrome]
+/// like the details sheet, acting on the shared [sleepTimer]. A choice
+/// starts (or stops) the timer, is remembered as the default via
 /// [onChosen] (minutes, 0 = "Kapitelende"), and closes the sheet.
 Future<void> showSleepTimerSheet(
   BuildContext context, {
@@ -147,6 +151,7 @@ class SleepTimerChoices extends StatelessWidget {
               title: Text(label),
               trailing: selected ? Icon(Icons.check, color: tokens.faden) : null,
               onTap: () {
+                unawaited(HapticFeedback.selectionClick());
                 onTap();
                 Navigator.of(context).pop();
               },
@@ -304,16 +309,28 @@ class DetailsSheetContent extends ConsumerWidget {
           ],
         ),
         const SizedBox(height: 8),
-        ChapterScrubber(manifest: manifest, handler: handler, initial: initial),
+        // Dimmed like the night player's title (E65).
+        ValueListenableBuilder<PlayerChrome>(
+          valueListenable: chrome,
+          builder: (context, c, _) =>
+              ChapterScrubber(manifest: manifest, handler: handler, initial: initial, night: c.night),
+        ),
         const SizedBox(height: 28),
         SectionTitle(AppStrings.detailsSpeed),
         SpeedControl(handler: handler, onSelected: session.setSpeed),
         if (sleepTimer != null) ...[
-          const SizedBox(height: 28),
-          SleepTimerControl(
+          const SizedBox(height: 20),
+          SleepTimerRow(
             controller: sleepTimer!,
-            defaultMinutes: ref.watch(sleepTimerDefaultProvider).value ?? 30,
-            onChosen: (minutes) => ref.read(sleepTimerDefaultProvider.notifier).set(minutes),
+            onTap: () => unawaited(
+              showSleepTimerSheet(
+                context,
+                chrome: chrome,
+                sleepTimer: sleepTimer!,
+                onChosen: (minutes) => unawaited(ref.read(sleepTimerDefaultProvider.notifier).set(minutes)),
+                hooks: DetailsSheetHooks(onInteraction: hooks.onInteraction),
+              ),
+            ),
           ),
         ],
         if (bookState.history.isNotEmpty) ...[
@@ -325,6 +342,7 @@ class DetailsSheetContent extends ConsumerWidget {
               manifest: manifest,
               onTap: () {
                 // UNDO event (invariant 6), journaled by the handler.
+                unawaited(HapticFeedback.lightImpact());
                 unawaited(handler.undo(position));
                 Navigator.of(context).pop();
               },
@@ -379,16 +397,26 @@ Position livePosition(FadenAudioHandler handler, PlayerSessionController session
   return state?.position ?? const Position(fileHash: '', offsetMs: 0);
 }
 
-/// Scrubber for the current chapter (docs/KONZEPT.md: the scrubber lives
-/// here, not on the player): elapsed and remaining time, a large readout
-/// while dragging, and a journaled seek on release (the handler's
+/// Scrubber for the current chapter, in the details sheet and on the
+/// player (E59): elapsed and remaining time, a large readout while
+/// dragging, and a journaled seek on release (the handler's
 /// `seekToGlobalMs`, so a jump over 2 min still produces the undo hint).
+/// Track, thumb and time labels share the left and right edges of the
+/// thread above (E65). In the night view ([night]) the chapter line is
+/// dimmed like the book title.
 class ChapterScrubber extends StatefulWidget {
   final Manifest manifest;
   final FadenAudioHandler handler;
   final Position initial;
+  final bool night;
 
-  const ChapterScrubber({super.key, required this.manifest, required this.handler, required this.initial});
+  const ChapterScrubber({
+    super.key,
+    required this.manifest,
+    required this.handler,
+    required this.initial,
+    this.night = false,
+  });
 
   @override
   State<ChapterScrubber> createState() => _ChapterScrubberState();
@@ -441,7 +469,10 @@ class _ChapterScrubberState extends State<ChapterScrubber> {
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     textAlign: TextAlign.center,
-                    style: TextStyle(color: tokens.tinte, fontSize: FadenTypeSizes.body),
+                    style: TextStyle(
+                      color: widget.night ? tokens.tinteLeise : tokens.tinte,
+                      fontSize: FadenTypeSizes.body,
+                    ),
                   ),
                   Text(AppStrings.chapterOfTotal(idx + 1, files.length), style: small),
                 ],
@@ -461,31 +492,37 @@ class _ChapterScrubberState extends State<ChapterScrubber> {
             ),
           ],
         ),
-        Slider(
-          value: offset,
-          max: duration.toDouble(),
-          label: formatClock(offset.round()),
-          semanticFormatterCallback: (v) => formatClock(v.round()),
-          onChangeStart: (v) => setState(() => _dragMs = v),
-          onChanged: (v) => setState(() => _dragMs = v),
-          onChangeEnd: (v) {
-            final start = widget.manifest.fileStartMs(file.fileHash) ?? 0;
-            unawaited(widget.handler.seekToGlobalMs(start + v.round()));
-            setState(() {
-              _pos = Position(fileHash: file.fileHash, offsetMs: v.round());
-              _dragMs = null;
-            });
-          },
-        ),
-        Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 8),
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Text(formatClock(offset.round()), style: small),
-              Text(AppStrings.scrubberRemaining(formatClock(duration - offset.round())), style: small),
-            ],
+        // VoiceOver: "Position im Kapitel, 7:00" -- one element.
+        MergeSemantics(
+          child: Semantics(
+          label: AppStrings.scrubberLabel,
+          child: Slider(
+            value: offset,
+            max: duration.toDouble(),
+            label: formatClock(offset.round()),
+            // No side inset: the track runs edge to edge like the thread
+            // and the time labels (E65); the height stays a tap target.
+            padding: const EdgeInsets.symmetric(vertical: 14),
+            semanticFormatterCallback: (v) => formatClock(v.round()),
+            onChangeStart: (v) => setState(() => _dragMs = v),
+            onChanged: (v) => setState(() => _dragMs = v),
+            onChangeEnd: (v) {
+              final start = widget.manifest.fileStartMs(file.fileHash) ?? 0;
+              unawaited(widget.handler.seekToGlobalMs(start + v.round()));
+              setState(() {
+                _pos = Position(fileHash: file.fileHash, offsetMs: v.round());
+                _dragMs = null;
+              });
+            },
           ),
+        ),
+        ),
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Text(formatClock(offset.round()), style: small),
+            Text(AppStrings.scrubberRemaining(formatClock(duration - offset.round())), style: small),
+          ],
         ),
       ],
     );
@@ -520,23 +557,24 @@ class SpeedControl extends StatelessWidget {
   }
 }
 
-/// Sleep timer: presets, "Kapitelende", the running countdown, "Aus", and
-/// a quick start with the stored default (E42).
-class SleepTimerControl extends StatelessWidget {
+/// What a running sleep timer shows (decision E61): the minutes left,
+/// rounded up ("12 Min."), or "Kapitelende". Null while no timer runs.
+/// The moon button and the details sheet's row say the same (E65).
+String? sleepTimerButtonText(SleepTimerState state) {
+  if (!state.running) return null;
+  if (state.mode == SleepTimerMode.chapterEnd) return AppStrings.sleepTimerChapterEnd;
+  final minutes = (state.remaining.inSeconds + 59) ~/ 60;
+  return AppStrings.sleepTimerMinutes(minutes < 1 ? 1 : minutes);
+}
+
+/// The details sheet's sleep timer (decision E65): one row, "Sleep-Timer
+/// · 12 Min. ›" (or "Aus"), that opens the same choice as the player's
+/// moon button ([showSleepTimerSheet]).
+class SleepTimerRow extends StatelessWidget {
   final SleepTimerController controller;
+  final VoidCallback onTap;
 
-  /// Stored default in minutes, 0 = "Kapitelende".
-  final int defaultMinutes;
-
-  /// Remembers the choice as the default (minutes, 0 = "Kapitelende").
-  final void Function(int minutes) onChosen;
-
-  const SleepTimerControl({
-    super.key,
-    required this.controller,
-    required this.defaultMinutes,
-    required this.onChosen,
-  });
+  const SleepTimerRow({super.key, required this.controller, required this.onTap});
 
   @override
   Widget build(BuildContext context) {
@@ -545,78 +583,37 @@ class SleepTimerControl extends StatelessWidget {
       stream: controller.stateStream,
       initialData: controller.state,
       builder: (context, snap) {
-        final state = snap.data ?? controller.state;
-        final chapterEnd = state.running && state.mode == SleepTimerMode.chapterEnd;
-        final chosenMin = state.running ? state.chosen?.inMinutes : null;
-        final status = !state.running
-            ? null
-            : chapterEnd
-                ? AppStrings.sleepTimerUntilChapterEnd(formatClock(state.remaining.inMilliseconds))
-                : AppStrings.sleepTimerRunning(formatClock(state.remaining.inMilliseconds));
-        return Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            SectionTitle(
+        final running = sleepTimerButtonText(snap.data ?? controller.state);
+        final value = running ?? AppStrings.sleepTimerOff;
+        return Semantics(
+          button: true,
+          label: AppStrings.detailsSleepTimer,
+          value: value,
+          excludeSemantics: true,
+          child: ListTile(
+            contentPadding: EdgeInsets.zero,
+            minTileHeight: fadenMinTapTarget,
+            title: Text(
               AppStrings.detailsSleepTimer,
-              trailing: status == null
-                  ? null
-                  : Text(
-                      status,
-                      style: TextStyle(
-                        color: tokens.faden,
-                        fontSize: FadenTypeSizes.caption,
-                        fontFeatures: const [FontFeature.tabularFigures()],
-                      ),
-                    ),
+              style: TextStyle(color: tokens.tinte, fontSize: FadenTypeSizes.title),
             ),
-            FadenSegmented<int>(
-              values: sleepTimerPresetMinutes,
-              selected: chosenMin,
-              label: AppStrings.sleepTimerMinutes,
-              onChanged: (minutes) {
-                controller.start(Duration(minutes: minutes));
-                onChosen(minutes);
-              },
-            ),
-            const SizedBox(height: 8),
-            Row(
+            trailing: Row(
+              mainAxisSize: MainAxisSize.min,
               children: [
-                Expanded(
-                  child: FadenSegmented<int>(
-                    values: const [0],
-                    selected: chapterEnd ? 0 : null,
-                    label: (_) => AppStrings.sleepTimerChapterEnd,
-                    onChanged: (_) {
-                      // Fires when playback actually reaches the next chapter (E42).
-                      controller.startChapterEnd();
-                      onChosen(0);
-                    },
+                Text(
+                  value,
+                  style: TextStyle(
+                    color: running == null ? tokens.tinteLeise : tokens.faden,
+                    fontSize: FadenTypeSizes.body,
+                    fontFeatures: const [FontFeature.tabularFigures()],
                   ),
                 ),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: state.running
-                      ? OutlinedButton(
-                          onPressed: controller.cancel,
-                          child: Text(AppStrings.sleepTimerOff),
-                        )
-                      : FilledButton(
-                          onPressed: () => controller.startWithDefault(defaultMinutes),
-                          child: FittedBox(
-                            fit: BoxFit.scaleDown,
-                            child: Text(
-                              AppStrings.sleepTimerStart(
-                                defaultMinutes <= 0
-                                    ? AppStrings.sleepTimerChapterEnd
-                                    : AppStrings.sleepTimerMinutes(defaultMinutes),
-                              ),
-                            ),
-                          ),
-                        ),
-                ),
+                const SizedBox(width: 4),
+                Icon(Icons.chevron_right, color: tokens.tinteLeise),
               ],
             ),
-          ],
+            onTap: onTap,
+          ),
         );
       },
     );

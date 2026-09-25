@@ -368,5 +368,29 @@
   "@fadenPlaying": { "description": "Markiert im Ergebnis die Stelle, ab der gerade gespielt wird (E64)." },
 
   "fadenDone": "Fertig",
-  "@fadenDone": { "description": "Schließt das Ergebnis der Faden-Suche, zurück zum Player (E64)." }
+  "@fadenDone": { "description": "Schließt das Ergebnis der Faden-Suche, zurück zum Player (E64)." },
+
+  "reviewOffline": "Reihenfolge prüfen geht nur mit Verbindung zum Server.",
+  "@reviewOffline": { "description": "„Reihenfolge prüfen“ ohne Server-Verbindung (E65)." },
+
+  "reviewNothingToChoose": "Keine andere Reihenfolge zur Auswahl. Zum Aktualisieren nach unten ziehen.",
+  "@reviewNothingToChoose": { "description": "„Reihenfolge prüfen“, aber der Server bietet keine Kandidaten an (E65)." },
+
+  "reviewLoadFailed": "Die Reihenfolgen ließen sich nicht laden. Bitte erneut versuchen.",
+  "@reviewLoadFailed": { "description": "Laden der Kandidaten für „Reihenfolge prüfen“ fehlgeschlagen (E65)." },
+
+  "confirmManifestFailed": "Die Reihenfolge ließ sich nicht übernehmen. Bitte erneut versuchen.",
+  "@confirmManifestFailed": { "description": "Bestätigen einer Reihenfolge fehlgeschlagen (E65)." },
+
+  "libraryOpening": "Öffnet …",
+  "@libraryOpening": { "description": "Bedienhilfe des Spinners in einer Buchzeile, solange das Buch noch nicht im Player bereit ist (E65)." },
+
+  "settingsServerUrlHint": "http://nas.local:8000",
+  "@settingsServerUrlHint": { "description": "Beispieladresse im leeren Adressfeld (E65)." },
+
+  "settingsTokenShow": "Token zeigen",
+  "@settingsTokenShow": { "description": "Augen-Symbol am Token-Feld, Token ist verborgen (E65)." },
+
+  "settingsTokenHide": "Token verbergen",
+  "@settingsTokenHide": { "description": "Augen-Symbol am Token-Feld, Token ist sichtbar (E65)." }
 }

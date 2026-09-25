@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart' show HapticFeedback;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../audio/handler.dart';
@@ -76,7 +77,10 @@ class _PlaybackAnnouncerState extends ConsumerState<PlaybackAnnouncer> {
         content: Text(hint.message),
         action: SnackBarAction(
           label: AppStrings.undoAction,
-          onPressed: () => _handler.undo(hint.target),
+          onPressed: () {
+            unawaited(HapticFeedback.lightImpact());
+            unawaited(_handler.undo(hint.target));
+          },
         ),
         duration: const Duration(seconds: 8),
       ),

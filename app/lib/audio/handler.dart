@@ -21,17 +21,22 @@ import 'player.dart' show streamsFromServer;
 import 'undo_hint.dart';
 
 /// What the lock screen / Control Center shows for one chapter file: the
-/// book as the big title, author and chapter position underneath.
+/// book as the big title, author and the chapter underneath -- the
+/// chapter's own title ("Thomas Mann · Der Weg nach Davos"), or "Kapitel 4
+/// von 24" when the file has none (decision E65).
 MediaItem lockScreenItem({
   required String fileHash,
   required int chapter,
   required int chapterCount,
   required int durationMs,
   required String bookTitle,
+  String? chapterTitle,
   String? author,
   Uri? artUri,
 }) {
-  final chapterText = AppStrings.chapterOfTotal(chapter, chapterCount);
+  final title = chapterTitle?.trim();
+  final chapterText =
+      (title == null || title.isEmpty) ? AppStrings.chapterOfTotal(chapter, chapterCount) : title;
   final hasAuthor = author != null && author.trim().isNotEmpty;
   return MediaItem(
     id: fileHash,
@@ -333,6 +338,7 @@ class FadenAudioHandler extends BaseAudioHandler {
           chapterCount: manifest.files.length,
           durationMs: file.durationMs,
           bookTitle: bookTitle,
+          chapterTitle: file.title,
           author: author,
           artUri: artUri,
         ),

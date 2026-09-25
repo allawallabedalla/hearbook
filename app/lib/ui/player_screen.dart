@@ -120,7 +120,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
     final height = _screenHeight;
     if (_dragPx <= 0 && velocity < -200) {
       route?.endDismissDrag(0, height);
-      _openDetails();
+      if (_ready) _openDetails();
       return;
     }
     if (route != null) {
@@ -139,6 +139,12 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
     final route = _dragRoute;
     _dragRoute = null;
     route?.endDismissDrag(-playerCloseFlingVelocity, _screenHeight);
+  }
+
+  /// The open book is resolved and shown (not the loading state).
+  bool get _ready {
+    final session = ref.read(playerSessionProvider);
+    return session.isOpen && session.manifest != null && session.bookState != null;
   }
 
   void _openDetails() {
@@ -272,16 +278,12 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
     final theme = fadenThemeFor(tokens);
     _publish(PlayerChrome(theme: theme, night: night));
 
-    if (!session.isOpen ||
-        session.manifest == null ||
-        session.bookState == null) {
-      // Opening the book: an empty screen in the right colour, no spinner
-      // (it takes a moment at most).
-      return Theme(
-        data: theme,
-        child: Scaffold(backgroundColor: tokens.grund),
-      );
-    }
+    // The library pushes the player at once and opens the book behind it
+    // (decision E65): up to a few seconds (sync, cover) show the title and
+    // a spinner instead of a library that seems to ignore the tap.
+    final ready = session.isOpen &&
+        session.manifest != null &&
+        session.bookState != null;
 
     return AnnotatedRegion<SystemUiOverlayStyle>(
       // The night player has no app bar to set the status bar: light
@@ -323,7 +325,9 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
                 // player would have to drop the controls (decision E44).
                 child: MediaQuery.withClampedTextScaling(
                   maxScaleFactor: 1.6,
-                  child: PlayerBody(
+                  child: !ready
+                      ? PlayerLoading(tokens: tokens, title: session.bookTitle)
+                      : PlayerBody(
                     tokens: tokens,
                     night: night,
                     // KONZEPT.md "Nachtmodus": only headphone buttons extend the
@@ -336,7 +340,10 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
                       }
                       unawaited(_handler.playPause());
                     },
-                    onSeek: (delta) => unawaited(_handler.seekBySeconds(delta)),
+                    onSeek: (delta) {
+                      unawaited(HapticFeedback.lightImpact());
+                      unawaited(_handler.seekBySeconds(delta));
+                    },
                     onResumeFromStop: () {
                       final manifest = session.manifest;
                       final bookState = session.bookState;
@@ -424,9 +431,6 @@ class PlayerBody extends ConsumerWidget {
                 Expanded(
                   child: _NightBookInfo(
                     session: session,
-                    manifest: manifest,
-                    handler: handler,
-                    initial: initial,
                     tokens: tokens,
                     coverSize: math.min(coverMax * 0.6, 180).floorToDouble(),
                   ),
@@ -435,9 +439,6 @@ class PlayerBody extends ConsumerWidget {
                 Expanded(
                   child: _BookInfo(
                     session: session,
-                    manifest: manifest,
-                    handler: handler,
-                    initial: initial,
                     tokens: tokens,
                     coverMax: coverMax,
                   ),
@@ -454,7 +455,28 @@ class PlayerBody extends ConsumerWidget {
                       initial: initial,
                       tokens: tokens,
                     ),
-                    SizedBox(height: 12 * gap),
+                    // The book's time left is the thread's caption (E65),
+                    // right under its unheard rest, as "−16:00" is the
+                    // scrubber's. Not in the night view (KONZEPT.md).
+                    if (!night) ...[
+                      const SizedBox(height: 6),
+                      Align(
+                        alignment: AlignmentDirectional.centerEnd,
+                        child: PositionText(
+                          handler: handler,
+                          initial: initial,
+                          textAlign: TextAlign.end,
+                          text: (pos) => AppStrings.remainingTime(
+                            formatRemaining(remainingMsAt(manifest, pos)),
+                          ),
+                          style: TextStyle(
+                            fontSize: FadenTypeSizes.caption,
+                            color: tokens.tinteLeise,
+                          ),
+                        ),
+                      ),
+                    ],
+                    SizedBox(height: (night ? 12 : 10) * gap),
                     // Per the user (E59): scrubbing belongs on the player
                     // too, not only in the details sheet. Journaled seek
                     // with undo.
@@ -462,6 +484,7 @@ class PlayerBody extends ConsumerWidget {
                       manifest: manifest,
                       handler: handler,
                       initial: initial,
+                      night: night,
                     ),
                   ],
                 ),
@@ -507,19 +530,34 @@ class PlayerBody extends ConsumerWidget {
               // jetzt 'Faden aufnehmen', darunter klein 'Ab Stopp
               // weiterhören'."
               if (bookState.sleepSuspected) ...[
-                const SizedBox(height: 8),
-                Text(
-                  AppStrings.mainButtonRecordThread,
-                  style: TextStyle(
-                    fontSize: FadenTypeSizes.body,
-                    color: tokens.tinte,
+                // The button's name belongs to the button (E65): the same
+                // tap, and for VoiceOver one element (the button's label).
+                ExcludeSemantics(
+                  child: GestureDetector(
+                    behavior: HitTestBehavior.opaque,
+                    onTap: onMainButton,
+                    child: Padding(
+                      padding: const EdgeInsets.fromLTRB(24, 4, 24, 0),
+                      child: Text(
+                        AppStrings.mainButtonRecordThread,
+                        style: TextStyle(
+                          fontSize: FadenTypeSizes.body,
+                          // At night dim, like the title (no bold glow).
+                          fontWeight: night ? FontWeight.w400 : FontWeight.w700,
+                          color: night ? tokens.tinteLeise : tokens.faden,
+                        ),
+                      ),
+                    ),
                   ),
                 ),
                 TextButton(
                   onPressed: onResumeFromStop,
                   style: TextButton.styleFrom(
                     foregroundColor: tokens.faden,
+                    // The house font: a bare TextStyle here replaced the
+                    // theme's and fell back to the system font (E65).
                     textStyle: const TextStyle(
+                      fontFamily: fadenFontFamily,
                       fontSize: FadenTypeSizes.caption,
                     ),
                   ),
@@ -552,20 +590,15 @@ class NoDismissDrag extends StatelessWidget {
       GestureDetector(onVerticalDragStart: (_) {}, child: child);
 }
 
-/// Cover, title, author, chapter and remaining time (day look only).
+/// Cover, title and author (day look only). The chapter line lives on the
+/// chapter scrubber (E59), the remaining time under the thread (E65).
 class _BookInfo extends StatelessWidget {
   final PlayerSessionController session;
-  final Manifest manifest;
-  final FadenAudioHandler handler;
-  final Position initial;
   final FadenTokens tokens;
   final double coverMax;
 
   const _BookInfo({
     required this.session,
-    required this.manifest,
-    required this.handler,
-    required this.initial,
     required this.tokens,
     required this.coverMax,
   });
@@ -624,39 +657,21 @@ class _BookInfo extends StatelessWidget {
               style: secondary,
             ),
           ),
-        const SizedBox(height: 8),
-        // The chapter line lives on the chapter scrubber below (E59).
-        PositionText(
-          handler: handler,
-          initial: initial,
-          text: (pos) => AppStrings.remainingTime(
-            formatRemaining(remainingMsAt(manifest, pos)),
-          ),
-          style: TextStyle(
-            fontSize: FadenTypeSizes.caption,
-            color: tokens.tinteLeise,
-          ),
-        ),
       ],
     );
   }
 }
 
-/// The night view's only book info (docs/KONZEPT.md "Nachtmodus", E54):
-/// title and current chapter, small and in `tinte-leise`, no cover, no
-/// author, no remaining time.
+/// The night view's book info (docs/KONZEPT.md "Nachtmodus", E54, E59):
+/// the dimmed cover and the title, small and in `tinte-leise`; no author,
+/// no remaining time. The current chapter is not repeated here: the
+/// chapter scrubber below names it, dimmed as well (E65).
 class _NightBookInfo extends StatelessWidget {
   final PlayerSessionController session;
-  final Manifest manifest;
-  final FadenAudioHandler handler;
-  final Position initial;
   final FadenTokens tokens;
 
   const _NightBookInfo({
     required this.session,
-    required this.manifest,
-    required this.handler,
-    required this.initial,
     required this.tokens,
     required this.coverSize,
   });
@@ -700,23 +715,6 @@ class _NightBookInfo extends StatelessWidget {
             fontSize: FadenTypeSizes.body,
             color: tokens.tinteLeise,
             height: 1.2,
-          ),
-        ),
-        const SizedBox(height: 4),
-        PositionText(
-          handler: handler,
-          initial: initial,
-          text: (pos) {
-            final idx = manifest.indexOf(pos.fileHash);
-            return idx < 0
-                ? ''
-                : manifest.files[idx].displayTitle(
-                    AppStrings.chapterLabel(idx + 1),
-                  );
-          },
-          style: TextStyle(
-            fontSize: FadenTypeSizes.caption,
-            color: tokens.tinteLeise,
           ),
         ),
       ],
@@ -959,16 +957,6 @@ class _SeekButton extends StatelessWidget {
   }
 }
 
-/// What the moon button shows while a timer runs (decision E61): the
-/// minutes left, rounded up ("12 Min."), or "Kapitelende". Null while no
-/// timer runs.
-String? sleepTimerButtonText(SleepTimerState state) {
-  if (!state.running) return null;
-  if (state.mode == SleepTimerMode.chapterEnd) return AppStrings.sleepTimerChapterEnd;
-  final minutes = (state.remaining.inSeconds + 59) ~/ 60;
-  return AppStrings.sleepTimerMinutes(minutes < 1 ? 1 : minutes);
-}
-
 /// The sleep timer on the player itself (decision E61), day and night: a
 /// moon, and while a timer runs what is left. Opens the choice
 /// ([showSleepTimerSheet]). Follows the shared [SleepTimerController], so
@@ -1071,7 +1059,8 @@ class _BottomStrip extends StatelessWidget {
   }
 }
 
-/// A visible grip at the bottom: swipe up or tap for the details sheet.
+/// A visible grip at the bottom: swipe up or tap for the details sheet. In
+/// full `tinte-leise`, so it keeps 3:1 against the background (E65).
 class _DetailsHandle extends StatelessWidget {
   final FadenTokens tokens;
   final VoidCallback onTap;
@@ -1095,11 +1084,58 @@ class _DetailsHandle extends StatelessWidget {
               width: 36,
               height: 5,
               decoration: BoxDecoration(
-                color: tokens.tinteLeiseFaden,
+                color: tokens.tinteLeise,
                 borderRadius: BorderRadius.circular(3),
               ),
             ),
           ),
+        ),
+      ),
+    );
+  }
+}
+
+/// The player while its book is still opening (E65): the title the
+/// library already knew and a spinner, in the player's colours.
+class PlayerLoading extends StatelessWidget {
+  final FadenTokens tokens;
+  final String? title;
+
+  const PlayerLoading({super.key, required this.tokens, this.title});
+
+  @override
+  Widget build(BuildContext context) {
+    final t = title;
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            if (t != null && t.isNotEmpty) ...[
+              Text(
+                t,
+                textAlign: TextAlign.center,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  fontSize: FadenTypeSizes.title,
+                  color: tokens.tinteLeise,
+                ),
+              ),
+              const SizedBox(height: 24),
+            ],
+            Semantics(
+              label: AppStrings.playbackLoading,
+              child: SizedBox.square(
+                dimension: 28,
+                child: CircularProgressIndicator(
+                  strokeWidth: 3,
+                  color: tokens.faden,
+                ),
+              ),
+            ),
+          ],
         ),
       ),
     );
