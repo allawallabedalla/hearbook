@@ -109,14 +109,18 @@ flutter:
   # the material Icons class.
   uses-material-design: true
 
-  # Bundled house font (docs/KONZEPT.md "Design": "eine Familie, Atkinson
-  # Hyperlegible Next (OFL, für Lesbarkeit entworfen ...), im App-Bundle").
+  # Bundled house font (docs/KONZEPT.md "Design": "eine Familie, Inter
+  # (OFL) ... im App-Bundle"), static cuts of the variable font (E96).
   # License text: assets/fonts/OFL.txt.
   fonts:
-    - family: Atkinson Hyperlegible Next
+    - family: Inter
       fonts:
-        - asset: assets/fonts/AtkinsonHyperlegibleNext-Regular.ttf
-        - asset: assets/fonts/AtkinsonHyperlegibleNext-Bold.ttf
+        - asset: assets/fonts/Inter-Regular.ttf
+        - asset: assets/fonts/Inter-Medium.ttf
+          weight: 500
+        - asset: assets/fonts/Inter-SemiBold.ttf
+          weight: 600
+        - asset: assets/fonts/Inter-Bold.ttf
           weight: 700
 
   # Faden-Suche cue tone (docs/KONZEPT.md "Faden aufnehmen": "Ein leiser

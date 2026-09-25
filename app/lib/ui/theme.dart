@@ -169,11 +169,11 @@ FadenTokens resolveFadenTokens({
 }
 
 /// Font family bundled in pubspec.yaml (assets/fonts, OFL license in
-/// assets/fonts/OFL.txt). KONZEPT.md asks for "Atkinson Hyperlegible Next"
-/// specifically with "Atkinson Hyperlegible" as a documented fallback; the
-/// exact family was obtainable in this sandbox (see decision E15 in
-/// docs/ARCHITEKTUR.md section 13), so no fallback substitution was needed.
-const String fadenFontFamily = 'Atkinson Hyperlegible Next';
+/// assets/fonts/OFL.txt): Inter, as static instances (400/500/600/700, optical
+/// size 14) cut from the variable font of google/fonts with fontTools, so
+/// every FontWeight maps to a real cut instead of relying on variable-font
+/// axis handling (E96).
+const String fadenFontFamily = 'Inter';
 
 /// Type sizes, KONZEPT.md "Design": "Größen 28, 20, 17, 14 sp."
 class FadenTypeSizes {
