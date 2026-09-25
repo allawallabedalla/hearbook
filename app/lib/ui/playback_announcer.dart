@@ -83,6 +83,9 @@ class _PlaybackAnnouncerState extends ConsumerState<PlaybackAnnouncer> {
           },
         ),
         duration: const Duration(seconds: 8),
+        // A SnackBar with an action persists by default in current Flutter,
+        // which would ignore the duration and leave the hint up for good.
+        persist: false,
       ),
     );
   }
@@ -114,6 +117,7 @@ class _PlaybackAnnouncerState extends ConsumerState<PlaybackAnnouncer> {
           onPressed: () => unawaited(_handler.playFrom(EventSource.ui)),
         ),
         duration: const Duration(seconds: 10),
+        persist: false,
       ),
     );
   }
