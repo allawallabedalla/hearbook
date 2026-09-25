@@ -61,6 +61,16 @@ class _Recorder {
   }
 }
 
+/// [values] without consecutive repeats (progress is emitted several times
+/// per probe: asked, listening, answered).
+List<int> _distinct(Iterable<int> values) {
+  final out = <int>[];
+  for (final v in values) {
+    if (out.isEmpty || out.last != v) out.add(v);
+  }
+  return out;
+}
+
 void main() {
   group('FadenSearchController', () {
     test('a window already <= target resolves immediately with no probes', () {
@@ -113,7 +123,7 @@ void main() {
         controller.start();
         async.elapse(const Duration(minutes: 10));
         expect(probeNumbers.first, 0); // initial state before probe 1
-        expect(probeNumbers.skip(1).toList(), List.generate(fs.maxProbes, (i) => i + 1));
+        expect(_distinct(probeNumbers).skip(1).toList(), List.generate(fs.maxProbes, (i) => i + 1));
         controller.dispose();
       });
     });
@@ -173,6 +183,213 @@ void main() {
         }
         expect(rec.resumeCalls, hasLength(1));
         controller.dispose();
+      });
+    });
+
+    group('explicit answers (E64)', () {
+      test('"Kenne ich nicht" answers at once, without waiting for the window', () {
+        fakeAsync((async) {
+          final rec = _Recorder();
+          final controller = rec.build(lo: 0, hi: 40 * 60000);
+          controller.start();
+          async.elapse(const Duration(seconds: 1));
+          controller.answer(known: false);
+          async.elapse(const Duration(milliseconds: 10));
+          expect(rec.probeAnswers.single.known, isFalse);
+          expect(rec.probesPlayed, hasLength(2), reason: 'the next probe follows at once');
+          controller.dispose();
+        });
+      });
+
+      test('only the first answer to a passage counts', () {
+        fakeAsync((async) {
+          final rec = _Recorder();
+          final controller = rec.build(lo: 0, hi: 40 * 60000);
+          controller.start();
+          async.elapse(const Duration(seconds: 1));
+          controller.answer(known: false);
+          controller.answer(known: true);
+          async.flushMicrotasks();
+          expect(rec.probeAnswers, hasLength(1));
+          expect(rec.probeAnswers.single.known, isFalse);
+          controller.dispose();
+        });
+      });
+
+      test('the heard list grows by one per probe, each with its answer, after its PROBE is written', () {
+        fakeAsync((async) {
+          final write = Completer<void>();
+          final rec = _Recorder();
+          final base = rec.build(lo: 0, hi: 40 * 60000);
+          var writes = 0;
+          final controller = FadenSearchController(
+            lo: base.lo,
+            hi: base.hi,
+            pausen: base.pausen,
+            playTone: base.playTone,
+            playProbe: base.playProbe,
+            stopProbe: base.stopProbe,
+            onProbeAnswered: (p, known) {
+              rec.probeAnswers.add((p: p, known: known));
+              // The second write is held back.
+              return ++writes == 2 ? write.future : Future.value();
+            },
+            onResumeAt: base.onResumeAt,
+            onAborted: base.onAborted,
+          );
+          final progress = <FadenProgress>[];
+          controller.progress.listen(progress.add);
+          controller.start();
+          async.elapse(const Duration(seconds: 1));
+          expect(progress.last.heard, isEmpty);
+          expect(progress.last.current?.probeNr, 1);
+          expect(progress.last.listening, isTrue);
+
+          controller.answer(known: false);
+          async.elapse(const Duration(milliseconds: 10));
+          expect(progress.last.heard.map((h) => (h.probeNr, h.known)), [(1, false)]);
+          expect(progress.last.hi, rec.probesPlayed.first, reason: 'the thread shrinks: hi moved down');
+
+          controller.answer(known: true);
+          async.elapse(const Duration(milliseconds: 10));
+          expect(progress.last.heard, hasLength(1), reason: 'not shown as answered before the PROBE is written');
+          write.complete();
+          async.elapse(const Duration(milliseconds: 10));
+          expect(progress.last.heard.map((h) => (h.probeNr, h.known)), [(1, false), (2, true)]);
+          expect(progress.last.lo, rec.probesPlayed[1], reason: 'lo moved up to the known probe');
+          controller.dispose();
+        });
+      });
+
+      test('"Nochmal hören" replays the passage and restarts its window; still one answer', () {
+        fakeAsync((async) {
+          final rec = _Recorder();
+          final controller = rec.build(lo: 0, hi: 40 * 60000);
+          final windows = <int>[];
+          controller.progress.listen((p) => windows.add(p.window));
+          controller.start();
+          async.elapse(const Duration(seconds: 5));
+          final windowBefore = windows.last;
+          controller.replay();
+          async.flushMicrotasks();
+          expect(rec.probesPlayed, hasLength(2));
+          expect(rec.probesPlayed[1], rec.probesPlayed[0], reason: 'the same passage again');
+          expect(windows.last, windowBefore + 1);
+
+          // 5 s + 6.9 s: past the first window, inside the restarted one.
+          async.elapse(const Duration(milliseconds: fs.probeLen + fs.answerWindow - 100));
+          expect(rec.probeAnswers, isEmpty);
+          async.elapse(const Duration(milliseconds: 100));
+          expect(rec.probeAnswers.single.known, isFalse, reason: 'silence still counts as not known');
+          controller.dispose();
+        });
+      });
+
+      test('an answer after a replay counts once', () {
+        fakeAsync((async) {
+          final rec = _Recorder();
+          final controller = rec.build(lo: 0, hi: 40 * 60000);
+          controller.start();
+          async.elapse(const Duration(seconds: 2));
+          controller.replay();
+          controller.replay();
+          async.flushMicrotasks();
+          controller.answer(known: true);
+          async.elapse(const Duration(milliseconds: 10));
+          expect(rec.probeAnswers.where((a) => a.p == rec.probesPlayed.first), hasLength(1));
+          expect(rec.probeAnswers.first.known, isTrue);
+          controller.dispose();
+        });
+      });
+
+      test('replay and answers outside an answer window do nothing', () {
+        fakeAsync((async) {
+          final tone = Completer<void>();
+          final rec = _Recorder();
+          final base = rec.build(lo: 0, hi: 40 * 60000);
+          final controller = FadenSearchController(
+            lo: base.lo,
+            hi: base.hi,
+            pausen: base.pausen,
+            playTone: () => tone.future,
+            playProbe: base.playProbe,
+            stopProbe: base.stopProbe,
+            onProbeAnswered: base.onProbeAnswered,
+            onResumeAt: base.onResumeAt,
+            onAborted: base.onAborted,
+          );
+          controller.start();
+          async.flushMicrotasks();
+          // The cue tone plays: no window yet.
+          controller.answer(known: true);
+          controller.replay();
+          tone.complete();
+          async.flushMicrotasks();
+          expect(rec.probesPlayed, hasLength(1));
+          async.elapse(const Duration(milliseconds: fs.probeLen + fs.answerWindow));
+          expect(rec.probeAnswers.first.known, isFalse, reason: 'the early "Kenne ich" did not count');
+          controller.dispose();
+        });
+      });
+    });
+
+    group('result passages (E64)', () {
+      /// Runs a search whose listener knows everything up to [knowsUpTo].
+      FadenSearchController runToResult(FakeAsync async, _Recorder rec) {
+        final controller = rec.build(lo: 0, hi: 40 * 60000);
+        controller.start();
+        while (rec.resumeCalls.isEmpty) {
+          async.flushMicrotasks();
+          if (rec.probesPlayed.isNotEmpty && rec.probeAnswers.length < rec.probesPlayed.length) {
+            final p = rec.probesPlayed.last;
+            controller.answer(known: p <= rec.knowsUpTo);
+          }
+          async.elapse(const Duration(milliseconds: 1));
+        }
+        return controller;
+      }
+
+      test('the ladder holds exactly the recognised passages, none later than the result', () {
+        fakeAsync((async) {
+          final rec = _Recorder()..knowsUpTo = 2000000;
+          final controller = runToResult(async, rec);
+          final known = [for (final a in rec.probeAnswers) if (a.known) a.p];
+          expect(controller.resolved, isTrue);
+          expect(controller.leiter.skip(1).toList(), known);
+          expect(controller.resultIndex, controller.leiter.length - 1);
+          expect(rec.resumeCalls.single, controller.leiter.last);
+          for (final p in controller.leiter) {
+            expect(p, lessThanOrEqualTo(rec.resumeCalls.single));
+          }
+          controller.dispose();
+        });
+      });
+
+      test('a recognised passage resumes there; nothing past the result', () {
+        fakeAsync((async) {
+          final rec = _Recorder()..knowsUpTo = 2000000;
+          final controller = runToResult(async, rec);
+          expect(controller.resultIndex, greaterThanOrEqualTo(2), reason: 'setup: several passages known');
+          rec.resumeCalls.clear();
+
+          controller.resumeAtLeiterIndex(controller.resultIndex + 1);
+          async.flushMicrotasks();
+          expect(rec.resumeCalls, isEmpty, reason: 'invariant 9: never later than the result');
+
+          controller.resumeAtLeiterIndex(1);
+          async.flushMicrotasks();
+          expect(rec.resumeCalls, [controller.leiter[1]]);
+          expect(controller.leiterIndex, 1);
+
+          // "Früher" goes on from there; the result stays reachable.
+          controller.earlier();
+          async.flushMicrotasks();
+          expect(rec.resumeCalls.last, fs.positionAtLeiterIndex(controller.leiter, 0));
+          controller.resumeAtLeiterIndex(controller.resultIndex);
+          async.flushMicrotasks();
+          expect(rec.resumeCalls.last, controller.leiter.last);
+          controller.dispose();
+        });
       });
     });
 
@@ -241,7 +458,7 @@ void main() {
           expect(rec.resumeCalls, isEmpty); // no RESUME, no playback start
           expect(rec.abortCalls, 0); // dispose is not a long-press abort
           expect(rec.stopCount, greaterThanOrEqualTo(1)); // probe playback stopped
-          expect(progress.map((p) => p.probeNr), [0, 1]);
+          expect(_distinct(progress.map((p) => p.probeNr)), [0, 1]);
         });
       });
 

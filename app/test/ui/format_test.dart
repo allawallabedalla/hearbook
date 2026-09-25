@@ -76,6 +76,14 @@ void main() {
     expect(formatRemainingBytes(12300 * mb), '13 GB');
   });
 
+  test('formatBeforeStop: seconds under a minute, then minutes (E64)', () {
+    expect(formatBeforeStop(25000), '25 Sek.');
+    expect(formatBeforeStop(0), '0 Sek.');
+    expect(formatBeforeStop(59001), '59 Sek.');
+    expect(formatBeforeStop(4 * 60000), '4 Min.');
+    expect(formatBeforeStop(65 * 60000), '1 Std. 5 Min.');
+  });
+
   test('initialsFor', () {
     expect(initialsFor('Der Zauberberg'), 'DZ');
     expect(initialsFor('momo'), 'M');

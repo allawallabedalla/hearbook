@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:math' as math;
 
+import 'package:flutter/gestures.dart' show DragStartBehavior;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -30,8 +31,9 @@ import 'thread_progress.dart';
 /// brightness, [nightModeProvider], decision E54).
 ///
 /// Decision E60: a route on top of the library ([PlayerRoute]); the down
-/// chevron, a swipe down and the details sheet's "Bibliothek" close it
-/// ([closePlayer]). What must outlive it lives app-wide: the sleep timer
+/// chevron and the details sheet's "Bibliothek" close it ([closePlayer]),
+/// a drag down moves it with the finger and closes it on release (E63).
+/// What must outlive it lives app-wide: the sleep timer
 /// ([sleepTimerProvider], set from the moon button here or the details
 /// sheet), the SLEEP_HINT hook ([nightWindowHookProvider]) and the undo
 /// and error SnackBars (ui/playback_announcer.dart).
@@ -82,6 +84,63 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
   /// Back to the library below (E60); the player slides down.
   void _close() => closePlayer(context);
 
+  /// The route following the running drag down (E63); null when no drag
+  /// runs, or when it does not follow the finger (reduced motion, nothing
+  /// below the player) -- then only [_dragPx] counts, on release.
+  PlayerRoute? _dragRoute;
+
+  /// Net distance of the running vertical drag, px (positive: down).
+  double _dragPx = 0;
+
+  double get _screenHeight => MediaQuery.sizeOf(context).height;
+
+  void _onDragStart(DragStartDetails details) {
+    _dragPx = 0;
+    final route = ModalRoute.of(context);
+    _dragRoute = route is PlayerRoute &&
+            !reduceMotion(context) &&
+            route.startDismissDrag()
+        ? route
+        : null;
+  }
+
+  void _onDragUpdate(DragUpdateDetails details) {
+    final delta = details.primaryDelta ?? 0;
+    _dragPx += delta;
+    _dragRoute?.updateDismissDrag(delta, _screenHeight);
+  }
+
+  /// Up: the details sheet. Down: the route finishes the slide or springs
+  /// back (E63); without a following route (reduced motion), it closes at
+  /// once past the same threshold.
+  void _onDragEnd(DragEndDetails details) {
+    final velocity = details.primaryVelocity ?? 0;
+    final route = _dragRoute;
+    _dragRoute = null;
+    final height = _screenHeight;
+    if (_dragPx <= 0 && velocity < -200) {
+      route?.endDismissDrag(0, height);
+      _openDetails();
+      return;
+    }
+    if (route != null) {
+      route.endDismissDrag(velocity, height);
+    } else if (playerDragCloses(
+      draggedPx: _dragPx,
+      velocity: velocity,
+      height: height,
+    )) {
+      _close();
+    }
+  }
+
+  /// A drag taken away (another gesture won): back into place.
+  void _onDragCancel() {
+    final route = _dragRoute;
+    _dragRoute = null;
+    route?.endDismissDrag(-playerCloseFlingVelocity, _screenHeight);
+  }
+
   void _openDetails() {
     final chrome = _chrome;
     if (chrome == null) return;
@@ -131,6 +190,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
     final lo = manifest.globalMsFor(bookState.lastAwake);
     var hi = manifest.globalMsFor(bookState.stop);
     if (lo == null || hi == null || hi <= lo) return;
+    final stopMs = hi;
     final pausen = globalPauseOffsets(manifest, session.pauseIndex);
 
     // docs/ARCHITEKTUR.md section 9 / M6: shrink `hi` and/or supply a
@@ -167,6 +227,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
             manifest: manifest,
             lo: lo,
             hi: resolvedHi,
+            stop: stopMs,
             pausen: pausen,
             prior: prior,
             playlistSources: sources,
@@ -230,59 +291,70 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
           : SystemUiOverlayStyle.dark,
       child: Theme(
         data: theme,
-        child: GestureDetector(
+        // Every touch is an AWAKE; a Listener stays out of the gesture
+        // arena, so it never competes with a button or the drag below.
+        child: Listener(
           behavior: HitTestBehavior.translucent,
-          onTap: _onInteraction,
-          onPanDown: (_) => _onInteraction(),
-          child: Scaffold(
-            backgroundColor: tokens.grund,
-            appBar: night
-                ? null
-                : AppBar(
-                    automaticallyImplyLeading: false,
-                    leading: IconButton(
-                      tooltip: AppStrings.playerClose,
-                      icon: const Icon(Icons.keyboard_arrow_down, size: 32),
-                      onPressed: _close,
-                    ),
-                  ),
-            body: SafeArea(
-              // The type scale stays readable up to 1.6x; beyond that the
-              // player would have to drop the controls (decision E44).
-              child: MediaQuery.withClampedTextScaling(
-                maxScaleFactor: 1.6,
-                child: PlayerBody(
-                  tokens: tokens,
-                  night: night,
-                  // KONZEPT.md "Nachtmodus": only headphone buttons extend the
-                  // sleep timer in its last minute; screen buttons act normally.
-                  onMainButton: () {
-                    final bookState = session.bookState;
-                    if (bookState != null && bookState.sleepSuspected) {
-                      unawaited(_openFadenMode(session, bookState));
-                      return;
-                    }
-                    unawaited(_handler.playPause());
-                  },
-                  onSeek: (delta) => unawaited(_handler.seekBySeconds(delta)),
-                  onResumeFromStop: () {
-                    final manifest = session.manifest;
-                    final bookState = session.bookState;
-                    if (manifest == null || bookState == null) return;
-                    final idx = manifest.indexOf(bookState.stop.fileHash);
-                    unawaited(
-                      _handler.resumeFromStop(
-                        bookState.stop,
-                        fileIndex: idx < 0 ? null : idx,
+          onPointerDown: (_) => _onInteraction(),
+          // The whole route, app bar included, follows a drag down (E63);
+          // up opens the details. Not on the thread and the scrubber
+          // ([NoDismissDrag] in PlayerBody).
+          child: GestureDetector(
+            behavior: HitTestBehavior.opaque,
+            dragStartBehavior: DragStartBehavior.down,
+            onVerticalDragStart: _onDragStart,
+            onVerticalDragUpdate: _onDragUpdate,
+            onVerticalDragEnd: _onDragEnd,
+            onVerticalDragCancel: _onDragCancel,
+            child: Scaffold(
+              backgroundColor: tokens.grund,
+              appBar: night
+                  ? null
+                  : AppBar(
+                      automaticallyImplyLeading: false,
+                      leading: IconButton(
+                        tooltip: AppStrings.playerClose,
+                        icon: const Icon(Icons.keyboard_arrow_down, size: 32),
+                        onPressed: _close,
                       ),
-                    );
-                  },
-                  onOpenDetails: _openDetails,
-                  onClose: _close,
-                  sleepTimerButton: SleepTimerButton(
-                    controller: sleepTimer,
+                    ),
+              body: SafeArea(
+                // The type scale stays readable up to 1.6x; beyond that the
+                // player would have to drop the controls (decision E44).
+                child: MediaQuery.withClampedTextScaling(
+                  maxScaleFactor: 1.6,
+                  child: PlayerBody(
                     tokens: tokens,
-                    onPressed: _openSleepTimer,
+                    night: night,
+                    // KONZEPT.md "Nachtmodus": only headphone buttons extend the
+                    // sleep timer in its last minute; screen buttons act normally.
+                    onMainButton: () {
+                      final bookState = session.bookState;
+                      if (bookState != null && bookState.sleepSuspected) {
+                        unawaited(_openFadenMode(session, bookState));
+                        return;
+                      }
+                      unawaited(_handler.playPause());
+                    },
+                    onSeek: (delta) => unawaited(_handler.seekBySeconds(delta)),
+                    onResumeFromStop: () {
+                      final manifest = session.manifest;
+                      final bookState = session.bookState;
+                      if (manifest == null || bookState == null) return;
+                      final idx = manifest.indexOf(bookState.stop.fileHash);
+                      unawaited(
+                        _handler.resumeFromStop(
+                          bookState.stop,
+                          fileIndex: idx < 0 ? null : idx,
+                        ),
+                      );
+                    },
+                    onOpenDetails: _openDetails,
+                    sleepTimerButton: SleepTimerButton(
+                      controller: sleepTimer,
+                      tokens: tokens,
+                      onPressed: _openSleepTimer,
+                    ),
                   ),
                 ),
               ),
@@ -306,9 +378,6 @@ class PlayerBody extends ConsumerWidget {
   final VoidCallback onResumeFromStop;
   final VoidCallback onOpenDetails;
 
-  /// Closes the player (E60): a swipe down.
-  final VoidCallback onClose;
-
   /// The sleep timer's button (E61), at the right end of the bottom strip
   /// beside the details grip, day and night: the night view has no app
   /// bar, and there it costs no height on a short screen.
@@ -322,7 +391,6 @@ class PlayerBody extends ConsumerWidget {
     required this.onSeek,
     required this.onResumeFromStop,
     required this.onOpenDetails,
-    required this.onClose,
     this.sleepTimerButton,
   });
 
@@ -338,135 +406,150 @@ class PlayerBody extends ConsumerWidget {
     final handler = ref.watch(audioHandlerProvider);
     final initial = livePosition(handler, session);
 
-    return GestureDetector(
-      behavior: HitTestBehavior.opaque,
-      // Up: details. Down: close, back to the library (E60).
-      onVerticalDragEnd: (details) {
-        final velocity = details.primaryVelocity ?? 0;
-        if (velocity < -200) onOpenDetails();
-        if (velocity > 200) onClose();
-      },
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 24),
-        child: LayoutBuilder(
-          builder: (context, constraints) {
-            final coverMax = math.min(
-              constraints.maxWidth,
-              constraints.maxHeight * 0.38,
-            );
-            // Short screen with large text: tighter gaps so every control fits.
-            final gap = constraints.maxHeight < 640 ? 0.5 : 1.0;
-            return Column(
-              children: [
-                if (night) ...[
-                  Expanded(
-                    child: _NightBookInfo(
-                      session: session,
+    // Swipes up (details) and down (close, E63) are handled around this,
+    // by the PlayerScreen, for the whole route.
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 24),
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final coverMax = math.min(
+            constraints.maxWidth,
+            constraints.maxHeight * 0.38,
+          );
+          // Short screen with large text: tighter gaps so every control fits.
+          final gap = constraints.maxHeight < 640 ? 0.5 : 1.0;
+          return Column(
+            children: [
+              if (night) ...[
+                Expanded(
+                  child: _NightBookInfo(
+                    session: session,
+                    manifest: manifest,
+                    handler: handler,
+                    initial: initial,
+                    tokens: tokens,
+                    coverSize: math.min(coverMax * 0.6, 180).floorToDouble(),
+                  ),
+                ),
+              ] else
+                Expanded(
+                  child: _BookInfo(
+                    session: session,
+                    manifest: manifest,
+                    handler: handler,
+                    initial: initial,
+                    tokens: tokens,
+                    coverMax: coverMax,
+                  ),
+                ),
+              SizedBox(height: 24 * gap),
+              // A drag down never starts on the thread or the scrubber:
+              // they are horizontal (E63).
+              NoDismissDrag(
+                child: Column(
+                  children: [
+                    PlayerThread(
                       manifest: manifest,
                       handler: handler,
                       initial: initial,
                       tokens: tokens,
-                      coverSize: math.min(coverMax * 0.6, 180).floorToDouble(),
                     ),
-                  ),
-                ] else
-                  Expanded(
-                    child: _BookInfo(
-                      session: session,
+                    SizedBox(height: 12 * gap),
+                    // Per the user (E59): scrubbing belongs on the player
+                    // too, not only in the details sheet. Journaled seek
+                    // with undo.
+                    ChapterScrubber(
                       manifest: manifest,
                       handler: handler,
                       initial: initial,
-                      tokens: tokens,
-                      coverMax: coverMax,
                     ),
-                  ),
-                SizedBox(height: 24 * gap),
-                PlayerThread(
-                  manifest: manifest,
-                  handler: handler,
-                  initial: initial,
-                  tokens: tokens,
+                  ],
                 ),
-                SizedBox(height: 12 * gap),
-                // Per the user (E59): scrubbing belongs on the player too,
-                // not only in the details sheet. Journaled seek with undo.
-                ChapterScrubber(
-                  manifest: manifest,
-                  handler: handler,
-                  initial: initial,
-                ),
-                SizedBox(height: 16 * gap),
-                StreamBuilder<PlaybackStatus>(
-                  stream: handler.statusStream,
-                  initialData: handler.status,
-                  builder: (context, snap) {
-                    final status = snap.data ?? handler.status;
-                    return Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        _SeekButton(
-                          icon: Icons.replay_30,
-                          label: AppStrings.seekBackAction,
-                          tokens: tokens,
-                          night: night,
-                          onPressed: () => onSeek(-30),
-                        ),
-                        const SizedBox(width: 24),
-                        PlayerMainButton(
-                          tokens: tokens,
-                          night: night,
-                          playing: status.playing,
-                          buffering: status.buffering,
-                          sleepSuspected: bookState.sleepSuspected,
-                          onPressed: onMainButton,
-                        ),
-                        const SizedBox(width: 24),
-                        _SeekButton(
-                          icon: Icons.forward_30,
-                          label: AppStrings.seekForwardAction,
-                          tokens: tokens,
-                          night: night,
-                          onPressed: () => onSeek(30),
-                        ),
-                      ],
-                    );
-                  },
-                ),
-                // docs/KONZEPT.md "Faden aufnehmen": "Der Hauptbutton heißt
-                // jetzt 'Faden aufnehmen', darunter klein 'Ab Stopp
-                // weiterhören'."
-                if (bookState.sleepSuspected) ...[
-                  const SizedBox(height: 8),
-                  Text(
-                    AppStrings.mainButtonRecordThread,
-                    style: TextStyle(
-                      fontSize: FadenTypeSizes.body,
-                      color: tokens.tinte,
-                    ),
-                  ),
-                  TextButton(
-                    onPressed: onResumeFromStop,
-                    style: TextButton.styleFrom(
-                      foregroundColor: tokens.faden,
-                      textStyle: const TextStyle(
-                        fontSize: FadenTypeSizes.caption,
+              ),
+              SizedBox(height: 16 * gap),
+              StreamBuilder<PlaybackStatus>(
+                stream: handler.statusStream,
+                initialData: handler.status,
+                builder: (context, snap) {
+                  final status = snap.data ?? handler.status;
+                  return Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      _SeekButton(
+                        icon: Icons.replay_30,
+                        label: AppStrings.seekBackAction,
+                        tokens: tokens,
+                        night: night,
+                        onPressed: () => onSeek(-30),
                       ),
-                    ),
-                    child: Text(AppStrings.resumeFromStop),
+                      const SizedBox(width: 24),
+                      PlayerMainButton(
+                        tokens: tokens,
+                        night: night,
+                        playing: status.playing,
+                        buffering: status.buffering,
+                        sleepSuspected: bookState.sleepSuspected,
+                        onPressed: onMainButton,
+                      ),
+                      const SizedBox(width: 24),
+                      _SeekButton(
+                        icon: Icons.forward_30,
+                        label: AppStrings.seekForwardAction,
+                        tokens: tokens,
+                        night: night,
+                        onPressed: () => onSeek(30),
+                      ),
+                    ],
+                  );
+                },
+              ),
+              // docs/KONZEPT.md "Faden aufnehmen": "Der Hauptbutton heißt
+              // jetzt 'Faden aufnehmen', darunter klein 'Ab Stopp
+              // weiterhören'."
+              if (bookState.sleepSuspected) ...[
+                const SizedBox(height: 8),
+                Text(
+                  AppStrings.mainButtonRecordThread,
+                  style: TextStyle(
+                    fontSize: FadenTypeSizes.body,
+                    color: tokens.tinte,
                   ),
-                ],
-                if (night) const Spacer() else const SizedBox(height: 8),
-                _BottomStrip(
-                  handle: _DetailsHandle(tokens: tokens, onTap: onOpenDetails),
-                  sleepTimerButton: sleepTimerButton,
+                ),
+                TextButton(
+                  onPressed: onResumeFromStop,
+                  style: TextButton.styleFrom(
+                    foregroundColor: tokens.faden,
+                    textStyle: const TextStyle(
+                      fontSize: FadenTypeSizes.caption,
+                    ),
+                  ),
+                  child: Text(AppStrings.resumeFromStop),
                 ),
               ],
-            );
-          },
-        ),
+              if (night) const Spacer() else const SizedBox(height: 8),
+              _BottomStrip(
+                handle: _DetailsHandle(tokens: tokens, onTap: onOpenDetails),
+                sleepTimerButton: sleepTimerButton,
+              ),
+            ],
+          );
+        },
       ),
     );
   }
+}
+
+/// A drag down to close the player never starts on [child] (E63): a
+/// vertical drag here is claimed and dropped, so it does not reach the
+/// player's own drag. Horizontal drags and taps reach [child] as usual.
+class NoDismissDrag extends StatelessWidget {
+  final Widget child;
+
+  const NoDismissDrag({super.key, required this.child});
+
+  @override
+  Widget build(BuildContext context) =>
+      GestureDetector(onVerticalDragStart: (_) {}, child: child);
 }
 
 /// Cover, title, author, chapter and remaining time (day look only).
@@ -1036,9 +1119,11 @@ void showPlayerScreen(NavigatorState navigator) {
   unawaited(navigator.push(PlayerScreen.route()));
 }
 
-/// Closes the player (E60): the down chevron, a swipe down, "Bibliothek"
-/// in the details sheet. It slides down onto the library below. If nothing
-/// is below (should not happen), the library replaces it.
+/// Closes the player (E60): the down chevron, "Bibliothek" in the details
+/// sheet, and a swipe down that does not follow the finger (reduced
+/// motion; a following one pops through [PlayerRoute], E63). It slides
+/// down onto the library below. If nothing is below (should not happen),
+/// the library replaces it.
 void closePlayer(BuildContext context) {
   final navigator = Navigator.of(context);
   if (navigator.canPop()) {

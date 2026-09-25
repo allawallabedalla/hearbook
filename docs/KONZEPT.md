@@ -30,22 +30,22 @@ Die App kennt zwei Punkte: den letzten sicheren Wach-Punkt (letzte bewusste Akti
 
 Ablauf:
 1. Der Hauptbutton heißt jetzt „Faden aufnehmen“, darunter klein „Ab Stopp weiterhören“.
-2. Ein leiser Ton, dann eine 4 s lange Hörprobe ab einem Satzanfang.
-3. Kennst du die Stelle, tippst du einmal: Kopfhörertaste oder irgendwo auf den Screen. Tust du bis 3 s nach Ende der Probe nichts, gilt „kenne ich nicht“.
-4. Das Suchfenster halbiert sich, die nächste Probe folgt. Höchstens 8 Proben.
-5. Die Wiedergabe startet am letzten erkannten Satz. „Früher“ springt zur vorherigen erkannten Stelle.
+2. Ein leiser Ton, dann eine 4 s lange Hörprobe ab einem Satzanfang. Der Screen zeigt sie als Karte: „Probe 2 von höchstens 8“, wo sie liegt („Kapitel 5 · 23:14“, „4 Min. vor dem Stopp“) und als Balken, wie lange Probe und Antwortzeit noch laufen.
+3. Du antwortest mit einer der zwei großen Tasten „Kenne ich“ oder „Kenne ich nicht“; eine Kopfhörertaste heißt „Kenne ich“. „Kenne ich nicht“ zählt sofort. Tust du bis 3 s nach Ende der Probe nichts, gilt „kenne ich nicht“. „Nochmal hören“ spielt die Probe noch einmal und startet die Antwortzeit neu; es bleibt eine Antwort. Ein Tipp neben die Tasten zählt nicht.
+4. Das Suchfenster halbiert sich, die nächste Probe folgt. Höchstens 8 Proben. Unter der Karte stehen die schon gehörten Stellen mit „erkannt“ oder „nicht erkannt“.
+5. „Gefunden. Weiter ab hier.“ mit der Stelle: Die Wiedergabe startet am letzten erkannten Satz. Darunter stehen die erkannten Stellen, nie eine spätere als das Ergebnis; ein Tipp startet dort. „Früher“ springt zur vorherigen erkannten Stelle. Jeder dieser Sprünge lässt sich rückgängig machen. „Fertig“ führt zurück zum Player.
 
 Regeln:
 - Die erste Probe liegt 25 s vor dem Stopp. Erkennst du sie, warst du wach und die Wiedergabe startet dort. Ein Fehlalarm kostet so nur einen Tipp.
-- Unsicher heißt: nichts tun. Die Suche rutscht dann früher, nie später. Lieber 20 s doppelt hören als etwas verpassen.
-- Langer Druck auf den Screen bricht ab und startet am letzten sicheren Wach-Punkt.
-- Der Screen bleibt dunkel. Zu sehen sind nur der Faden, der mit jeder Antwort kürzer wird, und „Probe 3 von höchstens 8“.
+- Unsicher heißt: nichts tun oder „Kenne ich nicht“. Die Suche rutscht dann früher, nie später. Lieber 20 s doppelt hören als etwas verpassen.
+- Langer Druck auf den Screen oder „Abbrechen“ bricht ab und startet am letzten sicheren Wach-Punkt. Langes Drücken auf „Kenne ich“ zählt als „Kenne ich“.
+- Der Screen bleibt dunkel: echtes Schwarz, gedimmte Schrift, Tasten nur als Ring. Oben der Faden, der mit jeder Antwort kürzer wird.
 
 ## Screens
 
 Aufbau: Die Bibliothek ist die Basis der App, der Player liegt darüber. Schließt du den Player, bist du in der Bibliothek; der Mini-Player oder ein Buch aus der Liste schiebt ihn wieder hoch. Es gibt immer nur einen Player.
 
-1. **Start ist der Player:** War ein Buch offen, startet die App im Player (über der Bibliothek), sonst in der Bibliothek. Cover, Titel, Autor, Kapitel, Restzeit in Minuten („noch 3 Std. 45 Min.“), der Faden als Buchfortschritt (nicht ziehbar), großer Button, unten ein Griff zu den Details und rechts daneben der Sleep-Timer (Mond; läuft er, steht dort die Restzeit, „12 Min.“ oder „Kapitelende“). Oben links schließt ein Pfeil nach unten den Player, ebenso Wischen nach unten.
+1. **Start ist der Player:** War ein Buch offen, startet die App im Player (über der Bibliothek), sonst in der Bibliothek. Cover, Titel, Autor, Kapitel, Restzeit in Minuten („noch 3 Std. 45 Min.“), der Faden als Buchfortschritt (nicht ziehbar), großer Button, unten ein Griff zu den Details und rechts daneben der Sleep-Timer (Mond; läuft er, steht dort die Restzeit, „12 Min.“ oder „Kapitelende“). Oben links schließt ein Pfeil nach unten den Player, ebenso Ziehen nach unten: Der ganze Player folgt dem Finger, dahinter liegt die Bibliothek mit dem Mini-Player. Losgelassen nach mehr als einem Viertel der Höhe oder mit Schwung nach unten gleitet er weiter hinaus, sonst federt er zurück. Auf Faden und Kapitel-Scrubber beginnt kein Ziehen.
 2. **Details (nach oben wischen oder Griff antippen):** Scrubber für das aktuelle Kapitel mit verstrichener und verbleibender Zeit, Tempo, Sleep-Timer (derselbe wie im Player), Verlauf, alle Kapitel mit Titel und Dauer, der Weg zurück zur Bibliothek.
 3. **Faden-Modus:** Vollbild, dunkel, siehe oben.
 4. **Bibliothek:** die Basis, ohne Zurück-Pfeil; oben Sortierung und Einstellungen, unten der Mini-Player, solange ein Buch offen ist. Oben „Weiterhören“ (zuletzt gehört), darunter alle Bücher mit Suche und Sortierung (zuletzt gehört, Titel, Autor). Je Buch Cover, Autor, Fortschritt als dünner Faden mit Restzeit oder „neu“/„gehört“, Download-Status (geladen, lädt mit der Restmenge „noch 240 MB“ und Abbrechen, Fehler mit „Erneut versuchen“), „Reihenfolge prüfen“. Download löschen per Wischen oder langem Druck. Ohne Server zuerst „Server einrichten“. Offline sind nicht geladene Bücher gedimmt und als „nur online“ markiert.
@@ -77,7 +77,7 @@ Tagsüber indigo gefärbtes Garn auf kühlem Weiß. Nachts warmes Bernstein ohne
 - **Hauptbutton:** mindestens 88 dp. Tagsüber gefüllt in `faden` mit Symbol in `grund`; nachts nur ein Ring in `faden`, damit wenig Licht entsteht.
 - **Schrift:** eine Familie, Atkinson Hyperlegible Next (OFL, für Lesbarkeit entworfen; Fallback Atkinson Hyperlegible), im App-Bundle. Größen 28, 20, 17, 14 sp. Keine Großbuchstaben-Labels.
 - **Layout:** eine Spalte. Im Player zentriert, Listen linksbündig. Alle Tippziele mindestens 56 dp.
-- **Bewegung:** ein einziger bewusster Moment: Im Faden-Modus wird der Faden mit jeder Antwort kürzer (300 ms). Sonst keine Deko-Animationen; nur der Player gleitet beim Öffnen nach oben und beim Schließen (Pfeil, Wischen nach unten) nach unten weg. Die System-Einstellung „Bewegung reduzieren“ gilt für alles.
+- **Bewegung:** ein einziger bewusster Moment: Im Faden-Modus wird der Faden mit jeder Antwort kürzer (300 ms). Sonst keine Deko-Animationen; nur der Player gleitet beim Öffnen nach oben und beim Schließen (Pfeil, Ziehen nach unten) nach unten weg; beim Ziehen folgt er dem Finger. Die System-Einstellung „Bewegung reduzieren“ gilt für alles: Dann folgt der Player dem Finger nicht, sondern schließt beim Loslassen sofort.
 - **Kein Cover vorhanden:** die Initialen des Titels in `faden` auf einer leisen Fläche, in der Hausschrift. Der Titel selbst steht direkt darunter.
 - **Bedienung wie auf dem iPhone:** keine Tinten-Welle beim Tippen, Schalter und Auswahl im iOS-Stil, Uhrzeit per Drehrad. Nur Hochformat.
 
@@ -88,9 +88,17 @@ Tagsüber indigo gefärbtes Garn auf kühlem Weiß. Nachts warmes Bernstein ohne
 | Hauptbutton | Weiterhören |
 | Hauptbutton nach Schlafverdacht | Faden aufnehmen |
 | darunter | Ab Stopp weiterhören |
-| Faden-Modus | Kennst du das? Dann tippen. |
+| Faden-Modus | Kennst du diese Stelle? |
+| Probenzähler | Probe 3 von höchstens 8 |
+| Stelle einer Probe | Kapitel 5 · 23:14 / 4 Min. vor dem Stopp |
+| Antworten | Kenne ich / Kenne ich nicht |
+| Probe wiederholen | Nochmal hören |
+| Faden-Suche abbrechen | Abbrechen |
+| Bisherige Proben | Schon gehört: erkannt / nicht erkannt |
 | Ergebnis | Gefunden. Weiter ab hier. |
+| Ergebnis, Auswahl | Erkannte Stellen |
 | Leiter | Früher |
+| Ergebnis schließen | Fertig |
 | Undo-Hinweis | Zurück zu Kapitel 7, 23:41 |
 | Bibliothek | Ordner geändert: Reihenfolge prüfen |
 | Offline | Keine Verbindung zum Server. Geladene Bücher spielen weiter. |

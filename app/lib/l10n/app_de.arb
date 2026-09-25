@@ -14,8 +14,8 @@
   "resumeFromStop": "Ab Stopp weiterhören",
   "@resumeFromStop": { "description": "Kleine Zeile unter dem Hauptbutton nach Schlafverdacht (M5)." },
 
-  "fadenModePrompt": "Kennst du das? Dann tippen.",
-  "@fadenModePrompt": { "description": "Faden-Modus Prompt (M5)." },
+  "fadenModePrompt": "Kennst du diese Stelle?",
+  "@fadenModePrompt": { "description": "Faden-Modus: Frage über der aktuellen Probe (M5, E64)." },
 
   "fadenResultFound": "Gefunden. Weiter ab hier.",
   "@fadenResultFound": { "description": "Ergebnis-Text der Faden-Suche (M5)." },
@@ -320,5 +320,53 @@
   "@downloadRemaining": { "description": "Laufender Download in der Bibliothek: was noch zu laden ist (E62), {size} z. B. 240 MB.", "placeholders": { "size": {} } },
 
   "playerClose": "Zur Bibliothek",
-  "@playerClose": { "description": "Pfeil nach unten oben links im Player: schließt ihn, darunter liegt die Bibliothek (E60)." }
+  "@playerClose": { "description": "Pfeil nach unten oben links im Player: schließt ihn, darunter liegt die Bibliothek (E60)." },
+
+  "fadenKnown": "Kenne ich",
+  "@fadenKnown": { "description": "Großer Antwort-Button im Faden-Modus (E64). Eine Kopfhörertaste bedeutet dasselbe." },
+
+  "fadenUnknown": "Kenne ich nicht",
+  "@fadenUnknown": { "description": "Großer Antwort-Button im Faden-Modus (E64); zählt sofort, statt das Antwortfenster abzuwarten." },
+
+  "fadenReplay": "Nochmal hören",
+  "@fadenReplay": { "description": "Spielt die aktuelle Probe erneut und startet das Antwortfenster neu (E64)." },
+
+  "fadenAbort": "Abbrechen",
+  "@fadenAbort": { "description": "Bricht die Faden-Suche ab und startet am letzten sicheren Wach-Punkt (wie langer Druck, E64)." },
+
+  "fadenAbortHint": "Weiter am letzten sicheren Wach-Punkt",
+  "@fadenAbortHint": { "description": "Bedienhilfe-Hinweis zu fadenAbort (E64)." },
+
+  "fadenStarting": "Gleich kommt die erste Hörprobe.",
+  "@fadenStarting": { "description": "Faden-Modus, bevor die erste Probe läuft (E64)." },
+
+  "fadenPassage": "{chapter} · {time}",
+  "@fadenPassage": { "description": "Wo eine Probe liegt (E64), z. B. „Kapitel 5 · 23:14“; {chapter} ist chapterLabel, {time} die Zeit im Kapitel.", "placeholders": { "chapter": {}, "time": {} } },
+
+  "fadenBeforeStop": "{time} vor dem Stopp",
+  "@fadenBeforeStop": { "description": "Abstand einer Probe zum Stopp-Punkt (E64), {time} z. B. „25 Sek.“ oder „4 Min.“.", "placeholders": { "time": {} } },
+
+  "durationSeconds": "{n} Sek.",
+  "@durationSeconds": { "description": "Dauer unter einer Minute (E64).", "placeholders": { "n": {} } },
+
+  "fadenAnswerWindow": "Zeit zum Antworten",
+  "@fadenAnswerWindow": { "description": "Bedienhilfe der Fortschrittsanzeige für Probe und Antwortfenster (E64)." },
+
+  "fadenHeardTitle": "Schon gehört",
+  "@fadenHeardTitle": { "description": "Überschrift der Liste bisheriger Proben im Faden-Modus (E64)." },
+
+  "fadenHeardKnown": "erkannt",
+  "@fadenHeardKnown": { "description": "Antwort einer bisherigen Probe: „Kenne ich“ (E64)." },
+
+  "fadenHeardUnknown": "nicht erkannt",
+  "@fadenHeardUnknown": { "description": "Antwort einer bisherigen Probe: „Kenne ich nicht“ oder keine Antwort (E64)." },
+
+  "fadenAlternativesTitle": "Erkannte Stellen",
+  "@fadenAlternativesTitle": { "description": "Ergebnis der Faden-Suche: erkannte Stellen, ab denen man stattdessen weiterhören kann, nie später als das Ergebnis (E64)." },
+
+  "fadenPlaying": "läuft",
+  "@fadenPlaying": { "description": "Markiert im Ergebnis die Stelle, ab der gerade gespielt wird (E64)." },
+
+  "fadenDone": "Fertig",
+  "@fadenDone": { "description": "Schließt das Ergebnis der Faden-Suche, zurück zum Player (E64)." }
 }

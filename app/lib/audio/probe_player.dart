@@ -16,6 +16,12 @@ class ProbePlayer {
   final ja.AudioPlayer _player;
   List<ja.IndexedAudioSource>? _bookSources;
 
+  /// Bumped by everything that takes over the player ([playTone],
+  /// [playProbe], [stop]), so a probe's own timer never pauses what plays
+  /// after it: the next tone and probe after an early answer, or the same
+  /// probe replayed ("Nochmal hören", E64).
+  int _generation = 0;
+
   ProbePlayer({ja.AudioPlayer? player}) : _player = player ?? ja.AudioPlayer();
 
   /// The book's playlist, built the same way as the main player's
@@ -31,6 +37,7 @@ class ProbePlayer {
   /// Swallows playback errors -- a missing/failed tone must never block the
   /// search itself, only the probe that follows matters.
   Future<void> playTone() async {
+    _generation++;
     try {
       await _player.setAsset('assets/sounds/ton.wav');
       await _player.play();
@@ -62,6 +69,7 @@ class ProbePlayer {
   }) async {
     final sources = _bookSources;
     if (sources == null || fileIndex < 0 || fileIndex >= sources.length) return;
+    final generation = ++_generation;
     try {
       await _player.setAudioSources(
         sources,
@@ -88,7 +96,8 @@ class ProbePlayer {
     } catch (_) {
       // Best-effort playback only.
     } finally {
-      await stop();
+      // Unless something newer owns the player by now.
+      if (generation == _generation) await _pause();
     }
   }
 
@@ -109,7 +118,12 @@ class ProbePlayer {
     return playFor < 0 ? 0 : playFor;
   }
 
-  Future<void> stop() async {
+  Future<void> stop() {
+    _generation++;
+    return _pause();
+  }
+
+  Future<void> _pause() async {
     try {
       await _player.pause();
     } catch (_) {

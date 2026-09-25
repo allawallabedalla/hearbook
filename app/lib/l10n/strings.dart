@@ -16,7 +16,7 @@ class AppStrings {
     'mainButtonListen': 'Weiterhören',
     'mainButtonRecordThread': 'Faden aufnehmen',
     'resumeFromStop': 'Ab Stopp weiterhören',
-    'fadenModePrompt': 'Kennst du das? Dann tippen.',
+    'fadenModePrompt': 'Kennst du diese Stelle?',
     'fadenResultFound': 'Gefunden. Weiter ab hier.',
     'fadenLadderEarlier': 'Früher',
     'fadenProbeCounter': 'Probe {n} von höchstens {max}',
@@ -143,6 +143,22 @@ class AppStrings {
     'storageFinishedNote': 'Zu Ende gehörte Bücher werden automatisch vom Gerät gelöscht. Der Fortschritt bleibt.',
     'downloadRemaining': 'noch {size}',
     'playerClose': 'Zur Bibliothek',
+    'fadenKnown': 'Kenne ich',
+    'fadenUnknown': 'Kenne ich nicht',
+    'fadenReplay': 'Nochmal hören',
+    'fadenAbort': 'Abbrechen',
+    'fadenAbortHint': 'Weiter am letzten sicheren Wach-Punkt',
+    'fadenStarting': 'Gleich kommt die erste Hörprobe.',
+    'fadenPassage': '{chapter} · {time}',
+    'fadenBeforeStop': '{time} vor dem Stopp',
+    'durationSeconds': '{n} Sek.',
+    'fadenAnswerWindow': 'Zeit zum Antworten',
+    'fadenHeardTitle': 'Schon gehört',
+    'fadenHeardKnown': 'erkannt',
+    'fadenHeardUnknown': 'nicht erkannt',
+    'fadenAlternativesTitle': 'Erkannte Stellen',
+    'fadenPlaying': 'läuft',
+    'fadenDone': 'Fertig',
   };
 
   static String _of(String key) {
@@ -254,6 +270,19 @@ class AppStrings {
   static String get detailsOpen => _of('detailsOpen');
   static String get threadLabel => _of('threadLabel');
   static String get scrubberLabel => _of('scrubberLabel');
+  static String get fadenKnown => _of('fadenKnown');
+  static String get fadenUnknown => _of('fadenUnknown');
+  static String get fadenReplay => _of('fadenReplay');
+  static String get fadenAbort => _of('fadenAbort');
+  static String get fadenAbortHint => _of('fadenAbortHint');
+  static String get fadenStarting => _of('fadenStarting');
+  static String get fadenAnswerWindow => _of('fadenAnswerWindow');
+  static String get fadenHeardTitle => _of('fadenHeardTitle');
+  static String get fadenHeardKnown => _of('fadenHeardKnown');
+  static String get fadenHeardUnknown => _of('fadenHeardUnknown');
+  static String get fadenAlternativesTitle => _of('fadenAlternativesTitle');
+  static String get fadenPlaying => _of('fadenPlaying');
+  static String get fadenDone => _of('fadenDone');
 
   static String fadenProbeCounter(int n, int max) =>
       _of('fadenProbeCounter').replaceAll('{n}', '$n').replaceAll('{max}', '$max');
@@ -320,6 +349,15 @@ class AppStrings {
 
   static String scrubberRemaining(String time) =>
       _of('scrubberRemaining').replaceAll('{time}', time);
+
+  /// Where a Faden probe lies (E64): "Kapitel 5 · 23:14".
+  static String fadenPassage(String chapter, String time) =>
+      _of('fadenPassage').replaceAll('{chapter}', chapter).replaceAll('{time}', time);
+
+  /// A probe's distance to the stop point (E64): "4 Min. vor dem Stopp".
+  static String fadenBeforeStop(String time) => _of('fadenBeforeStop').replaceAll('{time}', time);
+
+  static String durationSeconds(int n) => _of('durationSeconds').replaceAll('{n}', '$n');
 
   /// A library status line plus "nur online" (E58).
   static String libraryOnlineOnly(String status) => _of('libraryOnlineOnly').replaceAll('{status}', status);

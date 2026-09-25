@@ -11,7 +11,9 @@
 // - German speed labels and the minute-level remaining time;
 // - the sleep timer on the player itself (E61): the moon button starts and
 //   stops the shared timer and shows what is left;
-// - closing the player (E60): chevron, swipe down, slide and reduced motion.
+// - closing the player (E60): chevron, swipe down, slide and reduced motion;
+//   the drag down follows the finger 1:1 and closes or springs back on
+//   release (E63), never starting on the chapter scrubber.
 
 import 'package:faden/audio/playback_status.dart';
 import 'package:faden/data/db.dart';
@@ -31,6 +33,7 @@ import 'package:faden/ui/mini_player.dart';
 import 'package:faden/ui/playback_announcer.dart';
 import 'package:faden/ui/player_screen.dart';
 import 'package:faden/ui/providers.dart';
+import 'package:faden/ui/routes.dart';
 import 'package:faden/ui/theme.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -350,6 +353,130 @@ void main() {
     });
   });
 
+  group('dragging the player down (E63)', () {
+    double playerTop(WidgetTester tester) => tester.getTopLeft(find.byType(PlayerBody)).dy;
+
+    test('closes past a quarter of the height or on a fast fling down', () {
+      expect(playerDragCloses(draggedPx: 100, velocity: 0, height: 800), isFalse);
+      expect(playerDragCloses(draggedPx: 200, velocity: 0, height: 800), isTrue);
+      expect(playerDragCloses(draggedPx: 30, velocity: 800, height: 800), isTrue);
+      expect(playerDragCloses(draggedPx: 400, velocity: -800, height: 800), isFalse, reason: 'flung back up');
+    });
+
+    for (final night in [false, true]) {
+      testWidgets('${night ? 'night' : 'day'}: the whole player follows the finger 1:1, the library behind it',
+          (tester) async {
+        await pumpPlayer(tester, underLibrary: true, night: night);
+        final before = playerTop(tester);
+        final gesture = await tester.startGesture(tester.getCenter(find.text('Der Zauberberg')));
+        await gesture.moveBy(const Offset(0, 30));
+        await tester.pump();
+        await gesture.moveBy(const Offset(0, 90));
+        await tester.pump();
+        expect(playerTop(tester), moreOrLessEquals(before + 120, epsilon: 0.5));
+        if (!night) {
+          expect(tester.getTopLeft(find.byTooltip(AppStrings.playerClose)).dy, greaterThan(100),
+              reason: 'the app bar moves with it');
+        }
+        expect(find.byType(LibraryScreen), findsOneWidget, reason: 'visible behind the player');
+        expect(find.byType(MiniPlayer), findsOneWidget);
+
+        await gesture.moveBy(const Offset(0, -500));
+        await tester.pump();
+        expect(playerTop(tester), moreOrLessEquals(before, epsilon: 0.5), reason: 'clamped at its place');
+        await gesture.up();
+        await tester.pumpAndSettle();
+        expect(find.byType(PlayerBody), findsOneWidget);
+        expect(find.byType(LibraryScreen), findsNothing);
+        await tearDownPlayer(tester);
+      });
+    }
+
+    testWidgets('a short, slow drag springs back; the player stays', (tester) async {
+      await pumpPlayer(tester, underLibrary: true);
+      final before = playerTop(tester);
+      await tester.timedDrag(find.text('Der Zauberberg'), const Offset(0, 150), const Duration(seconds: 1));
+      await tester.pump();
+      expect(playerTop(tester), greaterThan(before + 100), reason: 'springs back from where it was let go');
+      await tester.pumpAndSettle();
+      expect(playerTop(tester), moreOrLessEquals(before, epsilon: 0.5));
+      expect(find.byType(PlayerBody), findsOneWidget);
+      expect(find.byType(LibraryScreen), findsNothing);
+      await tearDownPlayer(tester);
+    });
+
+    testWidgets('a long drag closes it, sliding on from the finger\'s position', (tester) async {
+      await pumpPlayer(tester, underLibrary: true);
+      final before = playerTop(tester);
+      final route = ModalRoute.of(tester.element(find.byType(PlayerBody)))!;
+      var popped = false;
+      route.popped.then((_) => popped = true);
+      await tester.timedDrag(find.text('Der Zauberberg'), const Offset(0, 300), const Duration(seconds: 1));
+      await tester.pump();
+      expect(playerTop(tester), greaterThanOrEqualTo(before + 300), reason: 'no jump back before closing');
+      await tester.pumpAndSettle();
+      expect(popped, isTrue);
+      // Popped exactly once: the library below is still there.
+      expect(find.byType(LibraryScreen), findsOneWidget);
+      expect(find.byType(PlayerScreen, skipOffstage: false), findsNothing);
+      await tearDownPlayer(tester);
+    });
+
+    testWidgets('a short, fast fling down closes it', (tester) async {
+      await pumpPlayer(tester, underLibrary: true);
+      await tester.fling(find.text('Der Zauberberg'), const Offset(0, 80), 1500);
+      await tester.pumpAndSettle();
+      expect(find.byType(LibraryScreen), findsOneWidget);
+      expect(find.byType(PlayerScreen, skipOffstage: false), findsNothing);
+      await tearDownPlayer(tester);
+    });
+
+    testWidgets('drags on the chapter scrubber do not move the player', (tester) async {
+      await pumpPlayer(tester, underLibrary: true);
+      final before = playerTop(tester);
+      final slider = find.descendant(of: find.byType(PlayerBody), matching: find.byType(Slider));
+      final sideways = await tester.startGesture(tester.getCenter(slider));
+      await sideways.moveBy(const Offset(40, 0));
+      await tester.pump();
+      await sideways.moveBy(const Offset(40, 30));
+      await tester.pump();
+      expect(playerTop(tester), before);
+      await sideways.up();
+      await tester.pumpAndSettle();
+      expect(handler.seeks, hasLength(1), reason: 'the scrubber still seeks');
+
+      final down = await tester.startGesture(tester.getCenter(slider));
+      await down.moveBy(const Offset(0, 40));
+      await tester.pump();
+      await down.moveBy(const Offset(0, 200));
+      await tester.pump();
+      expect(playerTop(tester), before, reason: 'a drag down never starts on the scrubber');
+      await down.up();
+      await tester.pumpAndSettle();
+      expect(find.byType(PlayerBody), findsOneWidget);
+      await tearDownPlayer(tester);
+    });
+
+    testWidgets('with reduced motion it does not follow the finger, and closes on release past the threshold',
+        (tester) async {
+      tester.platformDispatcher.accessibilityFeaturesTestValue = const FakeAccessibilityFeatures(disableAnimations: true);
+      addTearDown(tester.platformDispatcher.clearAccessibilityFeaturesTestValue);
+      await pumpPlayer(tester, underLibrary: true);
+      final before = playerTop(tester);
+      final gesture = await tester.startGesture(tester.getCenter(find.text('Der Zauberberg')));
+      await gesture.moveBy(const Offset(0, 40));
+      await tester.pump();
+      await gesture.moveBy(const Offset(0, 260));
+      await tester.pump();
+      expect(playerTop(tester), before);
+      await gesture.up();
+      await tester.pump();
+      expect(find.byType(PlayerBody, skipOffstage: false), findsNothing);
+      expect(find.byType(LibraryScreen), findsOneWidget);
+      await tearDownPlayer(tester);
+    });
+  });
+
   group('sleep timer on the player (E61)', () {
     Finder moon() => find.byType(SleepTimerButton);
     Finder inMoon(Finder f) => find.descendant(of: moon(), matching: f);
@@ -636,7 +763,7 @@ void main() {
     testWidgets('a swipe up opens the details sheet', (tester) async {
       await pumpPlayer(tester, night: true);
       await tester.pump(const Duration(seconds: 15));
-      await tester.fling(find.byType(PlayerBody), const Offset(0, -300), 1500);
+      await tester.fling(find.byType(PlayerScreen), const Offset(0, -300), 1500);
       await tester.pumpAndSettle();
       expect(find.byType(DetailsSheetContent), findsOneWidget);
       await tearDownPlayer(tester);

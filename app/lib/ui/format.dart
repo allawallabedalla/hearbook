@@ -91,3 +91,11 @@ extension on String {
   /// The first user-visible character (a surrogate pair stays whole).
   String get characters1 => String.fromCharCode(runes.first);
 }
+
+/// How long before the stop point a Faden probe lies (decision E64):
+/// "25 Sek." (rounded) under a minute, else as [formatRemaining] ("4 Min.",
+/// "1 Std. 5 Min.").
+String formatBeforeStop(int ms) {
+  if (ms < 60 * 1000) return AppStrings.durationSeconds(((ms < 0 ? 0 : ms) + 500) ~/ 1000);
+  return formatRemaining(ms);
+}

@@ -2,20 +2,53 @@ import 'dart:async';
 
 import '../domain/faden_search.dart' as fs;
 
-/// One step of a running search, for the Faden-Modus screen's shrinking
-/// thread + "Probe n von höchstens 8" counter (docs/KONZEPT.md
-/// "Faden aufnehmen"). `probeNr` is 0 before the first probe starts.
+/// One passage the search played (decision E64): where it lies (global
+/// ms), its number, and the answer -- null while it is still being asked.
+class FadenProbe {
+  final int p;
+  final int probeNr;
+  final bool? known;
+
+  const FadenProbe({required this.p, required this.probeNr, this.known});
+}
+
+/// One step of a running search, for the Faden-Modus screen (docs/KONZEPT.md
+/// "Faden aufnehmen", E64): the shrinking thread ([lo]..[hi], the window
+/// still searched), "Probe n von höchstens 8", the passage being asked
+/// ([current]) and the ones already answered ([heard]). `probeNr` is 0
+/// before the first probe starts.
 class FadenProgress {
   final int lo;
   final int hi;
   final int probeNr;
   final int maxProbes;
 
+  /// The passage being asked; null before the first probe and while an
+  /// answer is being recorded.
+  final FadenProbe? current;
+
+  /// Every passage answered in this search, in order, each with its
+  /// (recorded) answer.
+  final List<FadenProbe> heard;
+
+  /// Whether [current] plays or its answer window runs, so an answer
+  /// counts now (false while the cue tone plays).
+  final bool listening;
+
+  /// Bumped every time an answer window (re)starts -- a new probe or
+  /// [FadenSearchController.replay] -- so the screen restarts its
+  /// probe + answer-window indicator.
+  final int window;
+
   const FadenProgress({
     required this.lo,
     required this.hi,
     required this.probeNr,
     required this.maxProbes,
+    this.current,
+    this.heard = const [],
+    this.listening = false,
+    this.window = 0,
   });
 }
 
@@ -25,8 +58,9 @@ class FadenAbortedException implements Exception {
 
 /// Orchestrates one Faden-Suche run (docs/ARCHITEKTUR.md section 8) against
 /// real playback: plays the cue tone and each probe, waits for an answer
-/// (a screen tap or a media button -- both funnelled through [submitAnswer]
-/// by the caller) or lets the answer window lapse, and reports every
+/// ("Kenne ich" / "Kenne ich nicht" on the screen or a media button, all
+/// funnelled through [answer] by the caller) or lets the answer window
+/// lapse, and reports every
 /// PROBE/RESUME through the injected callbacks (docs/ARCHITEKTUR.md section
 /// 8 closing note: "Jede Probe wird als PROBE-Event geschrieben, das
 /// Ergebnis als RESUME-Event").
@@ -88,7 +122,21 @@ class FadenSearchController {
 
   late List<int> _leiter;
   int _leiterIndex = 0;
+
+  /// Index of the search's own result in [_leiter]; -1 until it is known.
+  int _resultIndex = -1;
   bool _aborted = false;
+
+  /// The window still searched, for the thread (mirrors fs.fadenSuche:
+  /// a "kenne ich" moves `lo` up to the probe, anything else `hi` down).
+  late int _lo = lo;
+  late int _hi = hi;
+  int _probeNr = 0;
+  FadenProbe? _current;
+  final List<FadenProbe> _heard = [];
+  bool _listening = false;
+  int _window = 0;
+  Timer? _windowTimer;
 
   /// Set by [dispose]: the screen is gone (back gesture / route pop without
   /// a result). Unlike a long-press [abort], this must end the search
@@ -114,7 +162,21 @@ class FadenSearchController {
 
   Stream<FadenProgress> get progress => _progressController.stream;
 
-  bool get canGoEarlier => _leiterIndex > 0;
+  bool get canGoEarlier => _resultIndex >= 0 && _leiterIndex > 0;
+
+  /// Whether the search has its result (and started playback there).
+  bool get resolved => _resultIndex >= 0;
+
+  /// The ladder (docs/ARCHITEKTUR.md section 8): the starting `lo`, then
+  /// every recognised passage in order. Empty until [resolved].
+  List<int> get leiter => resolved ? List.unmodifiable(_leiter) : const [];
+
+  /// Where playback was last started, as an index into [leiter].
+  int get leiterIndex => _leiterIndex;
+
+  /// The search's own result, as an index into [leiter]; entries after it
+  /// do not exist, entries before it are the earlier alternatives.
+  int get resultIndex => _resultIndex;
 
   /// Runs the search to completion (or until [abort] fires). Never throws:
   /// an abort is reported through [onAborted], not as an exception out of
@@ -125,7 +187,7 @@ class FadenSearchController {
       final result = await fs.fadenSuche(lo, hi, pausen, _frage, prior: prior);
       if (_disposed) return;
       _leiter = result.leiter;
-      _leiterIndex = _leiter.length - 1;
+      _leiterIndex = _resultIndex = _leiter.length - 1;
       await onResumeAt(result.start);
     } on FadenAbortedException {
       if (_disposed) return;
@@ -134,41 +196,97 @@ class FadenSearchController {
   }
 
   void _emitProgress(int probeNr) {
+    _probeNr = probeNr;
+    _emit();
+  }
+
+  void _emit() {
     if (_disposed || _progressController.isClosed) return;
-    _progressController.add(FadenProgress(lo: lo, hi: hi, probeNr: probeNr, maxProbes: fs.maxProbes));
+    _progressController.add(FadenProgress(
+      lo: _lo,
+      hi: _hi,
+      probeNr: _probeNr,
+      maxProbes: fs.maxProbes,
+      current: _current,
+      heard: List.unmodifiable(_heard),
+      listening: _listening,
+      window: _window,
+    ));
   }
 
   Future<bool> _frage(int p, int probeNr) async {
     if (_aborted) throw const FadenAbortedException();
+    _current = FadenProbe(p: p, probeNr: probeNr);
+    _listening = false;
     _emitProgress(probeNr);
     await playTone();
     if (_aborted) throw const FadenAbortedException();
 
-    unawaited(playProbe(p).catchError((Object _) {}));
     final completer = Completer<bool>();
     _pendingAnswer = completer;
-    final timer = Timer(const Duration(milliseconds: fs.probeLen + fs.answerWindow), () {
-      if (!completer.isCompleted) completer.complete(false);
-    });
+    _startWindow(p, completer);
     bool known;
     try {
       known = await completer.future;
     } finally {
-      timer.cancel();
+      _windowTimer?.cancel();
+      _windowTimer = null;
       _pendingAnswer = null;
     }
 
     if (_aborted) throw const FadenAbortedException();
+    _listening = false;
+    _emit();
+    // An early answer ends the passage (the window's own end has stopped
+    // it already).
+    await stopProbe();
+    if (_aborted) throw const FadenAbortedException();
+    // Journal first (invariant 3), then show the answer as given.
     await onProbeAnswered(p, known);
+    _heard.add(FadenProbe(p: p, probeNr: probeNr, known: known));
+    if (known) {
+      _lo = p;
+    } else {
+      _hi = p;
+    }
+    _current = null;
+    _emit();
     return known;
   }
 
-  /// A screen tap or a media-button press (docs/KONZEPT.md: "Kopfhörertaste
-  /// oder irgendwo auf den Screen") -- the caller merges both sources and
-  /// calls this for either.
-  void submitAnswer() {
+  /// Plays the probe at [p] and (re)starts its answer window: probe_len +
+  /// answer_window, after which silence counts as "kenne ich nicht".
+  void _startWindow(int p, Completer<bool> completer) {
+    _windowTimer?.cancel();
+    unawaited(playProbe(p).catchError((Object _) {}));
+    _windowTimer = Timer(const Duration(milliseconds: fs.probeLen + fs.answerWindow), () {
+      if (!completer.isCompleted) completer.complete(false);
+    });
+    _listening = true;
+    _window++;
+    _emit();
+  }
+
+  /// The answer to the passage being asked (E64): "Kenne ich" ([known]
+  /// true, also every media-button press) or "Kenne ich nicht", which
+  /// counts at once instead of waiting for the window to lapse. Only the
+  /// first answer to a passage counts; outside an answer window (cue tone,
+  /// between probes, after the result) it is ignored.
+  void answer({required bool known}) {
     final pending = _pendingAnswer;
-    if (pending != null && !pending.isCompleted) pending.complete(true);
+    if (pending != null && !pending.isCompleted) pending.complete(known);
+  }
+
+  /// "Kenne ich": a media-button press, or the screen's button.
+  void submitAnswer() => answer(known: true);
+
+  /// "Nochmal hören" (E64): plays the passage being asked again and
+  /// restarts its answer window. Still one answer, one PROBE.
+  void replay() {
+    final pending = _pendingAnswer;
+    final current = _current;
+    if (_aborted || pending == null || pending.isCompleted || current == null) return;
+    _startWindow(current.p, pending);
   }
 
   /// Long-press abort. Safe to call at any point during [start] (including
@@ -187,14 +305,24 @@ class FadenSearchController {
   }
 
   /// "Früher" (docs/KONZEPT.md Texte-Tabelle: "Leiter | Früher"): one step
-  /// back through the ladder from the last search result, then resumes
-  /// there (another `RESUME`/`source=faden`, per docs/ARCHITEKTUR.md
+  /// back through the ladder from where playback was last started, then
+  /// resumes there (another `RESUME`/`source=faden`, per docs/ARCHITEKTUR.md
   /// section 8's closing note -- every ladder step is its own RESUME).
   Future<void> earlier() async {
     if (_disposed || !canGoEarlier) return;
     _leiterIndex = fs.stepEarlier(_leiterIndex);
     final pos = fs.positionAtLeiterIndex(_leiter, _leiterIndex);
     await onResumeAt(pos);
+  }
+
+  /// A recognised passage tapped on the result screen (E64): resumes at
+  /// [leiter] entry [index] (its own RESUME/`source=faden`). Never later
+  /// than the search's result (invariant 9: nothing past what the listener
+  /// recognised is skipped), so any index above [resultIndex] is ignored.
+  Future<void> resumeAtLeiterIndex(int index) async {
+    if (_disposed || !resolved || index < 0 || index > _resultIndex) return;
+    _leiterIndex = index;
+    await onResumeAt(fs.positionAtLeiterIndex(_leiter, index));
   }
 
   /// Ends the search for good (the screen was left, with or without a
@@ -205,6 +333,7 @@ class FadenSearchController {
   void dispose() {
     if (_disposed) return;
     _disposed = true;
+    _windowTimer?.cancel();
     abort();
     unawaited(_progressController.close());
   }

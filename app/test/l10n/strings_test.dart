@@ -75,5 +75,10 @@ void main() {
 
     test('fadenProbeCounter matches the KONZEPT.md pattern',
         () => expect(AppStrings.fadenProbeCounter(3, 8), 'Probe 3 von höchstens 8'));
+
+    test('Faden passages (E64)', () {
+      expect(AppStrings.fadenPassage(AppStrings.chapterLabel(5), '23:14'), 'Kapitel 5 · 23:14');
+      expect(AppStrings.fadenBeforeStop(AppStrings.durationSeconds(25)), '25 Sek. vor dem Stopp');
+    });
   });
 }
