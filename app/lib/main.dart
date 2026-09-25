@@ -19,6 +19,7 @@ import 'data/storage.dart';
 import 'l10n/strings.dart';
 import 'signals/night.dart';
 import 'signals/screen_brightness.dart';
+import 'ui/cellular_prompt.dart';
 import 'ui/library_screen.dart';
 import 'ui/playback_announcer.dart';
 import 'ui/player_screen.dart';
@@ -125,6 +126,9 @@ class FadenApp extends ConsumerStatefulWidget {
 }
 
 class _FadenAppState extends ConsumerState<FadenApp> {
+  /// For the question before loading over mobile data (E66), which is
+  /// shown from above the navigator.
+  final _navigatorKey = GlobalKey<NavigatorState>();
   AppLifecycleListener? _lifecycle;
   StreamSubscription<List<ConnectivityResult>>? _connectivitySub;
   List<ConnectivityResult>? _lastConnectivity;
@@ -155,6 +159,8 @@ class _FadenAppState extends ConsumerState<FadenApp> {
     if (previous == null || _sameResults(previous, results)) return;
     // E56: to Wi-Fi starts auto-downloads, anything else stops them.
     ref.read(autoDownloaderProvider)?.onNetworkChanged(results);
+    // E66: on mobile data, the playing book's next chapters.
+    ref.read(chapterDownloaderProvider)?.onNetworkChanged(results);
     if (results.every((r) => r == ConnectivityResult.none)) return;
     _syncNow();
   }
@@ -184,6 +190,7 @@ class _FadenAppState extends ConsumerState<FadenApp> {
   Widget build(BuildContext context) {
     ref.watch(syncWiringProvider);
     ref.watch(offlineWiringProvider);
+    ref.watch(downloadWiringProvider);
     // E60: the player is a route that closes, so the sleep timer and the
     // SLEEP_HINT hook live for as long as the app does.
     ref.watch(sleepTimerProvider);
@@ -196,6 +203,7 @@ class _FadenAppState extends ConsumerState<FadenApp> {
     return MaterialApp(
       title: AppStrings.appTitle,
       debugShowCheckedModeBanner: false,
+      navigatorKey: _navigatorKey,
       // German for Material's and Cupertino's own texts (back button,
       // text selection menu, picker semantics).
       locale: const Locale('de'),
@@ -205,8 +213,12 @@ class _FadenAppState extends ConsumerState<FadenApp> {
       // KONZEPT.md "Bewegung": no decorative animation, so a change of
       // look switches at once instead of cross-fading.
       themeAnimationDuration: Duration.zero,
-      // Undo hints and playback errors on whatever screen is in front (E60).
-      builder: (context, child) => PlaybackAnnouncer(child: child!),
+      // Undo hints and playback errors on whatever screen is in front (E60);
+      // the question before loading over mobile data (E66).
+      builder: (context, child) => CellularPromptHost(
+        navigatorKey: _navigatorKey,
+        child: PlaybackAnnouncer(child: child!),
+      ),
       home: const _StartupScreen(),
     );
   }

@@ -49,7 +49,13 @@ Aufbau: Die Bibliothek ist die Basis der App, der Player liegt darüber. Schlie�
 2. **Details (nach oben wischen oder Griff antippen):** Scrubber für das aktuelle Kapitel mit verstrichener und verbleibender Zeit, Tempo, Sleep-Timer (eine Zeile, die dieselbe Auswahl wie der Mond im Player öffnet), Verlauf, alle Kapitel mit Titel und Dauer, der Weg zurück zur Bibliothek.
 3. **Faden-Modus:** Vollbild, dunkel, siehe oben.
 4. **Bibliothek:** die Basis, ohne Zurück-Pfeil; oben Sortierung und Einstellungen, unten der Mini-Player, solange ein Buch offen ist. Großer Titel, der beim Scrollen in die Leiste wandert. Oben „Weiterhören“ (zuletzt gehört) als größere Karten, darunter die übrigen Bücher mit Suche (sie findet alle) und Sortierung (zuletzt gehört, Titel, Autor). Je Buch Cover, Autor, Fortschritt als dünner Faden mit Restzeit oder „neu“/„gehört“, Download-Status (geladen, lädt mit der Restmenge „noch 240 MB“ und Abbrechen, Fehler mit „Erneut versuchen“), „Reihenfolge prüfen“. Download löschen per Wischen oder langem Druck. Ohne Server zuerst „Server einrichten“. Offline sind nicht geladene Bücher gedimmt und als „nur online“ markiert.
-5. **Einstellungen (aus der Bibliothek):** gruppiert wie auf dem iPhone, Erklärungen unter den Zeilen. Server mit „Verbindung prüfen“, Nachtfenster, Sleep-Timer-Standard, Erscheinungsbild (Wie iPhone, Hell, Dunkel), Speicher (geladene Bücher; zu Ende gehörte werden automatisch gelöscht), „Aktuelle Bücher automatisch laden“ (im WLAN das offene und das nächste Buch aus „Weiterhören“), Schlafdaten erlauben, Belegung der Kopfhörertasten.
+5. **Einstellungen (aus der Bibliothek):** gruppiert wie auf dem iPhone, Erklärungen unter den Zeilen. Server mit „Verbindung prüfen“, Nachtfenster, Erscheinungsbild (Wie iPhone, Hell, Dunkel), Speicher (geladene Bücher; zu Ende gehörte werden automatisch gelöscht), „Aktuelle Bücher automatisch laden“ (im WLAN das offene und das nächste Buch aus „Weiterhören“), „Über Mobilfunk kapitelweise laden“ (Standard aus; siehe unten) mit „Hinweis vor dem Laden über Mobilfunk“, Schlafdaten erlauben, Belegung der Kopfhörertasten. Einen Sleep-Timer-Standard gibt es nicht: Der Timer startet nur über die Auswahl im Player.
+
+## Unterwegs über Mobilfunk
+
+Der Server ist unterwegs über ein VPN erreichbar. Ganze Bücher lädt Faden nur im WLAN. Ist „Über Mobilfunk kapitelweise laden“ an und läuft das offene Buch ohne WLAN, lädt Faden das aktuelle und das nächste Kapitel, wenn sie noch nicht auf dem Gerät sind, und dann mit der Wiedergabe immer eins weiter. Geladene Kapitel spielen ab da vom Gerät; gelöscht wird dabei nichts. In der Bibliothek zeigt die Buchzeile den Download wie jeden anderen („noch 24 MB“).
+
+Vor dem ersten Laden über Mobilfunk seit dem App-Start fragt Faden einmal: „Über Mobilfunk laden?“ mit der Datenmenge des Buchs („1 Std. ≈ 58 MB · Kapitel 3 ≈ 24 MB“; kennt der Server keine Dateigrößen, geschätzt mit 64 kbit/s und „ca.“), dem Häkchen „Nicht wieder anzeigen“ und „Laden“ / „Nicht jetzt“. „Nicht jetzt“ gilt bis zum nächsten App-Start. Die Frage erscheint nur, wenn die App im Vordergrund ist; bis dahin wird nichts geladen.
 
 ## Nachtmodus
 
@@ -105,6 +111,8 @@ Tagsüber indigo gefärbtes Garn auf kühlem Weiß. Nachts warmes Bernstein ohne
 | Offline, Bücher bekannt | Offline – geladene Bücher spielen weiter |
 | Restzeit | noch 3 Std. 45 Min. |
 | Download läuft | noch 240 MB |
+| Frage vor Mobilfunk | Über Mobilfunk laden? |
+| Datenmenge | 1 Std. ≈ 58 MB · Kapitel 3 ≈ 24 MB |
 | Server-Adresse, Beispiel | http://nas.local:8000 |
 | Wiedergabefehler | Kann nicht abspielen |
 | Nicht geladen, Server aus | Nicht geladen – der Server ist gerade nicht erreichbar. |

@@ -100,7 +100,8 @@ class AutoDownloader {
       final manifest = await manifestFor(bookId);
       if (manifest == null || manifest.files.isEmpty) continue;
       final state = await downloads.refresh(bookId, manifest);
-      if (state.isDownloaded || state.isDownloading) continue;
+      // A chapter run over mobile data (E66) gives way to the whole book.
+      if (state.isDownloaded || (state.isDownloading && !downloads.isChapterRun(bookId))) continue;
       // The phone may have left the Wi-Fi during the previous book.
       if (!await enabled() || !allowsAutoDownload(await _network())) return;
       _started.add(bookId);

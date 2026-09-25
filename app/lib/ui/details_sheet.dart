@@ -98,13 +98,13 @@ Future<void> showDetailsSheet(
 /// Aus. Opened by the player's moon button and by the details sheet's
 /// sleep-timer row (E65) -- the one sleep-timer UI. Themed from [chrome]
 /// like the details sheet, acting on the shared [sleepTimer]. A choice
-/// starts (or stops) the timer, is remembered as the default via
-/// [onChosen] (minutes, 0 = "Kapitelende"), and closes the sheet.
+/// starts (or stops) the timer and closes the sheet; the chosen duration
+/// is also what a headphone button in the last minute extends by.
+/// Nothing is preselected and no default is stored (decision E67).
 Future<void> showSleepTimerSheet(
   BuildContext context, {
   required ValueListenable<PlayerChrome> chrome,
   required SleepTimerController sleepTimer,
-  required void Function(int minutes) onChosen,
   DetailsSheetHooks hooks = const DetailsSheetHooks(),
 }) {
   return showModalBottomSheet<void>(
@@ -116,7 +116,7 @@ Future<void> showSleepTimerSheet(
     builder: (_) => _SheetFrame(
       chrome: chrome,
       hooks: hooks,
-      child: SleepTimerChoices(controller: sleepTimer, onChosen: onChosen),
+      child: SleepTimerChoices(controller: sleepTimer),
     ),
   );
 }
@@ -124,9 +124,7 @@ Future<void> showSleepTimerSheet(
 /// The rows of [showSleepTimerSheet]; the running choice is marked.
 class SleepTimerChoices extends StatelessWidget {
   final SleepTimerController controller;
-  final void Function(int minutes) onChosen;
-
-  const SleepTimerChoices({super.key, required this.controller, required this.onChosen});
+  const SleepTimerChoices({super.key, required this.controller});
 
   @override
   Widget build(BuildContext context) {
@@ -190,7 +188,6 @@ class SleepTimerChoices extends StatelessWidget {
                   selected: chosenMin == minutes,
                   onTap: () {
                     controller.start(Duration(minutes: minutes));
-                    onChosen(minutes);
                   },
                 ),
               choice(
@@ -199,7 +196,6 @@ class SleepTimerChoices extends StatelessWidget {
                 onTap: () {
                   // Fires when playback actually reaches the next chapter (E42).
                   controller.startChapterEnd();
-                  onChosen(0);
                 },
               ),
               choice(AppStrings.sleepTimerOff, selected: !state.running, onTap: controller.cancel),
@@ -327,7 +323,6 @@ class DetailsSheetContent extends ConsumerWidget {
                 context,
                 chrome: chrome,
                 sleepTimer: sleepTimer!,
-                onChosen: (minutes) => unawaited(ref.read(sleepTimerDefaultProvider.notifier).set(minutes)),
                 hooks: DetailsSheetHooks(onInteraction: hooks.onInteraction),
               ),
             ),

@@ -121,16 +121,6 @@ class SleepTimerController {
     _emit();
   }
 
-  /// Starts with the stored default (data/settings_store.dart
-  /// `sleepTimerDefaultMin`): minutes, or 0 for "Kapitelende".
-  void startWithDefault(int minutes) {
-    if (minutes <= 0) {
-      startChapterEnd();
-    } else {
-      start(Duration(minutes: minutes));
-    }
-  }
-
   void _begin(SleepTimerMode mode, {required Duration remaining}) {
     _mode = mode;
     _remaining = remaining;

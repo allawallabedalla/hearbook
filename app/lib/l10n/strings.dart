@@ -88,8 +88,6 @@ class AppStrings {
     'settingsNightWindowEnd': 'Ende',
     'settingsCheckConnection': 'Verbindung prüfen',
     'settingsChecking': 'Prüfe …',
-    'settingsSleepTimerExplanation':
-        'So lange läuft der Sleep-Timer, wenn du ihn im Player startest.',
     'settingsStorageTitle': 'Speicher',
     'storageTotal': 'Geladen: {size}',
     'storageNone': 'Noch keine Bücher geladen.',
@@ -167,6 +165,18 @@ class AppStrings {
     'settingsServerUrlHint': 'http://nas.local:8000',
     'settingsTokenShow': 'Token zeigen',
     'settingsTokenHide': 'Token verbergen',
+    'settingsCellularChapters': 'Über Mobilfunk kapitelweise laden',
+    'settingsCellularHint': 'Hinweis vor dem Laden über Mobilfunk',
+    'settingsCellularChaptersDescription': 'Ohne WLAN lädt Faden beim Hören nur das aktuelle und das nächste Kapitel, dann immer eins weiter. Ganze Bücher nur im WLAN.',
+    'cellularPromptTitle': 'Über Mobilfunk laden?',
+    'cellularPromptBody': 'Faden lädt beim Hören das aktuelle und das nächste Kapitel.',
+    'cellularPerHour': '1 Std. ≈ {size}',
+    'cellularPerHourApprox': '1 Std. ca. {size}',
+    'cellularChapterSize': '{chapter} ≈ {size}',
+    'cellularChapterSizeApprox': '{chapter} ca. {size}',
+    'cellularPromptDontShowAgain': 'Nicht wieder anzeigen',
+    'cellularPromptLoad': 'Laden',
+    'cellularPromptNotNow': 'Nicht jetzt',
   };
 
   static String _of(String key) {
@@ -244,7 +254,6 @@ class AppStrings {
   static String get settingsNightWindowEnd => _of('settingsNightWindowEnd');
   static String get settingsCheckConnection => _of('settingsCheckConnection');
   static String get settingsChecking => _of('settingsChecking');
-  static String get settingsSleepTimerExplanation => _of('settingsSleepTimerExplanation');
   static String get settingsStorageTitle => _of('settingsStorageTitle');
   static String get storageNone => _of('storageNone');
   static String get deleteConfirmTitle => _of('deleteConfirmTitle');
@@ -377,4 +386,24 @@ class AppStrings {
 
   /// A library status line plus "nur online" (E58).
   static String libraryOnlineOnly(String status) => _of('libraryOnlineOnly').replaceAll('{status}', status);
+
+  static String get settingsCellularChapters => _of('settingsCellularChapters');
+  static String get settingsCellularHint => _of('settingsCellularHint');
+  static String get settingsCellularChaptersDescription => _of('settingsCellularChaptersDescription');
+  static String get cellularPromptTitle => _of('cellularPromptTitle');
+  static String get cellularPromptBody => _of('cellularPromptBody');
+  static String get cellularPromptDontShowAgain => _of('cellularPromptDontShowAgain');
+  static String get cellularPromptLoad => _of('cellularPromptLoad');
+  static String get cellularPromptNotNow => _of('cellularPromptNotNow');
+
+  /// Mobile-data estimate per hour (E66): "1 Std. ≈ 58 MB", or with
+  /// "ca." when estimated from the assumed bit rate.
+  static String cellularPerHour(String size, {bool approximate = false}) =>
+      _of(approximate ? 'cellularPerHourApprox' : 'cellularPerHour').replaceAll('{size}', size);
+
+  /// "Kapitel 3 ≈ 24 MB" (E66), or with "ca.".
+  static String cellularChapterSize(String chapter, String size, {bool approximate = false}) =>
+      _of(approximate ? 'cellularChapterSizeApprox' : 'cellularChapterSize')
+          .replaceAll('{chapter}', chapter)
+          .replaceAll('{size}', size);
 }

@@ -17,7 +17,7 @@ import '../domain/position.dart';
 import '../l10n/strings.dart';
 import '../signals/awake.dart';
 import 'playback_status.dart';
-import 'player.dart' show streamsFromServer;
+import 'player.dart' show LocalSwap, localSwapFor, streamsFromServer;
 import 'undo_hint.dart';
 
 /// What the lock screen / Control Center shows for one chapter file: the
@@ -349,6 +349,42 @@ class FadenAudioHandler extends BaseAudioHandler {
   }
 
   Position currentPosition() => _currentPosition();
+
+  Future<void> _swaps = Future.value();
+
+  /// A chapter of the loaded book finished downloading (decision E66):
+  /// a chapter still ahead plays from [local] from now on, instead of the
+  /// stream. The chapter playing now keeps streaming (switching would
+  /// interrupt it), except after a playback error, when the next play
+  /// loads the list again anyway (E39). One switch at a time.
+  Future<void> useDownloadedFile(String bookId, String fileHash, ja.IndexedAudioSource local) {
+    return _swaps = _swaps.then((_) => _useDownloadedFile(bookId, fileHash, local)).catchError((Object _) {});
+  }
+
+  Future<void> _useDownloadedFile(String bookId, String fileHash, ja.IndexedAudioSource local) async {
+    final manifest = _manifest;
+    if (_bookId != bookId || manifest == null) return;
+    final index = manifest.indexOf(fileHash);
+    final swap = localSwapFor(
+      index: index,
+      length: _sources.length,
+      streaming: streamsFromServer(_sources, index),
+      currentIndex: _player.currentIndex,
+      playerIdle: _player.processingState == ja.ProcessingState.idle,
+    );
+    switch (swap) {
+      case LocalSwap.none:
+        return;
+      case LocalSwap.listOnly:
+        _sources[index] = local;
+      case LocalSwap.inPlayer:
+        // Insert first, then drop the stream entry: both lie after the
+        // current index, so it never moves (no false chapter change).
+        await _player.insertAudioSource(index, local);
+        await _player.removeAudioSourceAt(index + 1);
+        if (_bookId == bookId) _sources[index] = local;
+    }
+  }
 
   Position _currentPosition() {
     final manifest = _manifest;

@@ -123,4 +123,29 @@ void main() {
       expect(m.indexOf('c'), 2);
     });
   });
+
+  group('size_bytes (E66)', () {
+    test('parsed when the server sends it, kept in the cache JSON', () {
+      final m = Manifest.fromJson({
+        'manifest_id': 'm',
+        'files': [
+          {'idx': 0, 'file_hash': 'a', 'duration_ms': 60000, 'size_bytes': 960000},
+        ],
+      });
+      expect(m.files.single.sizeBytes, 960000);
+      expect(m.files.single.toJson()['size_bytes'], 960000);
+      expect(Manifest.fromJson(m.toJson()).files.single.sizeBytes, 960000);
+    });
+
+    test('null from an older server or an older cached detail', () {
+      final m = Manifest.fromJson({
+        'manifest_id': 'm',
+        'files': [
+          {'idx': 0, 'file_hash': 'a', 'duration_ms': 60000},
+        ],
+      });
+      expect(m.files.single.sizeBytes, isNull);
+      expect(m.files.single.toJson().containsKey('size_bytes'), isFalse);
+    });
+  });
 }

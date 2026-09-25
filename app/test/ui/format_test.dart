@@ -90,4 +90,16 @@ void main() {
     expect(initialsFor('  „Über“ allem  '), 'ÜA');
     expect(initialsFor('!!!'), '');
   });
+
+  test('formatCellularEstimate: per hour and the chapter, "ca." when estimated (E66)', () {
+    const mb = 1000 * 1000;
+    expect(
+      formatCellularEstimate(bytesPerHour: 57600000, chapterNumber: 3, chapterBytes: 23 * mb + 400000),
+      '1 Std. ≈ 58 MB · Kapitel 3 ≈ 24 MB',
+    );
+    expect(
+      formatCellularEstimate(bytesPerHour: 28800000, chapterNumber: 1, chapterBytes: 12 * mb, approximate: true),
+      '1 Std. ca. 29 MB · Kapitel 1 ca. 12 MB',
+    );
+  });
 }

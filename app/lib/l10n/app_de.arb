@@ -160,9 +160,6 @@
   "settingsChecking": "Prüfe …",
   "@settingsChecking": { "description": "Während der Verbindungsprüfung." },
 
-  "settingsSleepTimerExplanation": "So lange läuft der Sleep-Timer, wenn du ihn im Player startest.",
-  "@settingsSleepTimerExplanation": { "description": "Erklärung zum Standard des Sleep-Timers." },
-
   "settingsStorageTitle": "Speicher",
   "@settingsStorageTitle": { "description": "Abschnittstitel: geladene Bücher." },
 
@@ -392,5 +389,41 @@
   "@settingsTokenShow": { "description": "Augen-Symbol am Token-Feld, Token ist verborgen (E65)." },
 
   "settingsTokenHide": "Token verbergen",
-  "@settingsTokenHide": { "description": "Augen-Symbol am Token-Feld, Token ist sichtbar (E65)." }
+  "@settingsTokenHide": { "description": "Augen-Symbol am Token-Feld, Token ist sichtbar (E65)." },
+
+  "settingsCellularChapters": "Über Mobilfunk kapitelweise laden",
+  "@settingsCellularChapters": { "description": "Schalter in den Einstellungen (E66), Standard aus." },
+
+  "settingsCellularHint": "Hinweis vor dem Laden über Mobilfunk",
+  "@settingsCellularHint": { "description": "Schalter: vor dem ersten Laden über Mobilfunk je App-Start fragen (E66). Aus nach „Nicht wieder anzeigen“." },
+
+  "settingsCellularChaptersDescription": "Ohne WLAN lädt Faden beim Hören nur das aktuelle und das nächste Kapitel, dann immer eins weiter. Ganze Bücher nur im WLAN.",
+  "@settingsCellularChaptersDescription": { "description": "Erklärung unter den Mobilfunk-Schaltern (E66)." },
+
+  "cellularPromptTitle": "Über Mobilfunk laden?",
+  "@cellularPromptTitle": { "description": "Titel der Frage vor dem ersten Laden über Mobilfunk (E66)." },
+
+  "cellularPromptBody": "Faden lädt beim Hören das aktuelle und das nächste Kapitel.",
+  "@cellularPromptBody": { "description": "Text der Frage vor dem Laden über Mobilfunk (E66)." },
+
+  "cellularPerHour": "1 Std. ≈ {size}",
+  "@cellularPerHour": { "description": "Datenmenge je Stunde des Buchs aus echten Dateigrößen (E66)." },
+
+  "cellularPerHourApprox": "1 Std. ca. {size}",
+  "@cellularPerHourApprox": { "description": "Datenmenge je Stunde, geschätzt mit 64 kbit/s, weil der Server keine Größen kennt (E66)." },
+
+  "cellularChapterSize": "{chapter} ≈ {size}",
+  "@cellularChapterSize": { "description": "Größe des Kapitels, das als Erstes geladen wird (E66)." },
+
+  "cellularChapterSizeApprox": "{chapter} ca. {size}",
+  "@cellularChapterSizeApprox": { "description": "Geschätzte Größe des Kapitels (E66)." },
+
+  "cellularPromptDontShowAgain": "Nicht wieder anzeigen",
+  "@cellularPromptDontShowAgain": { "description": "Häkchen in der Frage vor dem Laden über Mobilfunk (E66)." },
+
+  "cellularPromptLoad": "Laden",
+  "@cellularPromptLoad": { "description": "Zustimmen: über Mobilfunk laden (E66)." },
+
+  "cellularPromptNotNow": "Nicht jetzt",
+  "@cellularPromptNotNow": { "description": "Ablehnen: bis zum nächsten App-Start nicht über Mobilfunk laden (E66)." }
 }

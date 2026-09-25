@@ -1,6 +1,6 @@
 // Tests ui/settings_screen.dart: the night window always shows its current
 // values (once each), is edited through a 24-hour Cupertino time wheel and,
-// like the appearance, the sleep-timer default and the health-data switch,
+// like the appearance, the download switches and the health-data switch,
 // is written to the settings store the moment it changes -- no save button
 // involved. "Verbindung prüfen" shows one distinct message per outcome.
 
@@ -37,10 +37,12 @@ void main() {
     ConnectionCheck check = ConnectionCheck.ok,
     bool overLibrary = false,
     ServerConfig server = ServerConfig.empty,
+    Future<void> Function(SettingsStore store)? seed,
   }) async {
     await tester.runAsync(() async {
       db = AppDatabase.memory();
       store = SettingsStore(db);
+      await seed?.call(store);
       handler = FakeAudioHandler(Journal(db));
     });
     // A tall surface so every section is on screen without scrolling.
@@ -169,17 +171,6 @@ void main() {
     await tearDownAll(tester);
   });
 
-  testWidgets('the sleep-timer default is stored at once', (tester) async {
-    await pumpSettings(tester);
-    await tester.tap(find.text(AppStrings.sleepTimerMinutes(45)));
-    await settle(tester);
-    expect(await tester.runAsync(store.sleepTimerDefaultMin), 45);
-    await tester.tap(find.text(AppStrings.sleepTimerChapterEnd));
-    await settle(tester);
-    expect(await tester.runAsync(store.sleepTimerDefaultMin), 0);
-    await tearDownAll(tester);
-  });
-
   testWidgets('names the health source of the platform', (tester) async {
     await pumpSettings(tester);
     expect(
@@ -231,6 +222,42 @@ void main() {
     await tearDownAll(tester);
   });
 
+  testWidgets('"Über Mobilfunk kapitelweise laden" is off by default, explained and stored at once (E66)',
+      (tester) async {
+    await pumpSettings(tester);
+    final tile = find.widgetWithText(SwitchListTile, AppStrings.settingsCellularChapters);
+    expect(tester.widget<SwitchListTile>(tile).value, isFalse);
+    expect(find.text(AppStrings.settingsCellularChaptersDescription), findsOneWidget);
+    expect(find.text(AppStrings.settingsCellularHint), findsNothing, reason: 'only with the setting on');
+    // In the section of the auto-download switch, explained below it.
+    expect(tester.getTopLeft(tile).dy,
+        greaterThan(tester.getTopLeft(find.widgetWithText(SwitchListTile, AppStrings.settingsAutoDownload)).dy));
+    expect(tester.getTopLeft(find.text(AppStrings.settingsCellularChaptersDescription)).dy,
+        greaterThan(tester.getBottomLeft(tile).dy));
+
+    await tester.tap(find.text(AppStrings.settingsCellularChapters));
+    await settle(tester);
+    expect(await tester.runAsync(store.cellularChapters), isTrue);
+    expect(tester.widget<SwitchListTile>(tile).value, isTrue);
+    final hint = find.widgetWithText(SwitchListTile, AppStrings.settingsCellularHint);
+    expect(tester.widget<SwitchListTile>(hint).value, isTrue, reason: 'asks by default');
+    await tearDownAll(tester);
+  });
+
+  testWidgets('the hint row turns "Nicht wieder anzeigen" back off (E66)', (tester) async {
+    await pumpSettings(tester, seed: (store) async {
+      await store.setCellularChapters(true);
+      await store.setCellularHintOff(true);
+    });
+    final hint = find.widgetWithText(SwitchListTile, AppStrings.settingsCellularHint);
+    expect(tester.widget<SwitchListTile>(hint).value, isFalse);
+    await tester.tap(find.text(AppStrings.settingsCellularHint));
+    await settle(tester);
+    expect(await tester.runAsync(store.cellularHintOff), isFalse);
+    expect(tester.widget<SwitchListTile>(hint).value, isTrue);
+    await tearDownAll(tester);
+  });
+
   testWidgets('grouped sections: explanations below their rows, check marks instead of radios (E65)', (tester) async {
     await pumpSettings(tester);
     expect(find.byType(FadenGroup), findsWidgets);
@@ -244,7 +271,9 @@ void main() {
         find.descendant(of: find.widgetWithText(ListTile, label), matching: find.byIcon(Icons.check));
     expect(check(AppStrings.settingsAppearanceSystem), findsOneWidget, reason: 'the stored choice');
     expect(check(AppStrings.settingsAppearanceDark), findsNothing);
-    expect(check(AppStrings.sleepTimerMinutes(30)), findsOneWidget, reason: 'the stored default');
+    // E67: the sleep-timer default had no effect any more and is gone.
+    expect(find.text(AppStrings.sleepTimerMinutes(30)), findsNothing);
+    expect(find.text(AppStrings.sleepTimerChapterEnd), findsNothing);
     await tester.tap(find.text(AppStrings.settingsAppearanceDark));
     await settle(tester);
     expect(check(AppStrings.settingsAppearanceDark), findsOneWidget);

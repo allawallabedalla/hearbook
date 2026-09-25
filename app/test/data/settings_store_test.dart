@@ -59,4 +59,13 @@ void main() {
     expect(await settings.bookSpeed('book-2'), 0.75);
     expect(await settings.bookSpeed('book-3'), 1.0);
   });
+
+  test('mobile-data chapters (E66): off by default, hint shown by default', () async {
+    expect(await settings.cellularChapters(), isFalse);
+    expect(await settings.cellularHintOff(), isFalse);
+    await settings.setCellularChapters(true);
+    await settings.setCellularHintOff(true);
+    expect(await settings.cellularChapters(), isTrue);
+    expect(await settings.cellularHintOff(), isTrue);
+  });
 }

@@ -8,7 +8,6 @@ import '../data/api.dart' show ConnectionCheck;
 import '../data/book_downloads.dart';
 import '../data/settings_store.dart' show Appearance;
 import '../l10n/strings.dart';
-import '../signals/sleep_timer.dart' show sleepTimerPresetMinutes;
 import 'controls.dart';
 import 'format.dart';
 import 'mini_player.dart';
@@ -16,8 +15,9 @@ import 'providers.dart';
 import 'theme.dart';
 
 /// docs/KONZEPT.md "Screens": "5. Einstellungen": server (with a
-/// connection check), night window, sleep-timer default, appearance
-/// (decision E28), storage, sleep data. Headphone-button remapping beyond
+/// connection check), night window, appearance (decision E28), storage,
+/// downloads (automatic on Wi-Fi, E56; chapter-wise over mobile data,
+/// E66), sleep data. Headphone-button remapping beyond
 /// the fixed +/-30s of section 9 stays out of scope (M7).
 ///
 /// Laid out like the iPhone's settings (decision E65): grouped sections
@@ -197,7 +197,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   Widget build(BuildContext context) {
     final window = ref.watch(nightWindowProvider).value ?? NightWindow.defaults;
     final appearance = ref.watch(appearanceProvider);
-    final sleepDefault = ref.watch(sleepTimerDefaultProvider).value ?? 30;
+    final cellularChapters = ref.watch(cellularChaptersSettingProvider).value ?? false;
+    final cellularHint = ref.watch(cellularHintSettingProvider).value ?? true;
     final autoDownload = ref.watch(autoDownloadSettingProvider).value ?? true;
     final ios = Theme.of(context).platform == TargetPlatform.iOS;
 
@@ -280,18 +281,6 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
             footer: Text(AppStrings.settingsNightWindowExplanation),
           ),
           FadenGroup(
-            header: AppStrings.detailsSleepTimer,
-            rows: [
-              for (final minutes in [...sleepTimerPresetMinutes, 0])
-                FadenCheckRow(
-                  label: minutes <= 0 ? AppStrings.sleepTimerChapterEnd : AppStrings.sleepTimerMinutes(minutes),
-                  selected: minutes <= 0 ? sleepDefault <= 0 : sleepDefault == minutes,
-                  onTap: () => ref.read(sleepTimerDefaultProvider.notifier).set(minutes),
-                ),
-            ],
-            footer: Text(AppStrings.settingsSleepTimerExplanation),
-          ),
-          FadenGroup(
             header: AppStrings.settingsAppearanceTitle,
             rows: [
               for (final option in Appearance.values)
@@ -304,7 +293,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
             footer: Text(AppStrings.settingsAppearanceNightNote),
           ),
           const _StorageSection(),
-          // Decision E56: the open and the next "Weiterhören" book, Wi-Fi only.
+          // Decision E56: the open and the next "Weiterhören" book, Wi-Fi
+          // only; E66: over mobile data chapter by chapter, if wanted.
           FadenGroup(
             rows: [
               SwitchListTile.adaptive(
@@ -312,8 +302,26 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                 onChanged: (on) => ref.read(autoDownloadSettingProvider.notifier).set(on),
                 title: Text(AppStrings.settingsAutoDownload),
               ),
+              SwitchListTile.adaptive(
+                value: cellularChapters,
+                onChanged: (on) => ref.read(cellularChaptersSettingProvider.notifier).set(on),
+                title: Text(AppStrings.settingsCellularChapters),
+              ),
+              if (cellularChapters)
+                SwitchListTile.adaptive(
+                  value: cellularHint,
+                  onChanged: (show) => ref.read(cellularHintSettingProvider.notifier).set(show),
+                  title: Text(AppStrings.settingsCellularHint),
+                ),
             ],
-            footer: Text(AppStrings.settingsAutoDownloadDescription),
+            footer: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Text(AppStrings.settingsAutoDownloadDescription),
+                const SizedBox(height: 6),
+                Text(AppStrings.settingsCellularChaptersDescription),
+              ],
+            ),
           ),
           FadenGroup(
             rows: [

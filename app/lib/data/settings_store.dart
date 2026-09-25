@@ -12,11 +12,12 @@ class SettingsKeys {
   static const serverToken = 'server_token';
   static const nightStartMin = 'night_start_min';
   static const nightEndMin = 'night_end_min';
-  static const sleepTimerDefaultMin = 'sleep_timer_default_min';
   static const lastOpenedBookId = 'last_opened_book_id';
   static const healthDataOptIn = 'health_data_opt_in';
   static const appearance = 'appearance';
   static const autoDownload = 'auto_download';
+  static const cellularChapters = 'cellular_chapters';
+  static const cellularHintOff = 'cellular_hint_off';
 
   /// Prefix of the per-book playback speed (decision E38), one key per
   /// book: `book_speed:<book_id>`.
@@ -85,16 +86,6 @@ class SettingsStore {
   Future<void> setNightEndMin(int minutes) =>
       _set(SettingsKeys.nightEndMin, minutes.toString());
 
-  /// Default sleep-timer duration in minutes (docs/KONZEPT.md
-  /// "Nachtmodus": 15/30/45/60 or chapter-end; 0 encodes chapter-end).
-  Future<int> sleepTimerDefaultMin() async {
-    final v = await _get(SettingsKeys.sleepTimerDefaultMin);
-    return v == null ? 30 : int.parse(v);
-  }
-
-  Future<void> setSleepTimerDefaultMin(int minutes) =>
-      _set(SettingsKeys.sleepTimerDefaultMin, minutes.toString());
-
   /// The book last opened in the player (docs/ARCHITEKTUR.md section 11:
   /// "Start ist der Player" -- main.dart uses this to reopen it straight
   /// away on the next app start instead of landing on the library).
@@ -136,6 +127,21 @@ class SettingsStore {
   Future<bool> autoDownload() async => await _get(SettingsKeys.autoDownload) != 'false';
 
   Future<void> setAutoDownload(bool on) => _set(SettingsKeys.autoDownload, on.toString());
+
+  /// "Über Mobilfunk kapitelweise laden" (decision E66): without Wi-Fi,
+  /// the playing book's current and next chapter are downloaded. Off by
+  /// default: an unset key means false.
+  Future<bool> cellularChapters() async => await _get(SettingsKeys.cellularChapters) == 'true';
+
+  Future<void> setCellularChapters(bool on) => _set(SettingsKeys.cellularChapters, on.toString());
+
+  /// "Nicht wieder anzeigen" in the question before loading over mobile
+  /// data (decision E66): true skips the question in every session. The
+  /// settings row "Hinweis vor dem Laden über Mobilfunk" shows the
+  /// opposite and can switch it back. Unset means false.
+  Future<bool> cellularHintOff() async => await _get(SettingsKeys.cellularHintOff) == 'true';
+
+  Future<void> setCellularHintOff(bool off) => _set(SettingsKeys.cellularHintOff, off.toString());
 
   /// Playback speed of [bookId] (decision E38), 1.0 when never set or
   /// unreadable. Local only: speed is not an event (docs/ARCHITEKTUR.md

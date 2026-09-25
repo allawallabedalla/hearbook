@@ -172,7 +172,6 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
         context,
         chrome: chrome,
         sleepTimer: ref.read(sleepTimerProvider),
-        onChosen: (minutes) => unawaited(ref.read(sleepTimerDefaultProvider.notifier).set(minutes)),
         hooks: DetailsSheetHooks(onInteraction: _onInteraction),
       ),
     );

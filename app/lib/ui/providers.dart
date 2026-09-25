@@ -13,6 +13,7 @@ import '../audio/handler.dart';
 import '../audio/player.dart';
 import '../data/api.dart';
 import '../data/book_downloads.dart';
+import '../data/cellular_downloads.dart';
 import '../data/db.dart';
 import '../data/downloads.dart';
 import '../data/journal.dart';
@@ -280,23 +281,6 @@ class NightWindowController extends AsyncNotifier<NightWindow> {
 
 final nightWindowProvider =
     AsyncNotifierProvider<NightWindowController, NightWindow>(NightWindowController.new);
-
-/// The stored default sleep-timer duration in minutes, 0 meaning
-/// "Kapitelende" (data/settings_store.dart `sleepTimerDefaultMin`, E42).
-/// [set] writes the store first, then updates the state.
-class SleepTimerDefaultController extends AsyncNotifier<int> {
-  @override
-  Future<int> build() => ref.watch(settingsStoreProvider).sleepTimerDefaultMin();
-
-  Future<void> set(int minutes) async {
-    await ref.read(settingsStoreProvider).setSleepTimerDefaultMin(minutes);
-    if (!ref.mounted) return;
-    state = AsyncData(minutes);
-  }
-}
-
-final sleepTimerDefaultProvider =
-    AsyncNotifierProvider<SleepTimerDefaultController, int>(SleepTimerDefaultController.new);
 
 /// The one sleep timer (docs/KONZEPT.md "Nachtmodus", E42), app-wide since
 /// decision E60: the player is a route that closes now, so the timer can
@@ -765,7 +749,8 @@ class PlayerSessionController extends ChangeNotifier {
   /// for probe playback (docs/ARCHITEKTUR.md section 8: "Proben laufen über
   /// einen eigenen Player") instead of re-resolving downloads/server URLs
   /// itself. Null until a book with a configured [DownloadManager] has been
-  /// opened.
+  /// opened. The handler swaps an entry for its file in place once that
+  /// chapter finished downloading (decision E66), so probes use it too.
   List<ja.IndexedAudioSource>? playlistSources;
 
   /// Pause-index offsets (docs/ARCHITEKTUR.md section 4), per `file_hash`,
@@ -1322,4 +1307,115 @@ final offlineWiringProvider = Provider<void>((ref) {
     }
   });
   ref.onDispose(() => unawaited(sub.cancel()));
+});
+
+/// "Über Mobilfunk kapitelweise laden" (decision E66), off by default.
+/// Switching it on starts a pass; off stops a running chapter download.
+class CellularChaptersSettingController extends AsyncNotifier<bool> {
+  @override
+  Future<bool> build() => ref.watch(settingsStoreProvider).cellularChapters();
+
+  Future<void> set(bool on) async {
+    await ref.read(settingsStoreProvider).setCellularChapters(on);
+    if (!ref.mounted) return;
+    state = AsyncData(on);
+    final downloader = ref.read(chapterDownloaderProvider);
+    if (on) {
+      unawaited(downloader?.trigger() ?? Future<void>.value());
+    } else {
+      downloader?.stop();
+    }
+  }
+}
+
+final cellularChaptersSettingProvider =
+    AsyncNotifierProvider<CellularChaptersSettingController, bool>(CellularChaptersSettingController.new);
+
+/// "Hinweis vor dem Laden über Mobilfunk" (decision E66): true while the
+/// question is asked (once per app start); false after "Nicht wieder
+/// anzeigen". Switching it back on asks again from the next app start on.
+class CellularHintSettingController extends AsyncNotifier<bool> {
+  @override
+  Future<bool> build() async => !await ref.watch(settingsStoreProvider).cellularHintOff();
+
+  Future<void> set(bool show) async {
+    await ref.read(settingsStoreProvider).setCellularHintOff(!show);
+    if (!ref.mounted) return;
+    state = AsyncData(show);
+  }
+}
+
+final cellularHintSettingProvider =
+    AsyncNotifierProvider<CellularHintSettingController, bool>(CellularHintSettingController.new);
+
+/// The once-per-session answer (decision E66). Lives as long as the app
+/// process: this provider depends on nothing that changes.
+final cellularConsentProvider = Provider<CellularConsent>((ref) {
+  final settings = ref.watch(settingsStoreProvider);
+  return CellularConsent(hintOff: settings.cellularHintOff, setHintOff: settings.setCellularHintOff);
+});
+
+/// Chapter-wise downloads over mobile data (decision E66). Null without
+/// downloads.
+final chapterDownloaderProvider = Provider<ChapterDownloader?>((ref) {
+  // .notifier: the instance only (see autoDownloaderProvider).
+  final downloads = ref.watch(bookDownloadsProvider.notifier);
+  if (downloads == null) return null;
+  final settings = ref.watch(settingsStoreProvider);
+  final handler = ref.watch(audioHandlerProvider);
+  final downloader = ChapterDownloader(
+    enabled: settings.cellularChapters,
+    connectivity: ref.watch(connectivityCheckProvider),
+    serverReachable: ref.watch(serverReachableProvider),
+    consent: ref.watch(cellularConsentProvider),
+    downloads: downloads,
+    playback: () {
+      final bookId = handler.bookId;
+      final manifest = handler.manifest;
+      if (bookId == null || manifest == null) return null;
+      return ChapterPlayback(
+        bookId: bookId,
+        manifest: manifest,
+        currentIndex: manifest.indexOf(handler.currentPosition().fileHash),
+        playing: handler.playing,
+      );
+    },
+  );
+  ref.onDispose(downloader.dispose);
+  return downloader;
+});
+
+/// Wires downloads to playback (decision E66), watched once by the app
+/// root: a chapter that finished downloading plays from the file from now
+/// on; playback starting and every chapter change let the chapter-wise
+/// download over mobile data roll forward.
+final downloadWiringProvider = Provider<void>((ref) {
+  final downloads = ref.watch(bookDownloadsProvider.notifier);
+  if (downloads == null) return;
+  final handler = ref.watch(audioHandlerProvider);
+  final chapters = ref.watch(chapterDownloaderProvider);
+  void trigger() {
+    if (chapters != null) unawaited(chapters.trigger());
+  }
+
+  final subs = <StreamSubscription<Object?>>[
+    downloads.fileDownloaded.listen((file) {
+      final manifest = handler.manifest;
+      if (handler.bookId != file.bookId || manifest == null) return;
+      final idx = manifest.indexOf(file.fileHash);
+      if (idx < 0) return;
+      unawaited(handler.useDownloadedFile(
+        file.bookId,
+        file.fileHash,
+        localAudioSource(manifest.files[idx], downloads.manager),
+      ));
+    }),
+    handler.playingStream.where((playing) => playing).listen((_) => trigger()),
+    handler.positionStream.map((p) => p.fileHash).distinct().listen((_) => trigger()),
+  ];
+  ref.onDispose(() {
+    for (final sub in subs) {
+      unawaited(sub.cancel());
+    }
+  });
 });

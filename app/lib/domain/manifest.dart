@@ -17,6 +17,10 @@ class ManifestFile {
   final int? disc;
   final int? track;
 
+  /// The file's size in bytes (`size_bytes`, decision E66), for download
+  /// estimates. Null from servers before E66 and in older cached details.
+  final int? sizeBytes;
+
   const ManifestFile({
     required this.idx,
     required this.fileHash,
@@ -24,6 +28,7 @@ class ManifestFile {
     this.title,
     this.disc,
     this.track,
+    this.sizeBytes,
   });
 
   factory ManifestFile.fromJson(Map<String, dynamic> json) => ManifestFile(
@@ -33,6 +38,7 @@ class ManifestFile {
         title: json['title'] as String?,
         disc: json['disc'] as int?,
         track: json['track'] as int?,
+        sizeBytes: json['size_bytes'] as int?,
       );
 
   Map<String, dynamic> toJson() => {
@@ -42,6 +48,7 @@ class ManifestFile {
         if (title != null) 'title': title,
         if (disc != null) 'disc': disc,
         if (track != null) 'track': track,
+        if (sizeBytes != null) 'size_bytes': sizeBytes,
       };
 
   /// The title to show for this chapter: the file's own title when it has a

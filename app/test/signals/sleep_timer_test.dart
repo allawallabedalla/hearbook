@@ -217,17 +217,5 @@ void main() {
         controller.dispose();
       });
     });
-
-    test('startWithDefault: minutes, or 0 for Kapitelende', () {
-      fakeAsync((async) {
-        final controller = SleepTimerController(onExpire: () {}, onVolumeChange: (_) {});
-        controller.startWithDefault(45);
-        expect(controller.state.mode, SleepTimerMode.fixed);
-        expect(controller.state.remaining, const Duration(minutes: 45));
-        controller.startWithDefault(0);
-        expect(controller.state.mode, SleepTimerMode.chapterEnd);
-        controller.dispose();
-      });
-    });
   });
 }

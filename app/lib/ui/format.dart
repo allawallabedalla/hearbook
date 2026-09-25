@@ -99,3 +99,17 @@ String formatBeforeStop(int ms) {
   if (ms < 60 * 1000) return AppStrings.durationSeconds(((ms < 0 ? 0 : ms) + 500) ~/ 1000);
   return formatRemaining(ms);
 }
+
+/// The estimate in the question before loading over mobile data (decision
+/// E66): "1 Std. ≈ 58 MB · Kapitel 3 ≈ 24 MB", rounded up like
+/// [formatRemainingBytes]. [approximate] (no file sizes from the server,
+/// estimated at 64 kbit/s) says "ca." instead of "≈".
+String formatCellularEstimate({
+  required int bytesPerHour,
+  required int chapterNumber,
+  required int chapterBytes,
+  bool approximate = false,
+}) =>
+    '${AppStrings.cellularPerHour(formatRemainingBytes(bytesPerHour), approximate: approximate)}'
+    ' · '
+    '${AppStrings.cellularChapterSize(AppStrings.chapterLabel(chapterNumber), formatRemainingBytes(chapterBytes), approximate: approximate)}';
