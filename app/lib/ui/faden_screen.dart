@@ -374,27 +374,26 @@ class _FadenScreenState extends ConsumerState<FadenScreen> with SingleTickerProv
     final showAlternatives = alternatives.any((i) => i != controller.leiterIndex);
     final recheck = _session.recheckMs;
     final caption = TextStyle(fontSize: FadenTypeSizes.caption, color: tokens.tinteLeise);
+    final time = caption.copyWith(fontFeatures: const [FontFeature.tabularFigures()]);
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         const SizedBox(height: 24),
-        // "**Gefunden.** Weiter ab hier." (E76): the first sentence bold.
-        Text.rich(
-          _firstSentenceBold(_headline()),
-          style: TextStyle(fontSize: FadenTypeSizes.display, color: tokens.tinte, height: 1.2),
-        ),
-        const SizedBox(height: 12),
+        // "**Gefunden.** Weiter ab hier." (E76): the first sentence bold,
+        // the rest on a line of its own (E97).
+        _ResultHeadline(text: _headline(), tokens: tokens),
+        const SizedBox(height: 16),
         if (playing != null)
           _PassageCard(
             tokens: tokens,
             children: [
               Text(
                 _session.passageLabel(playing),
-                style: TextStyle(fontSize: FadenTypeSizes.title, color: tokens.faden),
+                style: TextStyle(fontSize: FadenTypeSizes.title, color: tokens.faden, fontFeatures: const [FontFeature.tabularFigures()]),
               ),
               const SizedBox(height: 4),
-              Text(_session.beforeStopLabel(playing), style: caption),
+              Text(_session.beforeStopLabel(playing), style: time),
             ],
           ),
         if (controller.canGoEarlier) ...[
@@ -451,16 +450,52 @@ class _FadenScreenState extends ConsumerState<FadenScreen> with SingleTickerProv
   }
 }
 
-/// [text] with its first sentence (up to ". ") in bold.
-TextSpan _firstSentenceBold(String text) {
-  final end = text.indexOf('. ');
-  if (end < 0) return TextSpan(text: text);
-  return TextSpan(
-    children: [
-      TextSpan(text: text.substring(0, end + 1), style: const TextStyle(fontWeight: FontWeight.w700)),
-      TextSpan(text: text.substring(end + 1)),
-    ],
-  );
+/// The result's headline (E76, E97): the first sentence (up to ". ") as a
+/// bold large title, the rest below it at [FadenTypeSizes.title], so each
+/// line breaks at the phrase instead of mid-sentence ("Weiter ab /
+/// hier."). Without a second sentence the whole text is the bold title.
+/// One text, so screen readers and finders see the sentence as written.
+class _ResultHeadline extends StatelessWidget {
+  final String text;
+  final FadenTokens tokens;
+
+  const _ResultHeadline({required this.text, required this.tokens});
+
+  @override
+  Widget build(BuildContext context) {
+    final end = text.indexOf('. ');
+    final lead = end < 0 ? text : text.substring(0, end + 1);
+    final rest = end < 0 ? null : text.substring(end + 2);
+    return Text.rich(
+      TextSpan(
+        style: TextStyle(color: tokens.tinte),
+        children: [
+          TextSpan(
+            text: lead,
+            style: const TextStyle(
+              fontSize: FadenTypeSizes.display,
+              fontWeight: FontWeight.w700,
+              letterSpacing: FadenTypeSizes.displayTracking,
+              height: 1.2,
+            ),
+          ),
+          if (rest != null)
+            TextSpan(
+              text: '\n${_keepLastWordsTogether(rest)}',
+              style: const TextStyle(fontSize: FadenTypeSizes.title, height: 1.35),
+            ),
+        ],
+      ),
+      semanticsLabel: text,
+    );
+  }
+}
+
+/// [text] with its last space made non-breaking, so a wrapped line never
+/// leaves one word alone ("Weiter ab deiner / letzten Berührung.").
+String _keepLastWordsTogether(String text) {
+  final at = text.lastIndexOf(' ');
+  return at < 0 ? text : '${text.substring(0, at)}\u00A0${text.substring(at + 1)}';
 }
 
 /// A quiet frame around a passage: a thin `tinte-leise` line on black.
@@ -515,9 +550,9 @@ class _ProbeCard extends StatelessWidget {
         ),
         if (passage != null) ...[
           const SizedBox(height: 8),
-          Text(passage, style: TextStyle(fontSize: FadenTypeSizes.body, color: tokens.faden)),
+          Text(passage, style: TextStyle(fontSize: FadenTypeSizes.body, color: tokens.faden, fontFeatures: const [FontFeature.tabularFigures()])),
           if (beforeStop != null)
-            Text(beforeStop!, style: TextStyle(fontSize: FadenTypeSizes.caption, color: tokens.tinteLeise)),
+            Text(beforeStop!, style: TextStyle(fontSize: FadenTypeSizes.caption, color: tokens.tinteLeise, fontFeatures: const [FontFeature.tabularFigures()])),
         ],
         const SizedBox(height: 12),
         AnimatedBuilder(
@@ -601,7 +636,7 @@ class _HeardRow extends StatelessWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(passage, style: TextStyle(fontSize: FadenTypeSizes.body, color: tokens.tinte)),
+                  Text(passage, style: TextStyle(fontSize: FadenTypeSizes.body, color: tokens.tinte, fontFeatures: const [FontFeature.tabularFigures()])),
                   Text(answer, style: TextStyle(fontSize: FadenTypeSizes.caption, color: tokens.tinteLeise)),
                 ],
               ),
@@ -648,10 +683,10 @@ class _RecheckRow extends StatelessWidget {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(AppStrings.fadenRecheck, style: TextStyle(fontSize: FadenTypeSizes.body, color: tokens.faden)),
-                      Text(
-                        '$passage · $beforeStop',
-                        style: TextStyle(fontSize: FadenTypeSizes.caption, color: tokens.tinteLeise),
-                      ),
+                      // Passage and distance on lines of their own, like
+                      // the passages below (E97).
+                      Text(passage, style: TextStyle(fontSize: FadenTypeSizes.caption, color: tokens.tinteLeise, fontFeatures: const [FontFeature.tabularFigures()])),
+                      Text(beforeStop, style: TextStyle(fontSize: FadenTypeSizes.caption, color: tokens.tinteLeise, fontFeatures: const [FontFeature.tabularFigures()])),
                     ],
                   ),
                 ),
@@ -700,10 +735,10 @@ class _AlternativeRow extends StatelessWidget {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(passage, style: TextStyle(fontSize: FadenTypeSizes.body, color: tokens.tinte)),
+                      Text(passage, style: TextStyle(fontSize: FadenTypeSizes.body, color: tokens.tinte, fontFeatures: const [FontFeature.tabularFigures()])),
                       Text(
                         beforeStop,
-                        style: TextStyle(fontSize: FadenTypeSizes.caption, color: tokens.tinteLeise),
+                        style: TextStyle(fontSize: FadenTypeSizes.caption, color: tokens.tinteLeise, fontFeatures: const [FontFeature.tabularFigures()]),
                       ),
                     ],
                   ),

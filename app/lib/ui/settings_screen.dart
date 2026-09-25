@@ -259,28 +259,20 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                 ),
               ),
             ],
-            footer: Column(
+            // "Speichern" as the full-width capsule, "Verbindung prüfen" as
+            // a quiet text button below (E97), like the "Eingeschlafen?"
+            // question.
+            actions: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                const SizedBox(height: 6),
-                Wrap(
-                  spacing: 12,
-                  runSpacing: 8,
-                  children: [
-                    FilledButton(onPressed: _checking ? null : _saveServer, child: Text(AppStrings.settingsSave)),
-                    OutlinedButton(
-                      onPressed: _checking ? null : _checkConnection,
-                      child: Text(_checking ? AppStrings.settingsChecking : AppStrings.settingsCheckConnection),
-                    ),
-                  ],
+                FilledButton(onPressed: _checking ? null : _saveServer, child: Text(AppStrings.settingsSave)),
+                TextButton(
+                  onPressed: _checking ? null : _checkConnection,
+                  child: Text(_checking ? AppStrings.settingsChecking : AppStrings.settingsCheckConnection),
                 ),
-                if (_saved || _check != null)
-                  Padding(
-                    padding: const EdgeInsets.only(top: 12),
-                    child: ConnectionCheckMessage(check: _check, saved: _saved),
-                  ),
               ],
             ),
+            footer: _saved || _check != null ? ConnectionCheckMessage(check: _check, saved: _saved) : null,
           ),
           FadenGroup(
             header: AppStrings.settingsNightWindowTitle,

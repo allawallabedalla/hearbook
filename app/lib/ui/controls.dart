@@ -108,7 +108,7 @@ class _Segment extends StatelessWidget {
   }
 }
 
-/// Section heading in lists and sheets: 20 sp, no capitals.
+/// Section heading in lists and sheets: 20 sp semibold (E97), no capitals.
 class SectionTitle extends StatelessWidget {
   final String text;
   final Widget? trailing;
@@ -127,7 +127,10 @@ class SectionTitle extends StatelessWidget {
           Expanded(
             child: Semantics(
               header: true,
-              child: Text(text, style: TextStyle(color: tokens.tinte, fontSize: FadenTypeSizes.title)),
+              child: Text(
+                text,
+                style: TextStyle(color: tokens.tinte, fontSize: FadenTypeSizes.title, fontWeight: fadenHeadingWeight),
+              ),
             ),
           ),
           ?trailing,
@@ -147,9 +150,13 @@ class FadenGroup extends StatelessWidget {
   final String? header;
   final Widget? headerTrailing;
   final List<Widget> rows;
+
+  /// Buttons right under the card, as wide as the card (E97: the
+  /// server's "Speichern" capsule), above the [footer].
+  final Widget? actions;
   final Widget? footer;
 
-  const FadenGroup({super.key, this.header, this.headerTrailing, required this.rows, this.footer});
+  const FadenGroup({super.key, this.header, this.headerTrailing, required this.rows, this.actions, this.footer});
 
   /// Side padding of rows inside a group.
   static const double inset = 16;
@@ -194,6 +201,7 @@ class FadenGroup extends StatelessWidget {
                 child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: divided),
               ),
             ),
+          if (actions != null) Padding(padding: const EdgeInsets.only(top: 12), child: actions),
           if (footer != null)
             Padding(
               padding: const EdgeInsets.fromLTRB(inset, 6, inset, 0),

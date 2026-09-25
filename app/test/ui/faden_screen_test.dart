@@ -475,7 +475,7 @@ void main() {
       // not the last wake point an abort would go to.
       expect(handler.resumes.map(_manifest.globalMsFor), [probeAt(0)]);
       // E88: probe 1 recognised says so.
-      expect(find.text(AppStrings.fadenResultStillAwake), findsOneWidget);
+      expect(findHeadline(AppStrings.fadenResultStillAwake), findsOneWidget);
       expect(probePlayer.cues.last, FadenCue.result);
       await tearDownFaden(tester);
     });
@@ -488,7 +488,7 @@ void main() {
       }
       expect(handler.resumes.map(_manifest.globalMsFor), [lo - fs.preroll]);
       await tester.pump();
-      expect(find.text(AppStrings.fadenResultNothing), findsOneWidget);
+      expect(findHeadline(AppStrings.fadenResultNothing), findsOneWidget);
       await tearDownFaden(tester);
     });
 
@@ -496,14 +496,14 @@ void main() {
     /// until the result shows.
     Future<void> runToResult(WidgetTester tester, int knowsUpTo) async {
       await tester.pump(const Duration(milliseconds: 100));
-      for (var i = 0; i < 40 && find.text(AppStrings.fadenResultFound).evaluate().isEmpty; i++) {
+      for (var i = 0; i < 40 && findHeadline(AppStrings.fadenResultFound).evaluate().isEmpty; i++) {
         if (handler.probes.length < probePlayer.probes.length) {
           await answer(tester, known: probeAt(probePlayer.probes.length - 1) <= knowsUpTo);
         } else {
           await tester.pump(const Duration(milliseconds: 100));
         }
       }
-      expect(find.text(AppStrings.fadenResultFound), findsOneWidget);
+      expect(findHeadline(AppStrings.fadenResultFound), findsOneWidget);
     }
 
     testWidgets('the result names the passage and offers only earlier recognised passages', (tester) async {
@@ -567,7 +567,7 @@ void main() {
       await answer(tester, known: true);
       await tester.pump(const Duration(milliseconds: 100));
       expect(m.globalMsFor(handler.resumes.last), unknownAfter.first, reason: 'moved forward by a "kenne ich"');
-      expect(find.text(AppStrings.fadenResultFound), findsOneWidget);
+      expect(findHeadline(AppStrings.fadenResultFound), findsOneWidget);
       await tearDownFaden(tester);
     });
 
@@ -601,7 +601,7 @@ void main() {
       await pumpFaden(tester);
       expect(handler.fadenModeActive, isTrue);
       await runToResult(tester, 20 * 60000);
-      expect(find.text(AppStrings.fadenResultFound), findsOneWidget);
+      expect(findHeadline(AppStrings.fadenResultFound), findsOneWidget);
       expect(handler.fadenModeActive, isFalse);
       await tearDownFaden(tester);
     });
@@ -613,7 +613,7 @@ void main() {
       await tester.tapAt(Offset(proMax.width / 2, proMax.height - 60));
       await tester.pump(const Duration(milliseconds: 400));
       expect(handler.resumes, hasLength(resumes));
-      expect(find.text(AppStrings.fadenResultFound), findsOneWidget);
+      expect(findHeadline(AppStrings.fadenResultFound), findsOneWidget);
       await tearDownFaden(tester);
     });
 
@@ -649,7 +649,7 @@ void main() {
             await pumpFaden(tester, size: size, textScale: scale, longNight: true);
             await runToResult(tester, 20 * 60000);
             expect(tester.takeException(), isNull);
-            expectOnScreen(tester, find.text(AppStrings.fadenResultFound));
+            expectOnScreen(tester, findHeadline(AppStrings.fadenResultFound));
             expectOnScreen(tester, find.text(AppStrings.fadenRecheck));
             expectOnScreen(tester, find.text(AppStrings.fadenDone));
             // "Fertig" is a full-width capsule at the bottom (E76).
@@ -671,3 +671,7 @@ void main() {
     });
   });
 }
+
+/// The result headline (E97) is one text with the rest on its own line;
+/// its semantics label is the sentence as written.
+Finder findHeadline(String text) => find.byWidgetPredicate((w) => w is Text && w.semanticsLabel == text);

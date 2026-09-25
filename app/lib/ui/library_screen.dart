@@ -445,6 +445,7 @@ class _CollapsingTitle extends StatelessWidget {
                           color: tokens.tinte,
                           fontSize: FadenTypeSizes.display,
                           fontWeight: FontWeight.w700,
+                          letterSpacing: FadenTypeSizes.displayTracking,
                         ),
                       ),
                     ),
@@ -674,7 +675,7 @@ class _AuthorHeader extends StatelessWidget {
           author ?? AppStrings.libraryUnknownAuthor,
           maxLines: 2,
           overflow: TextOverflow.ellipsis,
-          style: TextStyle(color: tokens.tinte, fontSize: FadenTypeSizes.body, fontWeight: FontWeight.w700),
+          style: TextStyle(color: tokens.tinte, fontSize: FadenTypeSizes.body, fontWeight: fadenHeadingWeight),
         ),
       ),
     );
@@ -865,7 +866,12 @@ class _EmptyState extends StatelessWidget {
   Widget build(BuildContext context) {
     final tokens = FadenTokens.of(context);
     final at = emphasis == null ? -1 : title.indexOf(emphasis!);
-    final headline = TextStyle(color: tokens.tinte, fontSize: FadenTypeSizes.display, height: 1.2);
+    final headline = TextStyle(
+      color: tokens.tinte,
+      fontSize: FadenTypeSizes.display,
+      height: 1.2,
+      letterSpacing: FadenTypeSizes.displayTracking,
+    );
     const bold = TextStyle(fontWeight: FontWeight.w700);
     // Part of the scroll view, so pull-to-refresh works here too.
     return SliverFillRemaining(
@@ -1388,7 +1394,8 @@ class _StatusText extends StatelessWidget {
       status.line!,
       maxLines: 2,
       overflow: TextOverflow.ellipsis,
-      style: TextStyle(fontSize: FadenTypeSizes.caption, color: color),
+      // "noch 240 MB" counts down while loading: tabular figures (E97).
+      style: TextStyle(fontSize: FadenTypeSizes.caption, color: color, fontFeatures: const [FontFeature.tabularFigures()]),
     );
   }
 }

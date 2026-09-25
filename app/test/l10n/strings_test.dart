@@ -70,7 +70,7 @@ void main() {
     });
 
     test('settingsHealthDataOptInDescription names the source', () {
-      expect(AppStrings.settingsHealthDataOptInDescription(AppStrings.healthSourceIos), contains('aus Health,'));
+      expect(AppStrings.settingsHealthDataOptInDescription(AppStrings.healthSourceIos), contains('aus Health findet'));
     });
 
     test('fadenQuestionsLeft in plain words (E89)', () {

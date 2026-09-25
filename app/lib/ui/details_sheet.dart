@@ -448,6 +448,9 @@ class _ChapterScrubberState extends State<ChapterScrubber> {
     final offset = (_dragMs ?? _pos.offsetMs.toDouble()).clamp(0.0, duration.toDouble());
     final dragging = _dragMs != null;
     final small = TextStyle(color: tokens.tinteLeise, fontSize: FadenTypeSizes.caption);
+    // Counting times keep their width (tabular figures), so the digits do
+    // not jitter while playing or dragging.
+    final time = small.copyWith(fontFeatures: const [FontFeature.tabularFigures()]);
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -515,8 +518,8 @@ class _ChapterScrubberState extends State<ChapterScrubber> {
         Row(
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
-            Text(formatClock(offset.round()), style: small),
-            Text(AppStrings.scrubberRemaining(formatClock(duration - offset.round())), style: small),
+            Text(formatClock(offset.round()), style: time),
+            Text(AppStrings.scrubberRemaining(formatClock(duration - offset.round())), style: time),
           ],
         ),
       ],
@@ -588,9 +591,10 @@ class SleepTimerRow extends StatelessWidget {
           child: ListTile(
             contentPadding: EdgeInsets.zero,
             minTileHeight: fadenMinTapTarget,
+            // Reads as a heading like "Tempo" above it (E97).
             title: Text(
               AppStrings.detailsSleepTimer,
-              style: TextStyle(color: tokens.tinte, fontSize: FadenTypeSizes.title),
+              style: TextStyle(color: tokens.tinte, fontSize: FadenTypeSizes.title, fontWeight: fadenHeadingWeight),
             ),
             trailing: Row(
               mainAxisSize: MainAxisSize.min,
@@ -626,10 +630,19 @@ class _HistoryRow extends StatelessWidget {
   Widget build(BuildContext context) {
     final tokens = FadenTokens.of(context);
     final idx = manifest.indexOf(position.fileHash);
-    final label = idx >= 0 ? manifest.files[idx].displayTitle(AppStrings.chapterLabel(idx + 1)) : '';
+    // "Kapitel 3 · 23:41" like the undo hint and the Faden search's
+    // passages (E97), the chapter's own title below it.
+    final chapter = idx >= 0 ? AppStrings.chapterLabel(idx + 1) : '';
+    final title = idx >= 0 ? manifest.files[idx].displayTitle(chapter) : chapter;
     return ListTile(
       contentPadding: EdgeInsets.zero,
-      title: Text('$label · ${formatClock(position.offsetMs)}', maxLines: 1, overflow: TextOverflow.ellipsis),
+      title: Text(
+        AppStrings.fadenPassage(chapter, formatClock(position.offsetMs)),
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+        style: const TextStyle(fontFeatures: [FontFeature.tabularFigures()]),
+      ),
+      subtitle: title == chapter ? null : Text(title, maxLines: 1, overflow: TextOverflow.ellipsis),
       trailing: Icon(Icons.undo, color: tokens.tinteLeise, semanticLabel: AppStrings.undoAction),
       onTap: onTap,
     );

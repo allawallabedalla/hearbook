@@ -101,8 +101,8 @@ Leitbild ist ein einzelner Faden. Er zeigt den Fortschritt im ganzen Buch und is
 - **Faden:** 3 dp Linie, die im Player um das Cover läuft: oben in der Mitte beginnend im Uhrzeigersinn, mit einer kleinen Lücke oben, wo Anfang und Ende sich treffen. Gehörter Teil in `faden`, Rest in `tinte-leise` mit 40 % Deckkraft, Position als kleiner 8 dp Punkt in `faden`, kein Griff: ziehbar ist nur der Kapitel-Scrubber darunter. Kapitelgrenzen sind 3 dp Lücken im Faden (nur, wo beide Kapitel mindestens 12 dp Linie haben). Hat das Cover keinen Platz, läuft der Faden gerade über die volle Breite (2 dp Lücken). Nachts gedimmt wie das Cover.
 - **Hauptbutton:** mindestens 88 dp, ein Quadrat mit fließend gerundeten Ecken wie das App-Symbol (Squircle). Tagsüber gefüllt in `faden` mit Symbol in `grund`; nachts nur der Umriss in `faden`, damit wenig Licht entsteht.
 - **Kacheln:** ±30 s und die Knöpfe der Leisten auf abgerundeten Quadraten in `karte` (Radius 14–16 dp, sichtbar 44 oder 56 dp, Tippfläche immer 56 dp); tagsüber mit kleinem Schatten, nachts fast schwarz ohne Leuchten.
-- **Hauptaktionen:** „Server einrichten“, „Laden“ im Mobilfunk-Dialog und „Fertig“ nach der Faden-Suche als Kapseln über die volle Breite. Erste Schritte und leere Zustände mit gemischter Schriftstärke („Willkommen bei **Faden**“).
-- **Schrift:** eine Familie, Inter (OFL; neutral, nah an der iPhone-Systemschrift), im App-Bundle in den Stärken 400, 500, 600 und 700. Größen 28, 20, 17, 14 sp. Keine Großbuchstaben-Labels.
+- **Hauptaktionen:** „Server einrichten“, „Speichern“ beim Server (darunter „Verbindung prüfen“ als Textknopf), „Laden“ im Mobilfunk-Dialog und „Fertig“ nach der Faden-Suche als Kapseln über die volle Breite. Erste Schritte und leere Zustände mit gemischter Schriftstärke („Willkommen bei **Faden**“); das Ergebnis der Faden-Suche mit dem fetten Satz in eigener Zeile und dem Rest kleiner darunter („**Gefunden.**“ / „Weiter ab hier.“).
+- **Schrift:** eine Familie, Inter (OFL; neutral, nah an der iPhone-Systemschrift), im App-Bundle in den Stärken 400, 500, 600 und 700. Größen 28, 20, 17, 14 sp: große Titel (28) fett und etwas enger gesetzt, Überschriften (20) halbfett, Knöpfe mittel, Fließtext normal. Zeiten und Countdowns mit gleich breiten Ziffern, damit nichts springt. Keine Großbuchstaben-Labels. Erklärungen unter Einstellungen in einem oder zwei kurzen Sätzen, ohne interne Regeln.
 - **Layout:** eine Spalte. Im Player zentriert, Listen linksbündig. Alle Tippziele mindestens 56 dp.
 - **Bewegung:** ein einziger bewusster Moment: Im Faden-Modus wird der Faden mit jeder Antwort kürzer (300 ms). Sonst keine Deko-Animationen; nur der Player gleitet beim Öffnen nach oben und beim Schließen (Pfeil, Ziehen nach unten) nach unten weg; beim Ziehen folgt er dem Finger. Die System-Einstellung „Bewegung reduzieren“ gilt für alles: Dann folgt der Player dem Finger nicht, sondern schließt beim Loslassen sofort.
 - **Kein Cover vorhanden:** die Initialen des Titels in `faden` auf einer leisen Fläche, in der Hausschrift. Der Titel selbst steht direkt darunter.
@@ -132,6 +132,7 @@ Leitbild ist ein einzelner Faden. Er zeigt den Fortschritt im ganzen Buch und is
 | Leiter | Etwas früher anfangen |
 | Ergebnis schließen | Fertig |
 | Undo-Hinweis | Zurück zu Kapitel 7, 23:41 |
+| Verlauf in den Details | Kapitel 7 · 23:41, darunter der Kapiteltitel |
 | Undo-Hinweis nach der Faden-Suche | Rückgängig: wieder, wo es anhielt · Zurück |
 | Frage nach langer Strecke | Eingeschlafen? |
 | Text der Frage | Du hörst seit über einer Stunde, ohne etwas anzutippen. / Es lief über eine Stunde, ohne dass du etwas angetippt hast. / nachts: Du hörst seit 25 Min., ohne etwas anzutippen. |
@@ -154,7 +155,8 @@ Leitbild ist ein einzelner Faden. Er zeigt den Fortschritt im ganzen Buch und is
 | Große „Weiterhören“-Karte | 34 % · noch 8 Std. |
 | Genre eines Buchs | Genre ändern · Automatisch; offline: Nur mit Verbindung zum Server. |
 | Einstellungen, Probenlänge | Faden-Suche: 4 Sekunden / 6 Sekunden / 8 Sekunden |
-| Einstellungen, Einschlafzeiten | Deine Einschlafzeiten; leer: Noch keine. Nach jeder Faden-Suche in der Nacht steht hier, wann du ungefähr eingeschlafen bist. Erklärung: Ab 5 Nächten fragt Faden zuerst dort, wo du nach dem letzten Tippen meist eingeschlafen bist. |
+| Einstellungen, Einschlafzeiten | Deine Einschlafzeiten; leer: Noch keine. Nach jeder Faden-Suche in der Nacht steht hier, wann du ungefähr eingeschlafen bist. Erklärung: Ab 5 Nächten fragt Faden zuerst dort, wo du meist einschläfst. Zum Löschen nach links wischen. Bleibt auf diesem Gerät. |
+| Nachtfenster, Erklärung | In dieser Zeit achtet Faden darauf, ob du einschläfst. |
 | Nachtfenster-Vorschlag | Vorschlag: 22:30–01:00 übernehmen |
 | Health schreiben | Einschlafzeit in Health eintragen |
 

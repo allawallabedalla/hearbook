@@ -183,7 +183,18 @@ class FadenTypeSizes {
   static const title = 20.0;
   static const body = 17.0;
   static const caption = 14.0;
+
+  /// Letter spacing of the large titles at [display] size (E97): Inter's
+  /// spacing is cut for text sizes and runs loose at 28 sp, so large
+  /// titles close up a little; every smaller size keeps the normal
+  /// spacing.
+  static const displayTracking = -0.4;
 }
+
+/// The weight of section headings at [FadenTypeSizes.title] ("Tempo",
+/// "Weiterhören", dialog titles; E97): semibold, so a heading stands
+/// apart from a 20 sp row without shouting like the bold large titles.
+const FontWeight fadenHeadingWeight = FontWeight.w600;
 
 /// Minimum tap target, KONZEPT.md "Layout": "Alle Tippziele mindestens 56
 /// dp."
@@ -263,24 +274,32 @@ ThemeData buildFadenTheme(FadenTokens tokens) {
     onInverseSurface: onInverseSurface,
     inversePrimary: inversePrimary,
   );
-  TextStyle style(double size, Color color, {FontWeight? weight}) =>
-      TextStyle(fontFamily: fadenFontFamily, fontSize: size, color: color, fontWeight: weight, height: 1.25);
+  TextStyle style(double size, Color color, {FontWeight? weight}) => TextStyle(
+        fontFamily: fadenFontFamily,
+        fontSize: size,
+        color: color,
+        fontWeight: weight,
+        height: 1.25,
+        letterSpacing: size >= FadenTypeSizes.display ? FadenTypeSizes.displayTracking : null,
+      );
+  // One hierarchy (E97): large titles bold, headings semibold, labels
+  // (buttons, menus, chips) medium, body text regular.
   final textTheme = TextTheme(
-    displayLarge: style(FadenTypeSizes.display, tokens.tinte),
-    displayMedium: style(FadenTypeSizes.display, tokens.tinte),
-    displaySmall: style(FadenTypeSizes.display, tokens.tinte),
-    headlineLarge: style(FadenTypeSizes.display, tokens.tinte),
-    headlineMedium: style(FadenTypeSizes.title, tokens.tinte),
-    headlineSmall: style(FadenTypeSizes.title, tokens.tinte),
-    titleLarge: style(FadenTypeSizes.title, tokens.tinte),
-    titleMedium: style(FadenTypeSizes.body, tokens.tinte),
-    titleSmall: style(FadenTypeSizes.body, tokens.tinte),
+    displayLarge: style(FadenTypeSizes.display, tokens.tinte, weight: FontWeight.w700),
+    displayMedium: style(FadenTypeSizes.display, tokens.tinte, weight: FontWeight.w700),
+    displaySmall: style(FadenTypeSizes.display, tokens.tinte, weight: FontWeight.w700),
+    headlineLarge: style(FadenTypeSizes.display, tokens.tinte, weight: FontWeight.w700),
+    headlineMedium: style(FadenTypeSizes.title, tokens.tinte, weight: fadenHeadingWeight),
+    headlineSmall: style(FadenTypeSizes.title, tokens.tinte, weight: fadenHeadingWeight),
+    titleLarge: style(FadenTypeSizes.title, tokens.tinte, weight: fadenHeadingWeight),
+    titleMedium: style(FadenTypeSizes.body, tokens.tinte, weight: FontWeight.w500),
+    titleSmall: style(FadenTypeSizes.body, tokens.tinte, weight: FontWeight.w500),
     bodyLarge: style(FadenTypeSizes.body, tokens.tinte),
     bodyMedium: style(FadenTypeSizes.body, tokens.tinte),
     bodySmall: style(FadenTypeSizes.caption, tokens.tinteLeise),
-    labelLarge: style(FadenTypeSizes.body, tokens.tinte),
-    labelMedium: style(FadenTypeSizes.caption, tokens.tinte),
-    labelSmall: style(FadenTypeSizes.caption, tokens.tinte),
+    labelLarge: style(FadenTypeSizes.body, tokens.tinte, weight: FontWeight.w500),
+    labelMedium: style(FadenTypeSizes.caption, tokens.tinte, weight: FontWeight.w500),
+    labelSmall: style(FadenTypeSizes.caption, tokens.tinte, weight: FontWeight.w500),
   );
   final minTap = const Size(fadenMinTapTarget, fadenMinTapTarget);
   return ThemeData(
@@ -306,7 +325,7 @@ ThemeData buildFadenTheme(FadenTokens tokens) {
       scrolledUnderElevation: 0,
       surfaceTintColor: Colors.transparent,
       centerTitle: true,
-      titleTextStyle: style(FadenTypeSizes.body, tokens.tinte, weight: FontWeight.w700),
+      titleTextStyle: style(FadenTypeSizes.body, tokens.tinte, weight: FontWeight.w600),
       iconTheme: IconThemeData(color: tokens.tinte),
       actionsIconTheme: IconThemeData(color: tokens.tinte),
     ),
@@ -329,7 +348,7 @@ ThemeData buildFadenTheme(FadenTokens tokens) {
     dialogTheme: DialogThemeData(
       backgroundColor: dark ? const Color(0xFF14110E) : tokens.karte,
       surfaceTintColor: Colors.transparent,
-      titleTextStyle: style(FadenTypeSizes.title, tokens.tinte, weight: FontWeight.w700),
+      titleTextStyle: style(FadenTypeSizes.title, tokens.tinte, weight: fadenHeadingWeight),
       contentTextStyle: style(FadenTypeSizes.body, tokens.tinte),
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(FadenRadii.sheet)),
     ),
@@ -403,7 +422,7 @@ ThemeData buildFadenTheme(FadenTokens tokens) {
         foregroundColor: dark ? tokens.faden : tokens.grund,
         minimumSize: minTap,
         side: dark ? BorderSide(color: tokens.faden, width: 1.5) : null,
-        textStyle: style(FadenTypeSizes.body, dark ? tokens.faden : tokens.grund, weight: FontWeight.w700),
+        textStyle: style(FadenTypeSizes.body, dark ? tokens.faden : tokens.grund, weight: FontWeight.w600),
         padding: const EdgeInsets.symmetric(horizontal: 24),
         shape: const StadiumBorder(),
       ),
@@ -413,7 +432,7 @@ ThemeData buildFadenTheme(FadenTokens tokens) {
         foregroundColor: tokens.faden,
         minimumSize: minTap,
         side: BorderSide(color: tokens.linie),
-        textStyle: style(FadenTypeSizes.body, tokens.faden),
+        textStyle: style(FadenTypeSizes.body, tokens.faden, weight: FontWeight.w500),
         padding: const EdgeInsets.symmetric(horizontal: 24),
         shape: const StadiumBorder(),
       ),
@@ -422,7 +441,7 @@ ThemeData buildFadenTheme(FadenTokens tokens) {
       style: TextButton.styleFrom(
         foregroundColor: tokens.faden,
         minimumSize: minTap,
-        textStyle: style(FadenTypeSizes.body, tokens.faden),
+        textStyle: style(FadenTypeSizes.body, tokens.faden, weight: FontWeight.w500),
       ),
     ),
     iconButtonTheme: IconButtonThemeData(

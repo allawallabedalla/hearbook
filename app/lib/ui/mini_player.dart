@@ -110,7 +110,11 @@ class MiniPlayer extends ConsumerWidget {
                                     initial: initial,
                                     text: (pos) =>
                                         AppStrings.remainingTime(formatRemaining(remainingMsAt(manifest, pos))),
-                                    style: TextStyle(color: tokens.tinteLeise, fontSize: FadenTypeSizes.caption),
+                                    style: TextStyle(
+                                      color: tokens.tinteLeise,
+                                      fontSize: FadenTypeSizes.caption,
+                                      fontFeatures: const [FontFeature.tabularFigures()],
+                                    ),
                                     textAlign: TextAlign.start,
                                   ),
                                 ],

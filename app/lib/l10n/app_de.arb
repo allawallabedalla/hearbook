@@ -60,7 +60,7 @@
   "settingsHealthDataOptIn": "Schlafdaten erlauben",
   "@settingsHealthDataOptIn": { "description": "M6: Opt-in-Schalter, KONZEPT.md Screens-Liste (\"Schlafdaten erlauben\")." },
 
-  "settingsHealthDataOptInDescription": "Liest lokal den Schlafbeginn aus {source}, um die Faden-Suche zu verkürzen. Verlässt nie dieses Gerät.",
+  "settingsHealthDataOptInDescription": "Mit deinem Schlafbeginn aus {source} findet Faden die Stelle schneller. Bleibt auf diesem Gerät.",
   "@settingsHealthDataOptInDescription": { "description": "Erklärtext unter dem Schalter, CLAUDE.md Invariante 7 in eigenen Worten. {source} ist healthSourceIos oder healthSourceAndroid.", "placeholders": { "source": {} } },
 
   "detailsChapters": "Kapitel",
@@ -92,8 +92,8 @@
   "settingsNightWindowTitle": "Nachtfenster",
   "@settingsNightWindowTitle": { "description": "Abschnittstitel in den Einstellungen." },
 
-  "settingsNightWindowExplanation": "In dieser Zeit rechnet Faden damit, dass du einschläfst: Läuft das Hörbuch länger als 3 Minuten, ohne dass du etwas tippst oder drückst, bietet Faden danach „Faden aufnehmen“ an, nach 20 Minuten auch, wenn die Kopfhörer die Verbindung verloren haben. Tagsüber nur, wenn Kopfhörer oder Sperrbildschirm die Wiedergabe angehalten haben – nie im Auto.",
-  "@settingsNightWindowExplanation": { "description": "Erklärung zum Nachtfenster (E80, E84)." },
+  "settingsNightWindowExplanation": "In dieser Zeit achtet Faden darauf, ob du einschläfst.",
+  "@settingsNightWindowExplanation": { "description": "Erklärung zum Nachtfenster (E80, E84); seit E97 ein schlichter Satz ohne die Regeln." },
 
   "settingsNightWindowStartPicker": "Nacht beginnt um",
   "@settingsNightWindowStartPicker": { "description": "Titel der Uhrzeitauswahl für den Beginn." },
@@ -119,8 +119,8 @@
   "settingsAppearanceDark": "Dunkel",
   "@settingsAppearanceDark": { "description": "Erscheinungsbild immer dunkel (Nacht-Farben, ohne Nachtmodus-Verhalten)." },
 
-  "settingsAppearanceNightNote": "Steht die Bildschirmhelligkeit unter 30 %, ist Faden immer dunkel und der Player zeigt kein Cover.",
-  "@settingsAppearanceNightNote": { "description": "Hinweis unter dem Erscheinungsbild: die Nachtansicht (Helligkeit unter 30 %, E54) hat Vorrang." },
+  "settingsAppearanceNightNote": "Ist der Bildschirm sehr dunkel, zeigt Faden immer die gedimmte Nachtansicht.",
+  "@settingsAppearanceNightNote": { "description": "Hinweis unter dem Erscheinungsbild: die Nachtansicht (Helligkeit unter 30 %, E54) hat Vorrang; ohne Zahlen (E97)." },
 
   "miniPlayerOpen": "Player öffnen",
   "@miniPlayerOpen": { "description": "Bedienhilfen-Beschriftung des Mini-Players (E29)." },
@@ -304,8 +304,8 @@
   "settingsAutoDownload": "Aktuelle Bücher automatisch laden",
   "@settingsAutoDownload": { "description": "Schalter in den Einstellungen (E56), Standard an." },
 
-  "settingsAutoDownloadDescription": "Lädt im WLAN das offene Buch und das nächste aus „Weiterhören“, solange der Server erreichbar ist. Nie über Mobilfunk.",
-  "@settingsAutoDownloadDescription": { "description": "Erklärung unter dem Schalter settingsAutoDownload (E56)." },
+  "settingsAutoDownloadDescription": "Im WLAN lädt Faden das offene und das nächste Buch.",
+  "@settingsAutoDownloadDescription": { "description": "Erklärung unter dem Schalter settingsAutoDownload (E56); kurz gefasst seit E97." },
 
   "storageFinishedNote": "Zu Ende gehörte Bücher werden automatisch vom Gerät gelöscht. Der Fortschritt bleibt.",
   "@storageFinishedNote": { "description": "Hinweis im Speicher-Abschnitt zum automatischen Löschen (E57)." },
@@ -394,8 +394,8 @@
   "settingsCellularHint": "Hinweis vor dem Laden über Mobilfunk",
   "@settingsCellularHint": { "description": "Schalter: vor dem ersten Laden über Mobilfunk je App-Start fragen (E66). Aus nach „Nicht wieder anzeigen“." },
 
-  "settingsCellularChaptersDescription": "Ohne WLAN lädt Faden beim Hören nur das aktuelle und das nächste Kapitel, dann immer eins weiter. Ganze Bücher nur im WLAN.",
-  "@settingsCellularChaptersDescription": { "description": "Erklärung unter den Mobilfunk-Schaltern (E66)." },
+  "settingsCellularChaptersDescription": "Ohne WLAN lädt Faden nur Kapitel für Kapitel, nie ganze Bücher.",
+  "@settingsCellularChaptersDescription": { "description": "Erklärung unter den Mobilfunk-Schaltern (E66); kurz gefasst seit E97." },
 
   "cellularPromptTitle": "Über Mobilfunk laden?",
   "@cellularPromptTitle": { "description": "Titel der Frage vor dem ersten Laden über Mobilfunk (E66)." },
@@ -505,8 +505,8 @@
   "settingsSleepOnsetsEmpty": "Noch keine. Nach jeder Faden-Suche in der Nacht steht hier, wann du ungefähr eingeschlafen bist.",
   "@settingsSleepOnsetsEmpty": { "description": "Leerer Zustand der Einschlafzeiten (E79)." },
 
-  "settingsSleepOnsetsExplanation": "Die letzte Stelle, die du bei der Faden-Suche wiedererkannt hast, als Uhrzeit, nur aus Nächten oder nach dem Sleep-Timer. Ab 5 Nächten fragt Faden zuerst dort, wo du nach dem letzten Tippen meist eingeschlafen bist. Zum Löschen nach links wischen. Bleibt auf diesem Gerät.",
-  "@settingsSleepOnsetsExplanation": { "description": "Erklärung unter den Einschlafzeiten (E78, E79, E90); Invariante 7 in eigenen Worten." },
+  "settingsSleepOnsetsExplanation": "Ab 5 Nächten fragt Faden zuerst dort, wo du meist einschläfst. Zum Löschen nach links wischen. Bleibt auf diesem Gerät.",
+  "@settingsSleepOnsetsExplanation": { "description": "Erklärung unter den Einschlafzeiten (E78, E79, E90, E97); Invariante 7 in eigenen Worten." },
 
   "settingsNightWindowSuggestion": "Vorschlag: {time} übernehmen",
   "@settingsNightWindowSuggestion": { "description": "Übernimmt das aus den Einschlafzeiten vorgeschlagene Nachtfenster mit einem Tipp (E81). {time} ist z. B. „22:30–01:00“.", "placeholders": { "time": {} } },
@@ -514,8 +514,8 @@
   "settingsHealthWrite": "Einschlafzeit in Health eintragen",
   "@settingsHealthWrite": { "description": "Schalter, Standard aus (E82)." },
 
-  "settingsHealthWriteDescription": "Trägt nach der Faden-Suche „Im Bett“ von der errechneten Einschlafzeit bis zu deiner ersten Berührung am Morgen in Health ein, nur wenn für die Nacht noch keine Schlafdaten da sind. Bleibt auf dem iPhone.",
-  "@settingsHealthWriteDescription": { "description": "Erklärung unter dem Schalter (E82); Invariante 7 in eigenen Worten." },
+  "settingsHealthWriteDescription": "Trägt nach der Faden-Suche ein, wann du ungefähr eingeschlafen bist, wenn Health für die Nacht noch nichts hat. Bleibt auf dem iPhone.",
+  "@settingsHealthWriteDescription": { "description": "Erklärung unter dem Schalter (E82, E97); Invariante 7 in eigenen Worten." },
 
   "settingsHealthWriteDenied": "Health erlaubt Faden das Eintragen nicht. Du kannst es in der Health-App unter Datenzugriff freigeben.",
   "@settingsHealthWriteDenied": { "description": "Hinweis, wenn die Schreib-Berechtigung fehlt (E82)." },

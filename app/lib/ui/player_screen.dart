@@ -682,6 +682,7 @@ class _BookInfo extends StatelessWidget {
             fontWeight: FontWeight.w700,
             color: tokens.tinte,
             height: 1.15,
+            letterSpacing: FadenTypeSizes.displayTracking,
           ),
         ),
         if (author != null && author.isNotEmpty)
