@@ -38,7 +38,7 @@ class FakeLookup:
         self.result = result
         self.calls = 0
 
-    def __call__(self, title, author):
+    def __call__(self, title, author, isbn=None):
         self.calls += 1
         return self.result
 
@@ -149,3 +149,14 @@ def test_put_needs_auth(client, settings):
     )
     assert resp.status_code == 401
     assert row(settings) == (KRIMI, "dnb", 100)
+
+
+def test_book_list_and_detail_include_narrator_and_isbn(client, auth_headers, settings):
+    conn = connect(settings.db_path)
+    conn.execute("UPDATE books SET narrator = 'Stephen Briggs', isbn = '9783837121995'")
+    conn.commit()
+    conn.close()
+    books = client.get("/api/v1/books", headers=auth_headers).json()
+    assert books[0]["narrator"] == "Stephen Briggs"
+    detail = client.get("/api/v1/books/b1", headers=auth_headers).json()
+    assert (detail["narrator"], detail["isbn"]) == ("Stephen Briggs", "9783837121995")

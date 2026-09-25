@@ -1,9 +1,10 @@
 """Genre lookup in public book catalogs (docs/ARCHITEKTUR.md section 3.7).
 
-`lookup(title, author)` asks the Deutsche Nationalbibliothek (SRU, MARC21-
-xml), then Google Books, then Open Library, and returns the first genre one
-of them yields, mapped by the pure `genres` module. Only the book's title
-and author leave the server; no key, no token, no file data.
+`lookup(title, author, isbn)` asks the Deutsche Nationalbibliothek (SRU,
+MARC21-xml; by ISBN first, then by title and author), then Google Books,
+then Open Library, and returns the first genre one of them yields, mapped
+by the pure `genres` module. Only the book's title, author and ISBN leave
+the server; no key, no token, no file data.
 
 Every request goes through one process-wide throttle (at most one request
 per second, across all sources), has a 10 s timeout, a size cap, and sends
@@ -12,6 +13,12 @@ source are logged and skip to the next source; `lookup` never raises them.
 The one exception it does raise is `LookupUnavailable`, when *no* source
 could be reached at all (typically: the NAS has no internet right now), so
 the caller can retry later instead of recording the book as checked.
+
+`CatalogLookup` is one pass's view of the catalogs: it logs a source's
+first failure once and skips a source for the rest of the pass after
+MAX_CONSECUTIVE_FAILURES failed requests in a row. The raw classification
+codes and subjects of every answer are logged at DEBUG, so real catalog
+answers can be inspected (FADEN_LOG_LEVEL=DEBUG).
 """
 
 from __future__ import annotations
@@ -41,6 +48,7 @@ MIN_INTERVAL_S = 1.0
 MAX_RESPONSE_BYTES = 2 * 1024 * 1024
 MAX_RECORDS = 5
 MAX_TERM_CHARS = 200
+MAX_CONSECUTIVE_FAILURES = 2
 
 Fetch = Callable[[str], bytes]
 Throttle = Callable[[], None]
@@ -133,35 +141,58 @@ def clean_author(author: str | None) -> str | None:
 # --- DNB SRU / MARC21-xml ---------------------------------------------------
 
 
-def dnb_query_url(title: str, author: str | None) -> str:
-    query = f'tit="{title}"'
-    if author:
-        query += f' and per="{author}"'
+def _dnb_url(query: str) -> str:
     params = {
         "version": "1.1",
         "operation": "searchRetrieve",
         "query": query,
         "recordSchema": "MARC21-xml",
+        "recordPacking": "xml",
         "maximumRecords": str(MAX_RECORDS),
     }
     return f"{DNB_SRU_URL}?{urlencode(params, quote_via=quote)}"
 
 
+def dnb_query_url(title: str, author: str | None) -> str:
+    query = f'tit="{title}"'
+    if author:
+        query += f' and per="{author}"'
+    return _dnb_url(query)
+
+
+def dnb_isbn_url(isbn: str) -> str:
+    """`num` is the DNB's index for ISBN/ISSN/ISMN (checked against a real
+    answer: num=9783837121995 finds "Der Medicus")."""
+    return _dnb_url(f"num={isbn}")
+
+
 @dataclass
 class MarcCategories:
-    """Classification codes and subject strings of one MARC record."""
+    """Classification codes and subject strings of one MARC record, plus
+    everything classification-like that was seen but not used (for the
+    DEBUG log)."""
 
     codes: list[str] = field(default_factory=list)
     subjects: list[str] = field(default_factory=list)
+    ignored: list[str] = field(default_factory=list)
+    title: str | None = None
 
 
-# 082/083: DDC numbers (083 also carries DNB Sachgruppen such as "B", "830").
+# 082/083: DDC numbers and DNB Sachgruppen. The DNB puts its Sachgruppen in
+# 082 with $2 "23sdnb" and several $a (real answer for "Der Medicus": 082
+# $a 810 $a B $2 23sdnb); every $a counts.
 _MARC_DDC_TAGS = frozenset({"082", "083"})
 # 084: other classifications; only DNB Sachgruppen/DDC are used (by $2).
+# The DNB's 084 with $2 "sswd" (SWD notations like "9.1b") is ignored.
 _MARC_OTHER_CLASS_TAG = "084"
-# 650 topical term, 653 uncontrolled terms (VLB-Warengruppen), 655 genre/
-# form, 689 RSWK subject chain.
-_MARC_SUBJECT_TAGS = frozenset({"650", "653", "655", "689"})
+# 653 uncontrolled terms (VLB-Warengruppen), 655 genre/form. GND topics
+# (600/648/650/651/689: persons, periods, topics, places) describe what a
+# book is about, not its genre ("Arzt", "Geschichte 1021-1025" for a novel),
+# and are only logged.
+_MARC_SUBJECT_TAGS = frozenset({"653", "655"})
+_MARC_TOPIC_TAGS = frozenset({"600", "648", "650", "651", "689"})
+# MARC non-filing markers around a leading article ("\x98Der\x9c Medicus").
+_NON_FILING = str.maketrans("", "", "\x98\x9c")
 
 
 def _local(tag: str) -> str:
@@ -171,7 +202,7 @@ def _local(tag: str) -> str:
 def _subfields(datafield: ET.Element) -> list[tuple[str, str]]:
     out = []
     for sub in datafield:
-        if _local(sub.tag) == "subfield" and sub.text:
+        if _local(sub.tag) == "subfield" and sub.text and sub.text.strip():
             out.append((sub.get("code", ""), sub.text.strip()))
     return out
 
@@ -182,35 +213,72 @@ def _is_marc_record(element: ET.Element) -> bool:
     )
 
 
+def _marc_records(root: ET.Element) -> list[ET.Element]:
+    """MARC <record>s in document order, also when an SRU server packed
+    them as escaped text (recordPacking=string) inside <recordData>."""
+    records = []
+    for element in root.iter():
+        if _is_marc_record(element):
+            records.append(element)
+        elif (
+            _local(element.tag) == "recordData"
+            and len(element) == 0
+            and element.text
+            and "<" in element.text
+        ):
+            records += [r for r in ET.fromstring(element.text.strip()).iter() if _is_marc_record(r)]
+    return records
+
+
+def _describe(tag: str, subs: list[tuple[str, str]]) -> str:
+    return tag + " " + " ".join(f"${code} {value}" for code, value in subs)
+
+
 def parse_marc_records(payload: bytes) -> list[MarcCategories]:
     """All MARC records of an SRU response, in response order. Tolerates
     missing namespaces, unknown fields and empty subfields."""
     root = ET.fromstring(payload)
     records = []
-    for element in root.iter():
-        if not _is_marc_record(element):
-            continue
+    for element in _marc_records(root):
         record = MarcCategories()
         for datafield in element:
             if _local(datafield.tag) != "datafield":
                 continue
             tag = datafield.get("tag", "")
             subs = _subfields(datafield)
-            values_a = [value for code, value in subs if code == "a" and value]
-            if tag in _MARC_DDC_TAGS:
+            values_a = [value for code, value in subs if code == "a"]
+            if tag == "245" and values_a:
+                record.title = _squash(values_a[0].translate(_NON_FILING))
+            elif tag in _MARC_DDC_TAGS:
                 record.codes += values_a
             elif tag == _MARC_OTHER_CLASS_TAG:
                 schemes = [value.lower() for code, value in subs if code == "2"]
                 if not schemes or any("sdnb" in s or "ddc" in s for s in schemes):
                     record.codes += values_a
+                else:
+                    record.ignored.append(_describe(tag, subs))
             elif tag in _MARC_SUBJECT_TAGS:
                 record.subjects += values_a
+            elif tag in _MARC_TOPIC_TAGS:
+                record.ignored.append(_describe(tag, subs))
         records.append(record)
     return records
 
 
 def dnb_genres(payload: bytes) -> list[str | None]:
-    return [map_categories(r.codes, r.subjects) for r in parse_marc_records(payload)]
+    out = []
+    for record in parse_marc_records(payload):
+        genre = map_categories(record.codes, record.subjects)
+        logger.debug(
+            "genre lookup: dnb record %r: codes=%s subjects=%s ignored=%s -> %s",
+            record.title,
+            record.codes,
+            record.subjects,
+            record.ignored,
+            genre,
+        )
+        out.append(genre)
+    return out
 
 
 # --- Google Books ------------------------------------------------------------
@@ -248,7 +316,12 @@ def parse_google_categories(payload: bytes) -> list[list[str]]:
 
 
 def google_genres(payload: bytes) -> list[str | None]:
-    return [map_categories(subjects=c) for c in parse_google_categories(payload)]
+    out = []
+    for categories in parse_google_categories(payload):
+        genre = map_categories(subjects=categories)
+        logger.debug("genre lookup: google categories=%s -> %s", categories, genre)
+        out.append(genre)
+    return out
 
 
 # --- Open Library ------------------------------------------------------------
@@ -272,64 +345,141 @@ def parse_openlibrary_subjects(payload: bytes) -> list[list[str]]:
 
 
 def openlibrary_genres(payload: bytes) -> list[str | None]:
-    return [map_categories(subjects=s) for s in parse_openlibrary_subjects(payload)]
+    out = []
+    for subjects in parse_openlibrary_subjects(payload):
+        genre = map_categories(subjects=subjects)
+        logger.debug("genre lookup: openlibrary subjects=%s -> %s", subjects[:20], genre)
+        out.append(genre)
+    return out
 
 
 # --- lookup ------------------------------------------------------------------
 
 
+def _dnb_urls(title: str | None, author: str | None, isbn: str | None) -> list[str]:
+    urls = []
+    if isbn:
+        urls.append(dnb_isbn_url(isbn))
+    if title:
+        urls.append(dnb_query_url(title, author))
+    return urls
+
+
+def _google_urls(title: str | None, author: str | None, isbn: str | None) -> list[str]:
+    return [google_query_url(title, author)] if title else []
+
+
+def _openlibrary_urls(title: str | None, author: str | None, isbn: str | None) -> list[str]:
+    return [openlibrary_query_url(title, author)] if title else []
+
+
 @dataclass(frozen=True)
 class Source:
-    """One catalog: `name` is stored as books.genre_source."""
+    """One catalog: `name` is stored as books.genre_source. `urls` gives the
+    queries for a book, tried in order until one yields a genre."""
 
     name: str
-    url: Callable[[str, str | None], str]
+    urls: Callable[[str | None, str | None, str | None], list[str]]
     genres: Callable[[bytes], list[str | None]]
 
 
 SOURCES: tuple[Source, ...] = (
-    Source("dnb", dnb_query_url, dnb_genres),
-    Source("google", google_query_url, google_genres),
-    Source("openlibrary", openlibrary_query_url, openlibrary_genres),
+    Source("dnb", _dnb_urls, dnb_genres),
+    Source("google", _google_urls, google_genres),
+    Source("openlibrary", _openlibrary_urls, openlibrary_genres),
 )
+
+
+class CatalogLookup:
+    """Looks books up for one pass. Remembers, per source, how many
+    requests in a row failed: the first failure is logged, and after
+    MAX_CONSECUTIVE_FAILURES the source is skipped for the rest of the pass
+    (one unreachable catalog must not cost 10 s per book)."""
+
+    def __init__(
+        self,
+        *,
+        fetch: Fetch | None = None,
+        throttle: Throttle | None = None,
+        sources: Sequence[Source] = SOURCES,
+    ) -> None:
+        self._fetch = fetch
+        self._throttle = throttle
+        self._sources = tuple(sources)
+        self._failures: dict[str, int] = {}
+        self._logged: set[str] = set()
+
+    @property
+    def skipped(self) -> list[str]:
+        return [name for name, n in self._failures.items() if n >= MAX_CONSECUTIVE_FAILURES]
+
+    def _failed(self, source: str, exc: Exception) -> None:
+        self._failures[source] = self._failures.get(source, 0) + 1
+        if source not in self._logged:
+            self._logged.add(source)
+            logger.info("genre lookup: %s unreachable: %s", source, exc)
+        if self._failures[source] == MAX_CONSECUTIVE_FAILURES:
+            logger.info(
+                "genre lookup: %s failed %d times in a row, skipped for the rest of this pass",
+                source,
+                MAX_CONSECUTIVE_FAILURES,
+            )
+
+    def __call__(
+        self, title: str | None, author: str | None, isbn: str | None = None
+    ) -> tuple[str, str] | None:
+        """(genre, source) of the first source whose best-matching record
+        maps to a genre, else None. Raises only LookupUnavailable."""
+        clean = clean_title(title)
+        who = clean_author(author)
+        isbn = isbn or None
+        # Resolved at call time, so tests can patch the module's defaults.
+        do_fetch = self._fetch if self._fetch is not None else _http_get
+        wait = self._throttle if self._throttle is not None else _default_throttle
+
+        asked = False
+        answered = False
+        for source in self._sources:
+            urls = source.urls(clean, who, isbn)
+            if not urls:
+                continue
+            asked = True
+            if self._failures.get(source.name, 0) >= MAX_CONSECUTIVE_FAILURES:
+                continue
+            for url in urls:
+                try:
+                    wait()
+                    payload = do_fetch(url)
+                except Exception as exc:
+                    self._failed(source.name, exc)
+                    break
+                answered = True
+                self._failures[source.name] = 0
+                try:
+                    genres = source.genres(payload)
+                except Exception as exc:
+                    logger.warning("genre lookup: %s answer not understood: %s", source.name, exc)
+                    logger.debug("genre lookup: %s answer starts %r", source.name, payload[:300])
+                    continue
+                if not genres:
+                    logger.debug("genre lookup: %s has no record for %s", source.name, url)
+                genre = next((g for g in genres if g is not None), None)
+                if genre is not None:
+                    return (genre, source.name)
+
+        if asked and not answered:
+            raise LookupUnavailable("no genre catalog reachable")
+        return None
 
 
 def lookup(
     title: str | None,
     author: str | None,
+    isbn: str | None = None,
     *,
     fetch: Fetch | None = None,
     throttle: Throttle | None = None,
     sources: Sequence[Source] = SOURCES,
 ) -> tuple[str, str] | None:
-    """(genre, source) of the first source whose best-matching record maps
-    to a genre, else None. Raises only LookupUnavailable (see module doc)."""
-    clean = clean_title(title)
-    if clean is None:
-        return None
-    who = clean_author(author)
-    do_fetch = fetch if fetch is not None else _http_get
-    wait = throttle if throttle is not None else _default_throttle
-
-    unreachable = 0
-    for source in sources:
-        try:
-            url = source.url(clean, who)
-            wait()
-            payload = do_fetch(url)
-        except Exception as exc:
-            unreachable += 1
-            logger.info("genre lookup: %s unreachable: %s", source.name, exc)
-            continue
-        try:
-            genres = source.genres(payload)
-        except Exception as exc:
-            logger.warning("genre lookup: %s answer not understood: %s", source.name, exc)
-            continue
-        genre = next((g for g in genres if g is not None), None)
-        if genre is not None:
-            return (genre, source.name)
-
-    if sources and unreachable == len(sources):
-        raise LookupUnavailable("no genre catalog reachable")
-    return None
+    """One book, with a fresh CatalogLookup (see there)."""
+    return CatalogLookup(fetch=fetch, throttle=throttle, sources=sources)(title, author, isbn)

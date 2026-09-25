@@ -20,7 +20,7 @@ from pathlib import Path
 from .audio_hash import audio_hash
 from .duration import AudioProbeError, probe_duration_ms
 from .manifest_rules import FileEntry, compute_order, diff_rescan
-from .metadata import read_book_tags, read_track_tags, resolve_title_author
+from .metadata import BookTags, read_book_tags, read_track_tags, resolve_book_info
 from .pauses import PauseDetectionError, compute_pause_offsets
 
 logger = logging.getLogger(__name__)
@@ -99,6 +99,17 @@ def _walk(folder: Path, out: list[BookFolder]) -> None:
 
     for d in subdirs:
         _walk(d, out)
+
+
+def _author_folder_name(book_path: Path, library: Path | None) -> str | None:
+    """Name of the folder holding the book folder, if that folder is itself
+    below the library root (<root>/<Author>/<Book>/); else None."""
+    if library is None:
+        return None
+    parent = book_path.parent
+    if parent == library or library not in parent.parents:
+        return None
+    return parent.name
 
 
 def _now() -> str:
@@ -247,10 +258,13 @@ def scan_book(
     book_id: str | None,
     noise_db: float,
     silence_s: float,
+    library: Path | None = None,
 ) -> str:
     """Scan a single book folder (already located on disk) and reconcile it
     with the database: hash/probe/tag every file, decide the order (3.2),
-    and apply the rescan rules (3.3)."""
+    apply the rescan rules (3.3) and (re)resolve title/author (3.6).
+    `library` is the scanned root, to tell <Author>/<Book>/ layouts from
+    books directly below the root."""
     entries: list[FileEntry] = []
     path_by_hash: dict[str, Path] = {}
     for bf in folder.files:
@@ -270,32 +284,44 @@ def scan_book(
 
     order_result = compute_order(entries)
 
-    album, author_tag = (None, None)
-    if folder.files:
-        album, author_tag = read_book_tags(folder.files[0].path)
-    title, author = resolve_title_author(folder.path.name, album, author_tag)
+    tags = read_book_tags(folder.files[0].path) if folder.files else BookTags()
+    info = resolve_book_info(
+        folder.path.name, tags, parent_name=_author_folder_name(folder.path, library)
+    )
 
     is_new = book_id is None
     if is_new:
         book_id = str(uuid.uuid4())
         conn.execute(
-            "INSERT INTO books (book_id, path, title, author, incomplete, created_at) "
-            "VALUES (?, ?, ?, ?, 0, ?)",
-            (book_id, str(folder.path), title, author, _now()),
+            "INSERT INTO books (book_id, path, title, author, narrator, isbn, incomplete, "
+            "created_at) VALUES (?, ?, ?, ?, ?, ?, 0, ?)",
+            (book_id, str(folder.path), info.title, info.author, info.narrator, info.isbn, _now()),
         )
         active_row = None
     else:
         previous = conn.execute(
-            "SELECT title, author FROM books WHERE book_id = ?", (book_id,)
+            "SELECT title, author, isbn FROM books WHERE book_id = ?", (book_id,)
         ).fetchone()
+        # Only the descriptive columns change; book_id, manifests and every
+        # position (file_hash, offset_ms) stay as they are (invariant 1).
         conn.execute(
-            "UPDATE books SET path = ?, title = ?, author = ? WHERE book_id = ?",
-            (str(folder.path), title, author, book_id),
+            "UPDATE books SET path = ?, title = ?, author = ?, narrator = ?, isbn = ? "
+            "WHERE book_id = ?",
+            (str(folder.path), info.title, info.author, info.narrator, info.isbn, book_id),
         )
-        if previous is not None and (previous["title"], previous["author"]) != (title, author):
+        lookup_inputs = (info.title, info.author, info.isbn)
+        if previous is not None and tuple(previous) != lookup_inputs:
+            logger.info(
+                "scan: %s is now '%s' / '%s' (was '%s' / '%s')",
+                folder.path.name,
+                info.title,
+                info.author,
+                previous["title"],
+                previous["author"],
+            )
             # Section 3.7: an automatic genre was looked up for the old
-            # title/author; forget it so the next lookup uses the new one.
-            # A manual genre stays.
+            # title/author/ISBN; forget it so the next lookup uses the new
+            # ones. A manual genre stays.
             conn.execute(
                 "UPDATE books SET genre = NULL, genre_source = NULL, genre_checked_at = NULL "
                 "WHERE book_id = ? AND genre_source IS NOT 'manual'",
@@ -378,6 +404,7 @@ def scan_library(
                 book_id=row["book_id"],
                 noise_db=noise_db,
                 silence_s=silence_s,
+                library=library,
             )
             matched.add(row["book_id"])
             books_scanned += 1
@@ -408,6 +435,7 @@ def scan_library(
                     book_id=book_row["book_id"],
                     noise_db=noise_db,
                     silence_s=silence_s,
+                    library=library,
                 )
                 matched.add(book_row["book_id"])
                 remaining_folders.remove(folder)
@@ -425,7 +453,14 @@ def scan_library(
             folder.path.name,
             len(folder.files),
         )
-        scan_book(conn, folder, book_id=None, noise_db=noise_db, silence_s=silence_s)
+        scan_book(
+            conn,
+            folder,
+            book_id=None,
+            noise_db=noise_db,
+            silence_s=silence_s,
+            library=library,
+        )
         books_new += 1
         books_scanned += 1
         conn.commit()

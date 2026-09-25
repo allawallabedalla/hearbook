@@ -350,3 +350,126 @@ def test_scan_library_commits_per_book_not_only_at_end(make_mp3, tmp_path, conn,
     finally:
         release_second_book.set()
         thread.join(timeout=5)
+
+
+# --- title/author resolution on scan and rescan (3.6) ------------------------
+
+
+def _tag_book(path, **frames):
+    from mutagen.id3 import TALB, TIT2, TPE1, TPE2
+
+    kinds = {"album": TALB, "artist": TPE1, "album_artist": TPE2, "title": TIT2}
+    tags = ID3(path)
+    for key, value in frames.items():
+        tags.add(kinds[key](text=[value]))
+    tags.save(path, v2_version=4)
+
+
+@requires_ffmpeg
+def test_author_folder_layout_and_rescan_corrects_old_titles(make_mp3, tmp_path, conn):
+    """<root>/<Author>/<Book>/ as vorleser.net downloads are laid out: the
+    folders name author and title, the tags only lend their punctuation.
+    A rescan corrects titles stored by an older version in place: same
+    book_id and manifest, automatic genre forgotten, manual genre kept."""
+    library = tmp_path / "library"
+    horvath = _make_book(
+        make_mp3,
+        library / "Ödön von Horváth",
+        "36 Stunden Die Geschichte vom Fräulein Pollinger",
+        1,
+    )
+    _tag_book(
+        horvath / "01.mp3",
+        album="Ödön von Horváth - 36 Stunden. Die Geschichte vom Fräulein Pollinger",
+        artist="Sprecher: Wolfram Huke",
+        album_artist="Wolfram Huke",
+        title="36 Stunden 41",
+    )
+    wiesel = _make_book(
+        make_mp3, library / "Christian Morgenstern", "Das aesthetische Wiesel", 1, start_freq=900
+    )
+    _tag_book(
+        wiesel / "01.mp3",
+        album="www.vorleser.net",
+        artist="Albrecht Kaltenhäuser",
+        title="Das ästhetische Wiesel",
+    )
+    medicus = _make_book(make_mp3, library, "Gordon_Der-Medicus_9783837121995", 1, start_freq=1500)
+    _tag_book(medicus / "01.mp3", album="Der Medicus", artist=" Noah Gordon")
+
+    scan_library(conn, library=library, noise_db=-35, silence_s=0.35)
+
+    def books():
+        return {
+            r["path"].rsplit("/", 1)[-1]: dict(r)
+            for r in conn.execute("SELECT * FROM books").fetchall()
+        }
+
+    first = books()
+    assert {k: (v["title"], v["author"], v["narrator"], v["isbn"]) for k, v in first.items()} == {
+        "36 Stunden Die Geschichte vom Fräulein Pollinger": (
+            "36 Stunden. Die Geschichte vom Fräulein Pollinger",
+            "Ödön von Horváth",
+            "Wolfram Huke",
+            None,
+        ),
+        "Das aesthetische Wiesel": (
+            "Das ästhetische Wiesel",
+            "Christian Morgenstern",
+            None,
+            None,
+        ),
+        "Gordon_Der-Medicus_9783837121995": ("Der Medicus", "Noah Gordon", None, "9783837121995"),
+    }
+
+    # What an older version stored, with genres looked up for it.
+    conn.execute(
+        "UPDATE books SET title = 'vorleser.net', author = 'Sprecher: Wolfram Huke', "
+        "genre = 'Romane', genre_source = 'dnb', genre_checked_at = 1 WHERE path = ?",
+        (str(horvath),),
+    )
+    conn.execute(
+        "UPDATE books SET title = 'www.vorleser.net', author = 'Albrecht Kaltenhäuser', "
+        "genre = 'Humor', genre_source = 'manual', genre_checked_at = 1 WHERE path = ?",
+        (str(wiesel),),
+    )
+    conn.execute(
+        "UPDATE books SET genre = 'Romane', genre_source = 'dnb', genre_checked_at = 1 "
+        "WHERE path = ?",
+        (str(medicus),),
+    )
+    conn.commit()
+    manifests_before = conn.execute(
+        "SELECT manifest_id, book_id, status FROM manifests ORDER BY manifest_id"
+    ).fetchall()
+
+    scan_library(conn, library=library, noise_db=-35, silence_s=0.35)
+    after = books()
+
+    for name, row in after.items():
+        assert row["book_id"] == first[name]["book_id"]
+        assert (row["title"], row["author"]) == (first[name]["title"], first[name]["author"])
+    assert [tuple(r) for r in manifests_before] == [
+        tuple(r)
+        for r in conn.execute(
+            "SELECT manifest_id, book_id, status FROM manifests ORDER BY manifest_id"
+        ).fetchall()
+    ]
+    horvath_row = after["36 Stunden Die Geschichte vom Fräulein Pollinger"]
+    assert (horvath_row["genre"], horvath_row["genre_source"]) == (None, None)
+    assert horvath_row["genre_checked_at"] is None
+    wiesel_row = after["Das aesthetische Wiesel"]
+    assert (wiesel_row["genre"], wiesel_row["genre_source"]) == ("Humor", "manual")
+    medicus_row = after["Gordon_Der-Medicus_9783837121995"]  # unchanged: genre kept
+    assert (medicus_row["genre"], medicus_row["genre_source"]) == ("Romane", "dnb")
+
+
+@requires_ffmpeg
+def test_mp3s_directly_in_the_library_root_are_no_author_layout(make_mp3, tmp_path, conn):
+    library = tmp_path / "Hörbuch-Freigabe"
+    library.mkdir()
+    p = make_mp3("01.mp3", segments=[("tone", 0.2)])
+    shutil.move(str(p), library / "01.mp3")
+    scan_library(conn, library=library, noise_db=-35, silence_s=0.35)
+    row = conn.execute("SELECT title, author FROM books").fetchone()
+    assert (row["title"], row["author"]) == ("Hörbuch-Freigabe", None)

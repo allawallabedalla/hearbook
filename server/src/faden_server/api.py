@@ -41,6 +41,11 @@ RANGE_BLOCK = 1024 * 1024
 # an immediate scan.
 INITIAL_RESCAN_DELAY_S = 5.0
 
+# Section 3.7: the first genre pass starts this long after startup, whether
+# or not a scan runs (FADEN_RESCAN_MIN=0) or has finished by then; every
+# scan triggers another one.
+INITIAL_GENRE_DELAY_S = 30.0
+
 # server/static/, alongside src/ (see Dockerfile's `COPY static ./static`).
 STATIC_DIR = Path(__file__).resolve().parents[2] / "static"
 
@@ -271,6 +276,20 @@ def create_app(settings: Settings, *, genre_lookup: Lookup | None = None) -> Fas
     @asynccontextmanager
     async def lifespan(app: FastAPI):
         thread: threading.Thread | None = None
+        refresher: GenreRefresher = app.state.genre_refresher
+        if refresher.enabled:
+            delay_s = INITIAL_GENRE_DELAY_S
+            logger.info("genre lookup: on, first pass in %.0f s and after every scan", delay_s)
+
+            def first_genre_pass() -> None:
+                if not rescan_stop_event.wait(delay_s):
+                    refresher.trigger()
+
+            threading.Thread(
+                target=first_genre_pass, daemon=True, name="faden-genre-startup"
+            ).start()
+        else:
+            logger.info("genre lookup: off (FADEN_GENRE_LOOKUP=0)")
         if settings.rescan_min > 0:
 
             def tick() -> None:
@@ -369,6 +388,7 @@ def create_app(settings: Settings, *, genre_lookup: Lookup | None = None) -> Fas
                     "book_id": book["book_id"],
                     "title": book["title"],
                     "author": book["author"],
+                    "narrator": book["narrator"],
                     "genre": book["genre"],
                     "duration_ms": duration_ms,
                     "status": _book_status(conn, book, active),
@@ -389,6 +409,8 @@ def create_app(settings: Settings, *, genre_lookup: Lookup | None = None) -> Fas
             "book_id": book["book_id"],
             "title": book["title"],
             "author": book["author"],
+            "narrator": book["narrator"],
+            "isbn": book["isbn"],
             "genre": book["genre"],
             "genre_source": book["genre_source"],
             "incomplete": bool(book["incomplete"]),

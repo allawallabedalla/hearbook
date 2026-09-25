@@ -19,6 +19,9 @@ class Settings:
     # FADEN_GENRE_LOOKUP: look up missing genres in public catalogs after a
     # scan (section 3.7). Defaulted so Settings(...) in tests stays short.
     genre_lookup: bool = True
+    # FADEN_LOG_LEVEL: level of Faden's own loggers (faden_server.*);
+    # DEBUG shows e.g. the raw catalog categories of every genre lookup.
+    log_level: str = "INFO"
 
     @property
     def db_path(self) -> Path:
@@ -36,6 +39,14 @@ def _flag(value: str | None, *, default: bool) -> bool:
     if value is None or not value.strip():
         return default
     return value.strip().lower() not in _FALSE_WORDS
+
+
+_LOG_LEVELS = ("DEBUG", "INFO", "WARNING", "ERROR")
+
+
+def _log_level(value: str | None) -> str:
+    level = (value or "").strip().upper()
+    return level if level in _LOG_LEVELS else "INFO"
 
 
 def load_settings(env: dict[str, str] | None = None) -> Settings:
@@ -60,4 +71,5 @@ def load_settings(env: dict[str, str] | None = None) -> Settings:
         silence_db=float(src.get("FADEN_SILENCE_DB", "-35")),
         silence_s=float(src.get("FADEN_SILENCE_S", "0.35")),
         genre_lookup=_flag(src.get("FADEN_GENRE_LOOKUP"), default=True),
+        log_level=_log_level(src.get("FADEN_LOG_LEVEL")),
     )

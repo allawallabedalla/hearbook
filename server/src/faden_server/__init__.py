@@ -11,5 +11,7 @@ def main() -> None:
     from .config import load_settings
 
     settings = load_settings()
+    # Only Faden's own loggers follow FADEN_LOG_LEVEL, not uvicorn's.
+    logging.getLogger("faden_server").setLevel(settings.log_level)
     app = create_app(settings)
     uvicorn.run(app, host="0.0.0.0", port=settings.port)

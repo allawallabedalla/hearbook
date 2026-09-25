@@ -27,7 +27,9 @@ CREATE TABLE IF NOT EXISTS books (
     created_at TEXT NOT NULL,
     genre            TEXT,
     genre_source     TEXT CHECK (genre_source IN ('dnb', 'google', 'openlibrary', 'manual')),
-    genre_checked_at INTEGER
+    genre_checked_at INTEGER,
+    narrator         TEXT,
+    isbn             TEXT
 );
 
 CREATE TABLE IF NOT EXISTS manifests (
@@ -90,7 +92,21 @@ ADDED_COLUMNS: tuple[tuple[str, str, str], ...] = (
         "TEXT CHECK (genre_source IN ('dnb', 'google', 'openlibrary', 'manual'))",
     ),
     ("books", "genre_checked_at", "INTEGER"),
+    ("books", "narrator", "TEXT"),
+    ("books", "isbn", "TEXT"),
 )
+
+
+# Run once, right after the column was added to an existing database.
+AFTER_ADDING: dict[tuple[str, str], str] = {
+    # Decision E101: titles/authors are resolved anew and books get an ISBN,
+    # so every book checked without a genre result is due again right away
+    # instead of after its weekly recheck.
+    ("books", "isbn"): (
+        "UPDATE books SET genre_checked_at = NULL "
+        "WHERE genre IS NULL AND genre_source IS NOT 'manual'"
+    ),
+}
 
 
 def _add_missing_columns(conn: sqlite3.Connection) -> None:
@@ -104,6 +120,10 @@ def _add_missing_columns(conn: sqlite3.Connection) -> None:
             # Another connection migrated between our check and the ALTER.
             if "duplicate column" not in str(exc):
                 raise
+            continue
+        follow_up = AFTER_ADDING.get((table, column))
+        if follow_up is not None:
+            conn.execute(follow_up)
 
 
 # How long a connection waits for a write lock held by another connection

@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Real DNB SRU answer, trimmed: query num=9783837121995 (ISBN of the
+     "Der Medicus" audiobook), recordSchema=MARC21-xml, fetched 2026-09 on
+     the user's NAS. Kept: leader, 020, the classification fields (082 with
+     the DNB Sachgruppen "810" and "B" under $2 23sdnb; 084 with SWD
+     notations under $2 sswd), 100, 245 with the MARC non-filing markers
+     U+0098/U+009C, 336 and the GND subject fields 600/648/650/651. -->
+<searchRetrieveResponse xmlns="http://www.loc.gov/zing/srw/">
+  <version>1.1</version>
+  <numberOfRecords>1</numberOfRecords>
+  <records>
+    <record>
+      <recordSchema>MARC21-xml</recordSchema>
+      <recordPacking>xml</recordPacking>
+      <recordData>
+        <record xmlns="http://www.loc.gov/MARC21/slim" type="Bibliographic">
+          <leader>00000nim a2200000uc 4500</leader>
+          <datafield tag="020" ind1=" " ind2=" "><subfield code="a">9783837121995</subfield><subfield code="9">978-3-8371-2199-5</subfield></datafield>
+          <datafield tag="082" ind1="7" ind2="4"><subfield code="8">2\p</subfield><subfield code="a">810</subfield><subfield code="a">B</subfield><subfield code="q">DE-101</subfield><subfield code="2">23sdnb</subfield></datafield>
+          <datafield tag="084" ind1=" " ind2=" "><subfield code="a">9.1b</subfield><subfield code="a">27.1b</subfield><subfield code="a">4.7p</subfield><subfield code="a">27.20p</subfield><subfield code="a">27.1a</subfield><subfield code="q">DE-101</subfield><subfield code="2">sswd</subfield></datafield>
+          <datafield tag="100" ind1="1" ind2=" "><subfield code="a">Gordon, Noah</subfield><subfield code="d">1926-2021</subfield><subfield code="e">Verfasser</subfield><subfield code="4">aut</subfield></datafield>
+          <datafield tag="245" ind1="1" ind2="0"><subfield code="a">&#152;Der&#156; Medicus</subfield><subfield code="c">Noah Gordon</subfield></datafield>
+          <datafield tag="336" ind1=" " ind2=" "><subfield code="a">gesprochenes Wort</subfield><subfield code="b">spw</subfield><subfield code="2">rdacontent</subfield></datafield>
+          <datafield tag="600" ind1="0" ind2="7"><subfield code="a">Avicenna</subfield><subfield code="2">gnd</subfield></datafield>
+          <datafield tag="648" ind1=" " ind2="7"><subfield code="a">Geschichte 1021-1025</subfield><subfield code="2">gnd</subfield></datafield>
+          <datafield tag="650" ind1=" " ind2="7"><subfield code="a">Waisenkind</subfield><subfield code="2">gnd</subfield></datafield>
+          <datafield tag="650" ind1=" " ind2="7"><subfield code="a">Arzt</subfield><subfield code="2">gnd</subfield></datafield>
+          <datafield tag="651" ind1=" " ind2="7"><subfield code="a">London</subfield><subfield code="2">gnd</subfield></datafield>
+        </record>
+      </recordData>
+      <recordPosition>1</recordPosition>
+    </record>
+  </records>
+</searchRetrieveResponse>

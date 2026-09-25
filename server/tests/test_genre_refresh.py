@@ -92,7 +92,7 @@ class RecordingLookup:
         self.result = result
         self.titles: list[str | None] = []
 
-    def __call__(self, title, author):
+    def __call__(self, title, author, isbn=None):
         self.titles.append(title)
         if isinstance(self.result, BaseException):
             raise self.result
@@ -193,7 +193,7 @@ def test_manual_genre_set_during_a_lookup_wins(tmp_path):
     db_path = tmp_path / "faden.db"
     add_book(db_path, "b1")
 
-    def lookup(title, author):
+    def lookup(title, author, isbn=None):
         # the user picks a genre while the catalog request is in flight
         conn = connect(db_path)
         conn.execute("UPDATE books SET genre = ?, genre_source = 'manual'", (HUMOR,))
@@ -210,7 +210,7 @@ def test_unexpected_lookup_results_are_ignored(tmp_path):
     add_book(db_path, "b1")
     add_book(db_path, "b2")
     results = iter([("Horror", "dnb"), (KRIMI, "amazon")])
-    run_genre_pass(db_path, lambda t, a: next(results), now=lambda: NOW)
+    run_genre_pass(db_path, lambda t, a, i: next(results), now=lambda: NOW)
     assert tuple(book(db_path, "b1")) == (None, None, NOW)
     assert tuple(book(db_path, "b2")) == (None, None, NOW)
 
@@ -255,7 +255,7 @@ def test_refresher_runs_in_the_background_and_rearms(tmp_path):
     release = threading.Event()
     titles = []
 
-    def slow_lookup(title, author):
+    def slow_lookup(title, author, isbn=None):
         titles.append(title)
         started.set()
         release.wait(timeout=5)
@@ -326,7 +326,7 @@ def test_rescan_answers_before_the_lookup_and_without_holding_the_lock(
 
     app = None
 
-    def blocking_lookup(title, author):
+    def blocking_lookup(title, author, isbn=None):
         lock_free_during_lookup.append(not app.state.scan_lock.locked())
         in_lookup.set()
         release.wait(timeout=10)
@@ -452,3 +452,135 @@ def test_a_new_title_forgets_the_automatic_genre_but_keeps_a_manual_one(make_mp3
         "Mort (Neuauflage)": (None, None, None),
         "Eric (Neuauflage)": (HUMOR, "manual", 1),
     }
+
+
+# --- ISBN, stale results, observability ----------------------------------------
+
+
+def test_the_lookup_gets_the_isbn(tmp_path):
+    db_path = tmp_path / "faden.db"
+    add_book(db_path, "b1")
+    conn = connect(db_path)
+    conn.execute("UPDATE books SET isbn = '9783837121995'")
+    conn.commit()
+    conn.close()
+    seen = []
+    run_genre_pass(db_path, lambda t, a, i: seen.append((t, a, i)), now=lambda: NOW)
+    assert seen == [("b1", "Autorin", "9783837121995")]
+
+
+def test_a_result_for_an_old_title_is_dropped(tmp_path):
+    """A scan renames the book while its lookup is in flight: the result
+    belongs to the old title and must not be stored; the book stays due
+    and is looked up again under its new title in the same pass."""
+    db_path = tmp_path / "faden.db"
+    add_book(db_path, "b1", title="vorleser.net")
+    titles = []
+
+    def lookup(title, author, isbn=None):
+        titles.append(title)
+        if len(titles) == 1:
+            conn = connect(db_path)
+            conn.execute("UPDATE books SET title = 'Rumpelstilzchen'")
+            conn.commit()
+            conn.close()
+            return (KRIMI, "dnb")
+        return (HUMOR, "google")
+
+    run_genre_pass(db_path, lookup, now=lambda: NOW)
+    assert titles == ["vorleser.net", "Rumpelstilzchen"]
+    assert tuple(book(db_path, "b1")) == (HUMOR, "google", NOW)
+
+
+def test_a_pass_logs_start_every_book_and_a_summary(tmp_path, caplog):
+    db_path = tmp_path / "faden.db"
+    add_book(db_path, "b1", title="Der Medicus")
+    add_book(db_path, "b2", title="Unbekannt")
+    add_book(db_path, "b3", checked_at=NOW - DAY)
+    results = iter([(KRIMI, "dnb"), None])
+    with caplog.at_level("INFO", logger="faden_server.genre_refresh"):
+        run_genre_pass(db_path, lambda t, a, i: next(results), now=lambda: NOW)
+    lines = [r.getMessage() for r in caplog.records]
+    assert lines[0] == (
+        "genre lookup: 2 books due (1 more without genre wait for their weekly recheck)"
+    )
+    assert lines[1] == "genre lookup: 'Der Medicus' / 'Autorin' → Krimi & Thriller (dnb)"
+    assert lines[2] == "genre lookup: 'Unbekannt' / 'Autorin' → nichts gefunden"
+    assert lines[3].startswith("genre lookup done: 2 books, 1 genres found, 1 without result")
+
+
+def test_an_idle_pass_is_quiet_unless_it_is_the_first(tmp_path, caplog):
+    db_path = tmp_path / "faden.db"
+    add_book(db_path, "b1", checked_at=NOW - DAY)
+    with caplog.at_level("INFO", logger="faden_server.genre_refresh"):
+        run_genre_pass(db_path, RecordingLookup(), now=lambda: NOW)
+        assert caplog.records == []
+        run_genre_pass(db_path, RecordingLookup(), now=lambda: NOW, log_idle=True)
+    assert [r.getMessage() for r in caplog.records] == [
+        "genre lookup: 0 books due (1 more without genre wait for their weekly recheck)"
+    ]
+
+
+def test_adding_the_isbn_column_makes_unsuccessful_checks_due_again(tmp_path):
+    db_path = tmp_path / "old.db"
+    old = sqlite3.connect(db_path)
+    old.executescript(
+        """
+        CREATE TABLE books (
+            book_id TEXT PRIMARY KEY, path TEXT NOT NULL, title TEXT, author TEXT,
+            incomplete INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL,
+            genre TEXT, genre_source TEXT, genre_checked_at INTEGER
+        );
+        INSERT INTO books VALUES ('none', '/l/a', 'A', NULL, 0, 'x', NULL, NULL, 5);
+        INSERT INTO books VALUES ('found', '/l/b', 'B', NULL, 0, 'x', 'Romane', 'dnb', 5);
+        INSERT INTO books VALUES ('manual', '/l/c', 'C', NULL, 0, 'x', 'Humor', 'manual', 5);
+        """
+    )
+    old.commit()
+    old.close()
+
+    def checked():
+        conn = connect(db_path)
+        try:
+            return {
+                r["book_id"]: r["genre_checked_at"]
+                for r in conn.execute("SELECT book_id, genre_checked_at FROM books")
+            }
+        finally:
+            conn.close()
+
+    assert checked() == {"none": None, "found": 5, "manual": 5}
+    conn = connect(db_path)
+    columns = {r["name"] for r in conn.execute("PRAGMA table_info(books)")}
+    conn.execute("UPDATE books SET genre_checked_at = 9 WHERE book_id = 'none'")
+    conn.commit()
+    conn.close()
+    assert {"narrator", "isbn"} <= columns
+    # already migrated: nothing is reset again
+    assert checked() == {"none": 9, "found": 5, "manual": 5}
+
+
+def test_a_first_pass_runs_shortly_after_startup_without_any_scan(settings, monkeypatch):
+    monkeypatch.setattr(api_module, "INITIAL_GENRE_DELAY_S", 0.0)
+    add_book(settings.db_path, "b1")
+    called = threading.Event()
+
+    def lookup(title, author, isbn=None):
+        called.set()
+        return (KRIMI, "dnb")
+
+    app = create_app(replace(settings, rescan_min=0), genre_lookup=lookup)
+    with TestClient(app):
+        assert called.wait(timeout=5), "no genre pass after startup"
+        app.state.genre_refresher.join(timeout=5)
+    assert book(settings.db_path, "b1")["genre"] == KRIMI
+
+
+def test_no_startup_pass_when_the_lookup_is_off(settings, monkeypatch):
+    monkeypatch.setattr(api_module, "INITIAL_GENRE_DELAY_S", 0.0)
+    add_book(settings.db_path, "b1")
+    lookup = RecordingLookup()
+    app = create_app(replace(settings, rescan_min=0, genre_lookup=False), genre_lookup=lookup)
+    with TestClient(app):
+        pass
+    assert lookup.titles == []

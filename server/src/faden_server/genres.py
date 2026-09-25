@@ -52,9 +52,11 @@ GENRE_PRIORITY: dict[str, int] = {
 }
 
 # Classification codes, matched against the normalized code (upper case,
-# no spaces): DNB Sachgruppen ("B", "K", "830", "741.5") and DDC numbers
-# ("833.914"). A row mapped to None marks a code as known-but-genreless and
-# stops further rows for that code.
+# no spaces): DNB Sachgruppen ("B", "K", "830", "741.5"; the DNB sends them
+# in MARC 082 with $2 "23sdnb", e.g. "810" and "B" for a novel) and DDC
+# numbers ("833.914"). Kept conservative: no Sachgruppe says "Krimi" or
+# "Fantasy", those come only from subjects. A row mapped to None marks a
+# code as known-but-genreless and stops further rows for that code.
 CODE_RULES: tuple[tuple[str, str | None], ...] = (
     (r"K", KINDER),  # Sachgruppe K: Kinder- und Jugendliteratur
     (r"B", ROMANE),  # Sachgruppe B: Belletristik

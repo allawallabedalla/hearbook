@@ -38,3 +38,12 @@ def test_short_token_raises():
 def test_valid_token_is_accepted():
     settings = load_settings(_env())
     assert settings.token == VALID_TOKEN
+
+
+@pytest.mark.parametrize(
+    ("value", "level"),
+    [(None, "INFO"), ("debug", "DEBUG"), (" WARNING ", "WARNING"), ("verbose", "INFO")],
+)
+def test_log_level(value, level):
+    env = _env() if value is None else _env(FADEN_LOG_LEVEL=value)
+    assert load_settings(env).log_level == level

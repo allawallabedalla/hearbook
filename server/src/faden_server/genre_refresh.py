@@ -1,11 +1,16 @@
 """Background genre lookups after a scan (docs/ARCHITEKTUR.md section 3.7).
 
-After every scan (initial, periodic, manual) `GenreRefresher.trigger()`
-starts one background thread, outside `scan_lock`, that looks up every book
-whose genre is still unknown: genre NULL, source not 'manual', and never
-checked or last checked at least RECHECK_AFTER_S ago. A manual genre is
-never overwritten, not even by a lookup that was already in flight when
-the genre was set (the UPDATE itself checks the source).
+Shortly after startup and after every scan (initial, periodic, manual)
+`GenreRefresher.trigger()` starts one background thread, outside
+`scan_lock`, that looks up every book whose genre is still unknown: genre
+NULL, source not 'manual', and never checked or last checked at least
+RECHECK_AFTER_S ago. A manual genre is never overwritten, not even by a
+lookup that was already in flight when the genre was set, and a result
+for a title/author/ISBN that changed meanwhile is dropped (the UPDATE
+itself checks both).
+
+Every pass that has work logs at INFO: how many books are due, one line
+per book with its result, and a summary.
 """
 
 from __future__ import annotations
@@ -26,23 +31,24 @@ RECHECK_AFTER_S = 7 * 24 * 60 * 60
 
 AUTO_SOURCES = frozenset({"dnb", "google", "openlibrary"})
 
-Lookup = Callable[[str | None, str | None], tuple[str, str] | None]
+# (title, author, isbn) -> (genre, source) or None
+Lookup = Callable[[str | None, str | None, str | None], tuple[str, str] | None]
 
 
-def _default_lookup(title: str | None, author: str | None) -> tuple[str, str] | None:
-    # Resolved at call time, so tests can patch genre_lookup.lookup.
-    return genre_lookup.lookup(title, author)
+_DUE = """
+    genre IS NULL
+    AND genre_source IS NOT 'manual'
+    AND (genre_checked_at IS NULL OR genre_checked_at <= ?)
+"""
 
 
 def next_candidate(conn: sqlite3.Connection, now_s: int) -> sqlite3.Row | None:
     """The next book due for a lookup: never-checked books first, then the
     longest-unchecked ones."""
     return conn.execute(
-        """
-        SELECT book_id, title, author FROM books
-        WHERE genre IS NULL
-          AND genre_source IS NOT 'manual'
-          AND (genre_checked_at IS NULL OR genre_checked_at <= ?)
+        f"""
+        SELECT book_id, title, author, isbn FROM books
+        WHERE {_DUE}
         ORDER BY genre_checked_at IS NOT NULL, genre_checked_at, created_at, book_id
         LIMIT 1
         """,
@@ -50,31 +56,53 @@ def next_candidate(conn: sqlite3.Connection, now_s: int) -> sqlite3.Row | None:
     ).fetchone()
 
 
+def due_counts(conn: sqlite3.Connection, now_s: int) -> tuple[int, int]:
+    """(books due now, books without genre waiting for their recheck)."""
+    due = conn.execute(
+        f"SELECT COUNT(*) FROM books WHERE {_DUE}", (now_s - RECHECK_AFTER_S,)
+    ).fetchone()[0]
+    waiting = conn.execute(
+        "SELECT COUNT(*) FROM books WHERE genre IS NULL AND genre_source IS NOT 'manual' "
+        "AND genre_checked_at > ?",
+        (now_s - RECHECK_AFTER_S,),
+    ).fetchone()[0]
+    return due, waiting
+
+
 def record_result(
     conn: sqlite3.Connection,
-    book_id: str,
+    book: sqlite3.Row,
     result: tuple[str, str] | None,
     now_s: int,
-) -> None:
+) -> bool:
     """Store a lookup result (or just the check time) unless the book got a
-    manual genre in the meantime."""
+    manual genre, or a new title/author/ISBN, in the meantime. Returns
+    whether it was stored."""
     if result is not None:
         genre, source = result
         if genre not in GENRES or source not in AUTO_SOURCES:
             logger.warning("genre lookup: ignoring unexpected result %r", result)
             result = None
+    unchanged = (
+        "WHERE book_id = ? AND genre_source IS NOT 'manual' "
+        "AND title IS ? AND author IS ? AND isbn IS ?"
+    )
+    key = (book["book_id"], book["title"], book["author"], book["isbn"])
     if result is None:
-        conn.execute(
-            "UPDATE books SET genre_checked_at = ? "
-            "WHERE book_id = ? AND genre_source IS NOT 'manual'",
-            (now_s, book_id),
-        )
+        cur = conn.execute(f"UPDATE books SET genre_checked_at = ? {unchanged}", (now_s, *key))
     else:
-        conn.execute(
-            "UPDATE books SET genre = ?, genre_source = ?, genre_checked_at = ? "
-            "WHERE book_id = ? AND genre_source IS NOT 'manual'",
-            (result[0], result[1], now_s, book_id),
+        cur = conn.execute(
+            f"UPDATE books SET genre = ?, genre_source = ?, genre_checked_at = ? {unchanged}",
+            (result[0], result[1], now_s, *key),
         )
+    return cur.rowcount > 0
+
+
+def _describe(book: sqlite3.Row) -> str:
+    text = f"'{book['title']}' / '{book['author'] or '?'}'"
+    if book["isbn"]:
+        text += f" (ISBN {book['isbn']})"
+    return text
 
 
 def run_genre_pass(
@@ -83,33 +111,58 @@ def run_genre_pass(
     *,
     now: Callable[[], float] = time.time,
     stop_event: threading.Event | None = None,
+    log_idle: bool = False,
 ) -> int:
     """Look up due books one at a time until none is left (books added by a
     scan while this runs are picked up too). Returns how many were looked
     up. Stops early, without marking the book checked, when no catalog is
-    reachable; the next scan tries again."""
-    looked_up = 0
+    reachable; the next scan tries again. `log_idle` logs the start line
+    at INFO even when nothing is due (the first pass after startup)."""
+    looked_up = found = 0
+    started = time.monotonic()
     conn = db.connect(db_path)
     try:
+        due, waiting = due_counts(conn, int(now()))
+        logger.log(
+            logging.INFO if due or log_idle else logging.DEBUG,
+            "genre lookup: %d books due (%d more without genre wait for their weekly recheck)",
+            due,
+            waiting,
+        )
         while stop_event is None or not stop_event.is_set():
             row = next_candidate(conn, int(now()))
             if row is None:
                 break
             try:
-                result = lookup(row["title"], row["author"])
+                result = lookup(row["title"], row["author"], row["isbn"])
             except genre_lookup.LookupUnavailable:
-                logger.info("genre lookup: no catalog reachable, retrying after the next scan")
+                logger.info(
+                    "genre lookup: no catalog reachable, stopping; next try after the next scan"
+                )
                 break
             except Exception:
                 logger.exception("genre lookup failed for book %s", row["book_id"])
                 result = None
-            record_result(conn, row["book_id"], result, int(now()))
+            stored = record_result(conn, row, result, int(now()))
             conn.commit()
             looked_up += 1
+            if not stored:
+                logger.info("genre lookup: %s changed meanwhile, result dropped", _describe(row))
+            elif result is None:
+                logger.info("genre lookup: %s → nichts gefunden", _describe(row))
+            else:
+                found += 1
+                logger.info("genre lookup: %s → %s (%s)", _describe(row), result[0], result[1])
     finally:
         conn.close()
     if looked_up:
-        logger.info("genre lookup: %d books looked up", looked_up)
+        logger.info(
+            "genre lookup done: %d books, %d genres found, %d without result, %.0f s",
+            looked_up,
+            found,
+            looked_up - found,
+            time.monotonic() - started,
+        )
     return looked_up
 
 
@@ -128,13 +181,15 @@ class GenreRefresher:
     ) -> None:
         self._db_path = db_path
         self._enabled = enabled
-        self._lookup = lookup if lookup is not None else _default_lookup
+        # None: a fresh genre_lookup.CatalogLookup per pass.
+        self._lookup = lookup
         self._now = now
         self._lock = threading.Lock()
         self._stop = threading.Event()
         self._running = False
         self._again = False
         self._thread: threading.Thread | None = None
+        self._passes = 0
 
     @property
     def enabled(self) -> bool:
@@ -159,10 +214,18 @@ class GenreRefresher:
 
     def _run(self) -> None:
         while True:
+            lookup = self._lookup if self._lookup is not None else genre_lookup.CatalogLookup()
             try:
-                run_genre_pass(self._db_path, self._lookup, now=self._now, stop_event=self._stop)
+                run_genre_pass(
+                    self._db_path,
+                    lookup,
+                    now=self._now,
+                    stop_event=self._stop,
+                    log_idle=self._passes == 0,
+                )
             except Exception:
                 logger.exception("genre lookup pass failed")
+            self._passes += 1
             with self._lock:
                 if not self._again or self._stop.is_set():
                     self._running = False

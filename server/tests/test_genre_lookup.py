@@ -12,13 +12,16 @@ import pytest
 
 from faden_server import genre_lookup
 from faden_server.genre_lookup import (
+    MAX_CONSECUTIVE_FAILURES,
     MAX_RESPONSE_BYTES,
     USER_AGENT,
+    CatalogLookup,
     LookupUnavailable,
     RequestThrottle,
     clean_author,
     clean_title,
     dnb_genres,
+    dnb_isbn_url,
     dnb_query_url,
     google_genres,
     google_query_url,
@@ -30,7 +33,7 @@ from faden_server.genre_lookup import (
     parse_openlibrary_subjects,
 )
 from faden_server.genre_lookup import _http_get as real_http_get
-from faden_server.genres import FANTASY_SF, KINDER, KRIMI, ROMANE
+from faden_server.genres import FANTASY_SF, KINDER, KRIMI, ROMANE, SACHBUCH
 
 FIXTURES = Path(__file__).parent / "fixtures" / "genre"
 
@@ -114,7 +117,14 @@ def test_dnb_query_url_has_only_title_and_author():
     assert params["recordSchema"] == ["MARC21-xml"]
     assert params["operation"] == ["searchRetrieve"]
     assert params["query"] == ['tit="Die Tote am Deich" and per="Anna Muster"']
-    assert set(params) == {"version", "operation", "query", "recordSchema", "maximumRecords"}
+    assert set(params) == {
+        "version",
+        "operation",
+        "query",
+        "recordSchema",
+        "recordPacking",
+        "maximumRecords",
+    }
 
 
 def test_dnb_query_url_without_author():
@@ -235,7 +245,7 @@ def test_lookup_sends_only_title_and_author():
         "www.googleapis.com",
         "openlibrary.org",
     ]
-    constants = {"1.1", "searchRetrieve", "MARC21-xml", "5", "books", "subject"}
+    constants = {"1.1", "searchRetrieve", "MARC21-xml", "xml", "5", "books", "subject"}
     for url in fetch.urls:
         for values in parse_qs(urlsplit(url).query).values():
             for value in values:
@@ -313,3 +323,172 @@ def test_http_get_caps_the_response_size(monkeypatch):
 def test_fantasy_in_google_fixture_shape():
     payload = b'{"items": [{"volumeInfo": {"categories": ["Fiction / Fantasy / Epic"]}}]}'
     assert google_genres(payload) == [FANTASY_SF]
+
+
+# --- real DNB answer (by ISBN) --------------------------------------------------
+
+
+def test_real_dnb_isbn_answer_parses_to_romane():
+    """Trimmed real answer for num=9783837121995 ("Der Medicus"): the DNB
+    Sachgruppen sit in 082 ($2 23sdnb, several $a); 084 $2 sswd and the GND
+    topics are only logged."""
+    [record] = parse_marc_records(fixture("dnb_medicus_isbn.xml"))
+    assert record.title == "Der Medicus"  # non-filing markers stripped
+    assert record.codes == ["810", "B"]
+    assert record.subjects == []
+    assert record.ignored == [
+        "084 $a 9.1b $a 27.1b $a 4.7p $a 27.20p $a 27.1a $q DE-101 $2 sswd",
+        "600 $a Avicenna $2 gnd",
+        "648 $a Geschichte 1021-1025 $2 gnd",
+        "650 $a Waisenkind $2 gnd",
+        "650 $a Arzt $2 gnd",
+        "651 $a London $2 gnd",
+    ]
+    assert dnb_genres(fixture("dnb_medicus_isbn.xml")) == [ROMANE]
+
+
+def test_dnb_logs_the_raw_values_at_debug(caplog):
+    with caplog.at_level("DEBUG", logger="faden_server.genre_lookup"):
+        dnb_genres(fixture("dnb_medicus_isbn.xml"))
+    text = caplog.text
+    assert "'Der Medicus'" in text
+    assert "codes=['810', 'B']" in text
+    assert "650 $a Arzt $2 gnd" in text
+
+
+def test_gnd_topics_are_no_genre():
+    payload = b"""<records><record>
+        <datafield tag="650"><subfield code="a">Kriminalroman</subfield></datafield>
+        <datafield tag="650"><subfield code="a">Philosophie</subfield></datafield>
+        <datafield tag="689"><subfield code="a">Biografie</subfield></datafield>
+    </record></records>"""
+    assert dnb_genres(payload) == [None]
+
+
+@pytest.mark.parametrize(
+    ("codes", "genre"),
+    [
+        (["810", "B"], ROMANE),
+        (["830", "B", "K"], KINDER),
+        (["920"], "Biografie"),
+        (["590"], SACHBUCH),
+        (["S"], None),
+    ],
+)
+def test_dnb_sachgruppen_in_082(codes, genre):
+    subfields = "".join(f'<subfield code="a">{c}</subfield>' for c in codes)
+    payload = (
+        f'<records><record><datafield tag="082">{subfields}'
+        f'<subfield code="2">23sdnb</subfield></datafield></record></records>'
+    ).encode()
+    assert dnb_genres(payload) == [genre]
+
+
+def test_parse_marc_records_packed_as_string():
+    inner = (
+        '<record xmlns="http://www.loc.gov/MARC21/slim"><datafield tag="082">'
+        '<subfield code="a">B</subfield></datafield></record>'
+    )
+    escaped = inner.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+    payload = (
+        '<searchRetrieveResponse xmlns="http://www.loc.gov/zing/srw/"><records><record>'
+        f"<recordPacking>string</recordPacking><recordData>{escaped}</recordData>"
+        "</record></records></searchRetrieveResponse>"
+    ).encode()
+    assert dnb_genres(payload) == [ROMANE]
+
+
+def test_dnb_isbn_url_uses_the_num_index():
+    params = parse_qs(urlsplit(dnb_isbn_url("9783837121995")).query)
+    assert params["query"] == ["num=9783837121995"]
+    assert params["recordSchema"] == ["MARC21-xml"]
+
+
+# --- ISBN first ------------------------------------------------------------------
+
+
+def test_lookup_asks_the_dnb_by_isbn_first():
+    fetch = FakeCatalogs(dnb=fixture("dnb_medicus_isbn.xml"))
+    result = lookup(
+        "Der Medicus", "Noah Gordon", "9783837121995", fetch=fetch, throttle=no_throttle
+    )
+    assert result == (ROMANE, "dnb")
+    assert len(fetch.urls) == 1
+    assert parse_qs(urlsplit(fetch.urls[0]).query)["query"] == ["num=9783837121995"]
+
+
+def test_lookup_goes_on_to_the_title_when_the_isbn_gives_no_genre():
+    answers = iter([fixture("dnb_empty.xml"), fixture("dnb_krimi.xml")])
+    urls = []
+
+    def fetch(url):
+        urls.append(url)
+        return next(answers)
+
+    result = lookup("Die Tote am Deich", None, "9783837121995", fetch=fetch, throttle=no_throttle)
+    assert result == (KRIMI, "dnb")
+    queries = [parse_qs(urlsplit(u).query)["query"][0] for u in urls]
+    assert queries == ["num=9783837121995", 'tit="Die Tote am Deich"']
+
+
+def test_lookup_with_only_an_isbn_asks_only_the_dnb():
+    fetch = FakeCatalogs(dnb=fixture("dnb_empty.xml"))
+    assert lookup(None, None, "9783837121995", fetch=fetch, throttle=no_throttle) is None
+    assert [urlsplit(u).hostname for u in fetch.urls] == ["services.dnb.de"]
+
+
+def test_the_isbn_goes_only_to_the_dnb():
+    fetch = FakeCatalogs()
+    with pytest.raises(LookupUnavailable):
+        lookup("Mort", None, "9783837121995", fetch=fetch, throttle=no_throttle)
+    for url in fetch.urls:
+        if urlsplit(url).hostname != "services.dnb.de":
+            assert "9783837121995" not in url
+
+
+# --- one pass: unreachable sources ----------------------------------------------
+
+
+def test_a_pass_skips_a_source_after_consecutive_failures(caplog):
+    fetch = FakeCatalogs(
+        dnb=OSError("timed out"),
+        google=fixture("google_empty.json"),
+        openlibrary=b'{"docs": []}',
+    )
+    session = CatalogLookup(fetch=fetch, throttle=no_throttle)
+    with caplog.at_level("INFO", logger="faden_server.genre_lookup"):
+        for _ in range(4):
+            assert session("Mort", None) is None
+    dnb_calls = [u for u in fetch.urls if "dnb.de" in u]
+    assert len(dnb_calls) == MAX_CONSECUTIVE_FAILURES == 2
+    assert session.skipped == ["dnb"]
+    assert caplog.text.count("dnb unreachable") == 1
+    assert caplog.text.count("skipped for the rest of this pass") == 1
+
+
+def test_an_answer_resets_the_failure_count():
+    answers = iter([OSError("blip"), fixture("dnb_empty.xml"), OSError("blip")])
+
+    def fetch(url):
+        if "dnb.de" not in url:
+            return fixture("google_empty.json")
+        answer = next(answers)
+        if isinstance(answer, Exception):
+            raise answer
+        return answer
+
+    session = CatalogLookup(fetch=fetch, throttle=no_throttle)
+    for _ in range(3):
+        session("Mort", None)
+    assert session.skipped == []
+
+
+def test_a_pass_with_every_source_skipped_is_unavailable():
+    session = CatalogLookup(fetch=FakeCatalogs(), throttle=no_throttle)
+    for _ in range(MAX_CONSECUTIVE_FAILURES):
+        with pytest.raises(LookupUnavailable):
+            session("Mort", None)
+    calls = len(session._fetch.urls)
+    with pytest.raises(LookupUnavailable):
+        session("Eric", None)
+    assert len(session._fetch.urls) == calls  # nobody asked any more
