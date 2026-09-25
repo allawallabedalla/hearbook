@@ -1,6 +1,8 @@
 import 'dart:async';
+import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart' show HapticFeedback;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../data/book_downloads.dart';
@@ -70,22 +72,33 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen> {
   @override
   Widget build(BuildContext context) {
     final controller = ref.watch(libraryControllerProvider);
-    final sort = ref.watch(librarySortProvider);
+    final view = ref.watch(libraryViewProvider);
+    final viewController = ref.read(libraryViewProvider.notifier);
     final titleBar = LargeTitleBar(
       title: AppStrings.libraryTitle,
       actions: [
         if (controller.books.isNotEmpty)
-          PopupMenuButton<LibrarySort>(
+          // Order, then "Liste / Nach Autor" (E70), in one quiet menu.
+          PopupMenuButton<Object>(
             tooltip: AppStrings.librarySortTooltip,
             icon: const Icon(Icons.swap_vert),
-            initialValue: sort,
-            onSelected: ref.read(librarySortProvider.notifier).set,
+            onSelected: (choice) {
+              if (choice is LibrarySort) viewController.setSort(choice);
+              if (choice is LibraryGrouping) viewController.setGrouping(choice);
+            },
             itemBuilder: (context) => [
               for (final option in LibrarySort.values)
-                CheckedPopupMenuItem<LibrarySort>(
+                CheckedPopupMenuItem<Object>(
                   value: option,
-                  checked: option == sort,
+                  checked: option == view.sort,
                   child: Text(librarySortLabel(option)),
+                ),
+              const PopupMenuDivider(),
+              for (final option in LibraryGrouping.values)
+                CheckedPopupMenuItem<Object>(
+                  value: option,
+                  checked: option == view.grouping,
+                  child: Text(libraryGroupingLabel(option)),
                 ),
             ],
           ),
@@ -103,13 +116,13 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen> {
         edgeOffset: MediaQuery.paddingOf(context).top + kToolbarHeight,
         child: CustomScrollView(
           physics: const AlwaysScrollableScrollPhysics(),
-          slivers: [titleBar, ..._body(controller, sort)],
+          slivers: [titleBar, ..._body(controller, view)],
         ),
       ),
     );
   }
 
-  List<Widget> _body(LibraryController controller, LibrarySort sort) {
+  List<Widget> _body(LibraryController controller, LibraryView view) {
     final configured = ref.watch(serverConfigProvider).isConfigured;
     if (controller.books.isEmpty) {
       if (!configured) {
@@ -150,15 +163,24 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen> {
     // "Weiterhören" books are not repeated below (E65); a search lists
     // every match, so it never hides a book.
     final shownAbove = {for (final b in continueBooks) b.bookId};
+    final rest = [
+      for (final b in controller.books)
+        if (!shownAbove.contains(b.bookId)) b,
+    ];
+    // Filters (E70) belong to "Alle Bücher" only and sit right above it;
+    // a search ignores them and finds every book.
+    final genres = genresIn(controller.books);
+    final genre = genres.contains(view.genre) ? view.genre : null;
+    final showFilters = _query.isEmpty && rest.isNotEmpty;
     final arranged = arrangeBooks(
-      books: [
-        for (final b in controller.books)
-          if (!shownAbove.contains(b.bookId)) b,
-      ],
+      books: rest,
       progress: progress,
-      sort: sort,
+      sort: view.sort,
       query: _query,
+      status: view.status,
+      genre: genre,
     );
+    final entries = libraryEntries(arranged, view.grouping);
 
     return [
       if (controller.offline) const SliverToBoxAdapter(child: _OfflineBanner()),
@@ -185,22 +207,55 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen> {
       if (continueBooks.isNotEmpty) ...[
         SliverToBoxAdapter(child: _SectionHeader(AppStrings.libraryContinueSection)),
         SliverList.list(children: [for (final b in continueBooks) ContinueCard(book: b)]),
-        if (arranged.isNotEmpty) SliverToBoxAdapter(child: _SectionHeader(AppStrings.libraryAllBooks)),
+        if (rest.isNotEmpty) SliverToBoxAdapter(child: _SectionHeader(AppStrings.libraryAllBooks)),
       ],
-      if (arranged.isEmpty && continueBooks.isEmpty)
+      if (showFilters)
+        SliverToBoxAdapter(
+          child: LibraryFilterBar(
+            status: view.status,
+            genre: genre,
+            showGenre: genres.isNotEmpty,
+            onStatus: ref.read(libraryViewProvider.notifier).setStatus,
+            onGenre: () => _chooseGenreFilter(genres, genre),
+          ),
+        ),
+      if (arranged.isEmpty && (showFilters || continueBooks.isEmpty))
         SliverToBoxAdapter(
           child: Padding(
             padding: const EdgeInsets.all(24),
-            child: Text(AppStrings.libraryNoMatches, textAlign: TextAlign.center),
+            child: Text(
+              showFilters ? AppStrings.libraryFilterEmpty : AppStrings.libraryNoMatches,
+              textAlign: TextAlign.center,
+            ),
           ),
         )
       else
         SliverList.builder(
-          itemCount: arranged.length,
-          itemBuilder: (context, i) => BookRow(book: arranged[i]),
+          itemCount: entries.length,
+          itemBuilder: (context, i) {
+            final entry = entries[i];
+            final book = entry.book;
+            return book != null ? BookRow(book: book) : _AuthorHeader(entry.author);
+          },
         ),
       const SliverToBoxAdapter(child: SizedBox(height: 24)),
     ];
+  }
+
+  /// "Genre ▾" (E70): every genre in the library, or all of them.
+  Future<void> _chooseGenreFilter(List<String> genres, String? current) async {
+    final choice = await showModalBottomSheet<({String? genre})>(
+      context: context,
+      builder: (context) => _ChoiceSheet(
+        options: [
+          (label: AppStrings.libraryFilterAllGenres, value: null),
+          for (final g in genres) (label: g, value: g),
+        ],
+        selected: current,
+      ),
+    );
+    if (choice == null || !mounted) return;
+    ref.read(libraryViewProvider.notifier).setGenre(choice.genre);
   }
 
   /// "Weiterhören": the most recently played books that are not finished.
@@ -312,25 +367,96 @@ class _CollapsingTitle extends StatelessWidget {
 }
 
 String librarySortLabel(LibrarySort sort) => switch (sort) {
-      LibrarySort.recent => AppStrings.librarySortRecent,
-      LibrarySort.title => AppStrings.librarySortTitle,
-      LibrarySort.author => AppStrings.librarySortAuthor,
-    };
+  LibrarySort.recent => AppStrings.librarySortRecent,
+  LibrarySort.title => AppStrings.librarySortTitle,
+  LibrarySort.author => AppStrings.librarySortAuthor,
+  LibrarySort.length => AppStrings.librarySortLength,
+};
 
-/// Filters [books] by [query] (title or author, case- and umlaut-folding)
-/// and orders them by [sort]. Pure, so it is tested without widgets.
+String libraryGroupingLabel(LibraryGrouping grouping) => switch (grouping) {
+  LibraryGrouping.list => AppStrings.libraryGroupList,
+  LibraryGrouping.author => AppStrings.libraryGroupAuthor,
+};
+
+String libraryStatusLabel(LibraryStatusFilter status) => switch (status) {
+  LibraryStatusFilter.all => AppStrings.libraryFilterAll,
+  LibraryStatusFilter.started => AppStrings.libraryFilterStarted,
+  LibraryStatusFilter.unstarted => AppStrings.libraryFilterUnstarted,
+  LibraryStatusFilter.finished => AppStrings.libraryFilterFinished,
+};
+
+/// Where a book stands, exactly as its row says it (E70): "neu" (never
+/// played, or no share known yet), "gehört" (from 99.5 %, [isFinished]),
+/// else started.
+enum ListeningState { unstarted, started, finished }
+
+ListeningState listeningStateOf(BookProgress? progress) {
+  final fraction = progress?.fraction;
+  if (fraction == null || fraction <= 0) return ListeningState.unstarted;
+  if (isFinished(progress)) return ListeningState.finished;
+  return ListeningState.started;
+}
+
+/// Whether [book] passes the status filter "Alle · Läuft · Neu · Gehört"
+/// (E70).
+bool matchesStatus(BookSummary book, BookProgress? progress, LibraryStatusFilter status) {
+  final state = listeningStateOf(progress);
+  return switch (status) {
+    LibraryStatusFilter.all => true,
+    LibraryStatusFilter.started => state == ListeningState.started,
+    LibraryStatusFilter.unstarted => state == ListeningState.unstarted,
+    LibraryStatusFilter.finished => state == ListeningState.finished,
+  };
+}
+
+/// The genres [books] have, in the server's order ([knownGenres]), any
+/// other label after them alphabetically. Empty when no book has one: then
+/// there is no genre filter (E70).
+List<String> genresIn(List<BookSummary> books) {
+  final present = {for (final b in books) ?b.genre};
+  return [
+    for (final g in knownGenres)
+      if (present.contains(g)) g,
+    ...(present.difference(knownGenres.toSet()).toList()..sort()),
+  ];
+}
+
+/// The key an author is ordered by (E70): the last word of the name as a
+/// guess at the surname ("Thomas Mann" → "mann"), folded like the search.
+String authorSortKey(String author) {
+  final words = author.trim().split(RegExp(r'\s+'));
+  return foldForSearch(words.last.replaceAll(RegExp(r'[.,;:]+$'), ''));
+}
+
+/// Orders two author names by [authorSortKey], then by the whole name.
+int compareAuthors(String a, String b) {
+  final c = authorSortKey(a).compareTo(authorSortKey(b));
+  return c != 0 ? c : foldForSearch(a).compareTo(foldForSearch(b));
+}
+
+/// Filters [books] and orders them by [sort]. Pure, so it is tested
+/// without widgets.
+///
+/// A [query] (title or author, case- and umlaut-folding) searches every
+/// book and ignores [status] and [genre]; without one, both filter (E70).
 /// "Zuletzt gehört": books with progress, newest first, then the rest by
-/// title. "Autor": by author, books without one last, then by title.
+/// title. "Autor": by surname ([authorSortKey]), books without one last,
+/// then by title. "Länge": shortest first, unknown lengths last.
 List<BookSummary> arrangeBooks({
   required List<BookSummary> books,
   required Map<String, BookProgress> progress,
   required LibrarySort sort,
   String query = '',
+  LibraryStatusFilter status = LibraryStatusFilter.all,
+  String? genre,
 }) {
   final q = foldForSearch(query.trim());
   final list = [
     for (final b in books)
-      if (q.isEmpty || foldForSearch(b.title).contains(q) || foldForSearch(b.author ?? '').contains(q)) b,
+      if (q.isNotEmpty
+          ? foldForSearch(b.title).contains(q) || foldForSearch(b.author ?? '').contains(q)
+          : matchesStatus(b, progress[b.bookId], status) && (genre == null || b.genre == genre))
+        b,
   ];
   int byTitle(BookSummary a, BookSummary b) => foldForSearch(a.title).compareTo(foldForSearch(b.title));
   switch (sort) {
@@ -341,8 +467,16 @@ List<BookSummary> arrangeBooks({
         final aa = a.author?.trim() ?? '';
         final ba = b.author?.trim() ?? '';
         if (aa.isEmpty != ba.isEmpty) return aa.isEmpty ? 1 : -1;
-        final c = foldForSearch(aa).compareTo(foldForSearch(ba));
+        final c = aa.isEmpty ? 0 : compareAuthors(aa, ba);
         return c != 0 ? c : byTitle(a, b);
+      });
+    case LibrarySort.length:
+      list.sort((a, b) {
+        final la = a.durationMs;
+        final lb = b.durationMs;
+        if (la != null && lb != null && la != lb) return la.compareTo(lb);
+        if ((la == null) != (lb == null)) return la == null ? 1 : -1;
+        return byTitle(a, b);
       });
     case LibrarySort.recent:
       list.sort((a, b) {
@@ -355,6 +489,54 @@ List<BookSummary> arrangeBooks({
       });
   }
   return list;
+}
+
+/// One author's books under "Nach Autor" (E70); [author] null collects
+/// the books without one ("Unbekannt").
+class AuthorGroup {
+  final String? author;
+  final List<BookSummary> books;
+
+  const AuthorGroup(this.author, this.books);
+}
+
+/// Groups [arranged] by author (E70): groups by surname ([compareAuthors]),
+/// "Unbekannt" last; inside a group the books keep their order from
+/// [arrangeBooks], i.e. the chosen sort. Names that differ only in case or
+/// spaces are one author, shown as first met.
+List<AuthorGroup> groupByAuthor(List<BookSummary> arranged) {
+  final groups = <String, AuthorGroup>{};
+  final unknown = <BookSummary>[];
+  for (final b in arranged) {
+    final author = b.author?.trim().replaceAll(RegExp(r'\s+'), ' ') ?? '';
+    if (author.isEmpty) {
+      unknown.add(b);
+    } else {
+      groups.putIfAbsent(foldForSearch(author), () => AuthorGroup(author, [])).books.add(b);
+    }
+  }
+  final sorted = groups.values.toList()..sort((a, b) => compareAuthors(a.author!, b.author!));
+  return [...sorted, if (unknown.isNotEmpty) AuthorGroup(null, unknown)];
+}
+
+/// One line of "Alle Bücher": a book, or (grouped by author) a header.
+class LibraryEntry {
+  final BookSummary? book;
+  final String? author;
+
+  const LibraryEntry.book(BookSummary this.book) : author = null;
+  const LibraryEntry.header(this.author) : book = null;
+}
+
+/// The lines of "Alle Bücher" for [grouping] (E70).
+List<LibraryEntry> libraryEntries(List<BookSummary> arranged, LibraryGrouping grouping) {
+  if (grouping == LibraryGrouping.list) return [for (final b in arranged) LibraryEntry.book(b)];
+  return [
+    for (final g in groupByAuthor(arranged)) ...[
+      LibraryEntry.header(g.author),
+      for (final b in g.books) LibraryEntry.book(b),
+    ],
+  ];
 }
 
 /// Lower case with umlauts and ß folded, so "uber" finds "Über".
@@ -377,6 +559,172 @@ class _SectionHeader extends StatelessWidget {
         padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
         child: SectionTitle(text),
       );
+}
+
+/// An author's name above their books under "Nach Autor" (E70); null is
+/// "Unbekannt". Smaller than the section titles it sits under.
+class _AuthorHeader extends StatelessWidget {
+  final String? author;
+
+  const _AuthorHeader(this.author);
+
+  @override
+  Widget build(BuildContext context) {
+    final tokens = FadenTokens.of(context);
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 16, 16, 2),
+      child: Semantics(
+        header: true,
+        child: Text(
+          author ?? AppStrings.libraryUnknownAuthor,
+          maxLines: 2,
+          overflow: TextOverflow.ellipsis,
+          style: TextStyle(color: tokens.tinte, fontSize: FadenTypeSizes.body, fontWeight: FontWeight.w700),
+        ),
+      ),
+    );
+  }
+}
+
+/// The filters above "Alle Bücher" (E70): "Alle · Läuft · Neu · Gehört",
+/// one choice, and "Genre ▾" while any book has a genre. Small pills in
+/// one row that scrolls sideways when it does not fit; each pill's tap
+/// area is the row's full 56 dp height.
+class LibraryFilterBar extends StatelessWidget {
+  final LibraryStatusFilter status;
+  final String? genre;
+  final bool showGenre;
+  final ValueChanged<LibraryStatusFilter> onStatus;
+  final VoidCallback onGenre;
+
+  const LibraryFilterBar({
+    super.key,
+    required this.status,
+    required this.genre,
+    required this.showGenre,
+    required this.onStatus,
+    required this.onGenre,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final pill = MediaQuery.textScalerOf(context).scale(FadenTypeSizes.caption) * 1.3 + 16;
+    return SizedBox(
+      height: math.max(fadenMinTapTarget, pill + 12),
+      // Five pills at most: built all at once, so VoiceOver finds each.
+      child: SingleChildScrollView(
+        scrollDirection: Axis.horizontal,
+        padding: const EdgeInsets.symmetric(horizontal: 12),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            for (final option in LibraryStatusFilter.values)
+              _FilterPill(label: libraryStatusLabel(option), selected: option == status, onTap: () => onStatus(option)),
+            if (showGenre)
+              _FilterPill(
+                label: genre ?? AppStrings.libraryFilterGenre,
+                selected: genre != null,
+                dropdown: true,
+                onTap: onGenre,
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _FilterPill extends StatelessWidget {
+  final String label;
+  final bool selected;
+  final bool dropdown;
+  final VoidCallback onTap;
+
+  const _FilterPill({required this.label, required this.selected, required this.onTap, this.dropdown = false});
+
+  @override
+  Widget build(BuildContext context) {
+    final tokens = FadenTokens.of(context);
+    // At night a ring, not a lit surface (E65), like the segments.
+    final outline = tokens.isDark;
+    final color = !selected ? tokens.tinte : (outline ? tokens.faden : tokens.grund);
+    return Semantics(
+      button: true,
+      selected: selected,
+      label: label,
+      excludeSemantics: true,
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTap: () {
+          unawaited(HapticFeedback.selectionClick());
+          onTap();
+        },
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 4),
+          child: Center(
+            child: DecoratedBox(
+              decoration: BoxDecoration(
+                color: selected && !outline ? tokens.faden : tokens.flaeche,
+                border: Border.all(color: selected && outline ? tokens.faden : Colors.transparent, width: 1.5),
+                borderRadius: BorderRadius.circular(100),
+              ),
+              child: Padding(
+                padding: EdgeInsets.fromLTRB(14, 6, dropdown ? 8 : 14, 6),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      label,
+                      maxLines: 1,
+                      style: TextStyle(
+                        fontSize: FadenTypeSizes.caption,
+                        color: color,
+                        fontWeight: selected ? FontWeight.w700 : FontWeight.w400,
+                      ),
+                    ),
+                    if (dropdown) Icon(Icons.expand_more, size: 18, color: color),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// A plain list of choices in a bottom sheet, the current one ticked; pops
+/// `(genre: value)` for the one tapped (a record, so null can be chosen).
+class _ChoiceSheet extends StatelessWidget {
+  final List<({String label, String? value})> options;
+  final String? selected;
+
+  const _ChoiceSheet({required this.options, required this.selected});
+
+  @override
+  Widget build(BuildContext context) {
+    final tokens = FadenTokens.of(context);
+    return SafeArea(
+      child: ListView(
+        shrinkWrap: true,
+        padding: const EdgeInsets.symmetric(vertical: 8),
+        children: [
+          for (final o in options)
+            ListTile(
+              minTileHeight: fadenMinTapTarget,
+              title: Text(o.label),
+              selected: o.value == selected,
+              trailing: o.value == selected ? Icon(Icons.check, color: tokens.faden) : null,
+              onTap: () {
+                unawaited(HapticFeedback.selectionClick());
+                Navigator.of(context).pop((genre: o.value));
+              },
+            ),
+        ],
+      ),
+    );
+  }
 }
 
 class _OfflineBanner extends StatelessWidget {
@@ -546,36 +894,82 @@ Future<void> _reviewOrder(
   }
 }
 
-/// Long press on a downloaded book: delete its download (the progress
+/// Long press on a book (E70): "Genre ändern" (only with the server) and,
+/// once something is on the device, delete its download (the progress
 /// stays).
-Future<void> _showDownloadActions(
+Future<void> _showBookActions(
   BuildContext context,
   LibraryController controller,
   BookSummary book,
   BookDownloadState download,
 ) async {
-  final delete = await showModalBottomSheet<bool>(
+  final online = controller.api != null && !controller.offline;
+  final canDelete = download.bytesOnDisk > 0;
+  final action = await showModalBottomSheet<String>(
     context: context,
-    builder: (context) => SafeArea(
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          const SizedBox(height: 8),
-          ListTile(
-            leading: Icon(Icons.delete_outline, color: FadenTokens.of(context).fehler),
-            title: Text(AppStrings.downloadDeleteWithSize(formatBytes(download.bytesOnDisk))),
-            onTap: () => Navigator.of(context).pop(true),
-          ),
-          ListTile(
-            leading: const Icon(Icons.close),
-            title: Text(AppStrings.cancelAction),
-            onTap: () => Navigator.of(context).pop(false),
-          ),
-        ],
-      ),
+    builder: (context) {
+      final tokens = FadenTokens.of(context);
+      return SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const SizedBox(height: 8),
+            ListTile(
+              enabled: online,
+              minTileHeight: fadenMinTapTarget,
+              leading: const Icon(Icons.sell_outlined),
+              title: Text(AppStrings.genreChange),
+              // Offline it says why it is greyed out.
+              subtitle: Text(online ? (book.genre ?? AppStrings.genreNone) : AppStrings.genreOffline),
+              onTap: () => Navigator.of(context).pop('genre'),
+            ),
+            if (canDelete)
+              ListTile(
+                minTileHeight: fadenMinTapTarget,
+                leading: Icon(Icons.delete_outline, color: tokens.fehler),
+                title: Text(AppStrings.downloadDeleteWithSize(formatBytes(download.bytesOnDisk))),
+                onTap: () => Navigator.of(context).pop('delete'),
+              ),
+            ListTile(
+              minTileHeight: fadenMinTapTarget,
+              leading: const Icon(Icons.close),
+              title: Text(AppStrings.cancelAction),
+              onTap: () => Navigator.of(context).pop(),
+            ),
+          ],
+        ),
+      );
+    },
+  );
+  if (!context.mounted) return;
+  if (action == 'delete') {
+    await controller.deleteDownload(book.bookId);
+  } else if (action == 'genre') {
+    await changeGenre(context, controller, book);
+  }
+}
+
+/// "Genre ändern" (E70): the server's labels and "Automatisch"; the
+/// choice goes to the server and then into the list and cache. A failure
+/// says so and changes nothing.
+Future<void> changeGenre(BuildContext context, LibraryController controller, BookSummary book) async {
+  final messenger = ScaffoldMessenger.of(context);
+  final labels = await controller.genreLabels();
+  if (!context.mounted) return;
+  final choice = await showModalBottomSheet<({String? genre})>(
+    context: context,
+    isScrollControlled: true,
+    builder: (context) => _ChoiceSheet(
+      options: [(label: AppStrings.genreAutomatic, value: null), for (final g in labels) (label: g, value: g)],
+      selected: book.genre,
     ),
   );
-  if (delete == true) await controller.deleteDownload(book.bookId);
+  if (choice == null || choice.genre == book.genre && choice.genre != null) return;
+  try {
+    await controller.setGenre(book.bookId, choice.genre);
+  } catch (_) {
+    messenger.showSnackBar(SnackBar(content: Text(AppStrings.genreChangeFailed)));
+  }
 }
 
 /// A "Weiterhören" book (decision E65): a larger card with a bigger cover
@@ -597,7 +991,6 @@ class ContinueCard extends ConsumerWidget {
     final download = controller.downloadStateFor(book.bookId);
     final progress = controller.progressByBook[book.bookId];
     final author = book.author?.trim();
-    final canDelete = download.bytesOnDisk > 0;
     final onlineOnly = BookRow.onlineOnly(controller, book, download);
     final radius = BorderRadius.circular(16);
 
@@ -609,20 +1002,14 @@ class ContinueCard extends ConsumerWidget {
         clipBehavior: Clip.antiAlias,
         child: InkWell(
           onTap: () => openBookFromLibrary(context, ref, book),
-          onLongPress: canDelete ? () => _showDownloadActions(context, controller, book, download) : null,
+          onLongPress: () => _showBookActions(context, controller, book, download),
           child: Padding(
             padding: const EdgeInsets.fromLTRB(12, 12, 4, 12),
             child: Row(
               children: [
                 Opacity(
                   opacity: onlineOnly ? 0.5 : 1,
-                  child: BookCover(
-                    bookId: book.bookId,
-                    title: book.title,
-                    size: coverSize,
-                    radius: 8,
-                    thumbnail: true,
-                  ),
+                  child: BookCover(bookId: book.bookId, title: book.title, size: coverSize, radius: 8, thumbnail: true),
                 ),
                 const SizedBox(width: 14),
                 Expanded(
@@ -673,14 +1060,12 @@ class _BusySpinner extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Semantics(
-        label: AppStrings.libraryOpening,
-        child: const SizedBox.square(
-          dimension: fadenMinTapTarget,
-          child: Center(
-            child: SizedBox.square(dimension: 22, child: CircularProgressIndicator(strokeWidth: 2.5)),
-          ),
-        ),
-      );
+    label: AppStrings.libraryOpening,
+    child: const SizedBox.square(
+      dimension: fadenMinTapTarget,
+      child: Center(child: SizedBox.square(dimension: 22, child: CircularProgressIndicator(strokeWidth: 2.5))),
+    ),
+  );
 }
 
 /// One book: cover, title, author, progress, download state.
@@ -709,20 +1094,14 @@ class BookRow extends ConsumerWidget {
 
     Widget row = InkWell(
       onTap: () => openBookFromLibrary(context, ref, book),
-      onLongPress: canDelete ? () => _showDownloadActions(context, controller, book, download) : null,
+      onLongPress: () => _showBookActions(context, controller, book, download),
       child: Padding(
         padding: const EdgeInsets.fromLTRB(16, 10, 4, 10),
         child: Row(
           children: [
             Opacity(
               opacity: dimmed ? 0.5 : 1,
-              child: BookCover(
-                bookId: book.bookId,
-                title: book.title,
-                size: coverSize,
-                radius: 6,
-                thumbnail: true,
-              ),
+              child: BookCover(bookId: book.bookId, title: book.title, size: coverSize, radius: 6, thumbnail: true),
             ),
             const SizedBox(width: 14),
             Expanded(
@@ -733,10 +1112,7 @@ class BookRow extends ConsumerWidget {
                     book.title,
                     maxLines: 2,
                     overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
-                      fontSize: FadenTypeSizes.body,
-                      color: dimmed ? tokens.tinteLeise : tokens.tinte,
-                    ),
+                    style: TextStyle(fontSize: FadenTypeSizes.body, color: dimmed ? tokens.tinteLeise : tokens.tinte),
                   ),
                   if (author != null && author.isNotEmpty)
                     Text(
@@ -865,7 +1241,9 @@ class _StatusLine extends StatelessWidget {
           ),
           const SizedBox(width: 8),
         ],
-        Flexible(child: Text(text, maxLines: 1, overflow: TextOverflow.ellipsis, style: small)),
+        Flexible(
+          child: Text(text, maxLines: 1, overflow: TextOverflow.ellipsis, style: small),
+        ),
       ],
     );
   }
@@ -877,12 +1255,7 @@ class _DownloadControl extends StatelessWidget {
   final LibraryController controller;
   final FadenTokens tokens;
 
-  const _DownloadControl({
-    required this.book,
-    required this.download,
-    required this.controller,
-    required this.tokens,
-  });
+  const _DownloadControl({required this.book, required this.download, required this.controller, required this.tokens});
 
   @override
   Widget build(BuildContext context) {
@@ -958,10 +1331,7 @@ Future<String?> showReviewDialog(BuildContext context, List<ManifestCandidate> c
         ),
       ),
       actions: [
-        TextButton(
-          onPressed: () => Navigator.of(dialogContext).pop(),
-          child: Text(AppStrings.reviewDialogCancel),
-        ),
+        TextButton(onPressed: () => Navigator.of(dialogContext).pop(), child: Text(AppStrings.reviewDialogCancel)),
       ],
     ),
   );

@@ -10,7 +10,9 @@
 // - buffering and playback errors from the handler's status (E39);
 // - German speed labels and the minute-level remaining time;
 // - the sleep timer on the player itself (E61): the moon button starts and
-//   stops the shared timer and shows what is left;
+//   stops the shared timer and shows what is left; it is a moon with "zzz"
+//   (E69);
+// - the Hell/Dunkel toggle in the player's top bar (E69), hidden at night;
 // - closing the player (E60): chevron, swipe down, slide and reduced motion;
 //   the drag down follows the finger 1:1 and closes or springs back on
 //   release (E63), never starting on the chapter scrubber.
@@ -37,6 +39,7 @@ import 'package:faden/ui/player_screen.dart';
 import 'package:faden/ui/providers.dart';
 import 'package:faden/ui/routes.dart';
 import 'package:faden/ui/theme.dart';
+import 'package:flutter/cupertino.dart' show CupertinoIcons;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -198,6 +201,7 @@ void main() {
             expectOnScreen(tester, find.bySemanticsLabel(AppStrings.seekBackAction), size);
             expectOnScreen(tester, find.bySemanticsLabel(AppStrings.seekForwardAction), size);
             expectOnScreen(tester, find.byType(SleepTimerButton), size);
+            expectOnScreen(tester, find.byType(AppearanceToggle), size);
             if (sleepSuspected) expectOnScreen(tester, find.text(AppStrings.resumeFromStop), size);
             final title = tester.widget<Text>(find.text(_longTitle));
             expect(title.maxLines, 2);
@@ -218,6 +222,7 @@ void main() {
             expectOnScreen(tester, find.bySemanticsLabel(AppStrings.seekBackAction), size);
             expectOnScreen(tester, find.byType(SleepTimerButton), size);
             expectOnScreen(tester, find.byType(PlayerThread), size);
+            expect(find.byType(AppearanceToggle), findsNothing, reason: 'the night view is always dark');
             if (sleepSuspected) expectOnScreen(tester, find.text(AppStrings.resumeFromStop), size);
             await tearDownPlayer(tester);
           });
@@ -582,6 +587,77 @@ void main() {
     });
   });
 
+  group('Hell/Dunkel on the player (E69)', () {
+    Future<void> settle(WidgetTester tester) async {
+      for (var i = 0; i < 3; i++) {
+        await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 10)));
+        await tester.pump();
+      }
+    }
+
+    Finder toggleIcon(IconData icon) => find.descendant(of: find.byType(AppearanceToggle), matching: find.byIcon(icon));
+
+    testWidgets('a moon by light, a sun in the dark; a tap switches and stores the look', (tester) async {
+      final haptics = <String>[];
+      final messenger = TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+      messenger.setMockMethodCallHandler(SystemChannels.platform, (call) async {
+        if (call.method == 'HapticFeedback.vibrate') haptics.add(call.arguments as String);
+        return null;
+      });
+      addTearDown(() => messenger.setMockMethodCallHandler(SystemChannels.platform, null));
+      await pumpPlayer(tester);
+      final container = ProviderScope.containerOf(tester.element(find.byType(PlayerBody)));
+      final store = SettingsStore(db);
+      Color background() => tester.widget<Scaffold>(find.byType(Scaffold).first).backgroundColor!;
+
+      // In the top bar, on the right, at least 44 pt.
+      final toggle = find.byType(AppearanceToggle);
+      expect(find.descendant(of: find.byType(AppBar), matching: toggle), findsOneWidget);
+      expect(tester.getCenter(toggle).dx, greaterThan(430 / 2));
+      expect(tester.getSize(toggle).width, greaterThanOrEqualTo(44));
+      expect(tester.getSize(toggle).height, greaterThanOrEqualTo(44));
+      expect(toggleIcon(CupertinoIcons.moon), findsOneWidget);
+      expect(find.bySemanticsLabel(AppStrings.playerAppearanceDark), findsOneWidget);
+      expect(background(), FadenTokens.day.grund);
+
+      await tester.tap(toggle);
+      await settle(tester);
+      expect(haptics, ['HapticFeedbackType.selectionClick']);
+      expect(container.read(appearanceProvider), Appearance.dark);
+      expect(await tester.runAsync(store.appearance), Appearance.dark);
+      expect(toggleIcon(CupertinoIcons.sun_max), findsOneWidget);
+      expect(find.bySemanticsLabel(AppStrings.playerAppearanceLight), findsOneWidget);
+      expect(background(), FadenTokens.night.grund);
+
+      await tester.tap(toggle);
+      await settle(tester);
+      expect(container.read(appearanceProvider), Appearance.light);
+      expect(await tester.runAsync(store.appearance), Appearance.light);
+      expect(toggleIcon(CupertinoIcons.moon), findsOneWidget);
+      await tearDownPlayer(tester);
+    });
+
+    testWidgets('"Wie iPhone" on a dark phone shows the sun, and a tap picks Hell', (tester) async {
+      tester.platformDispatcher.platformBrightnessTestValue = Brightness.dark;
+      addTearDown(tester.platformDispatcher.clearPlatformBrightnessTestValue);
+      await pumpPlayer(tester);
+      final container = ProviderScope.containerOf(tester.element(find.byType(PlayerBody)));
+      expect(container.read(appearanceProvider), Appearance.system);
+      expect(toggleIcon(CupertinoIcons.sun_max), findsOneWidget);
+      await tester.tap(find.byType(AppearanceToggle));
+      await settle(tester);
+      expect(container.read(appearanceProvider), Appearance.light);
+      expect(toggleIcon(CupertinoIcons.moon), findsOneWidget);
+      await tearDownPlayer(tester);
+    });
+
+    testWidgets('not in the night view', (tester) async {
+      await pumpPlayer(tester, night: true);
+      expect(find.byType(AppearanceToggle), findsNothing);
+      await tearDownPlayer(tester);
+    });
+  });
+
   group('sleep timer on the player (E61)', () {
     Finder moon() => find.byType(SleepTimerButton);
     Finder inMoon(Finder f) => find.descendant(of: moon(), matching: f);
@@ -593,6 +669,7 @@ void main() {
         handler.fakePlaying = true;
         final timer = ProviderScope.containerOf(tester.element(moon())).read(sleepTimerProvider);
         expect(inMoon(find.byType(Text)), findsNothing, reason: 'just the moon while off');
+        expect(inMoon(find.byIcon(CupertinoIcons.moon_zzz)), findsOneWidget, reason: 'a moon with "zzz" (E69)');
 
         await tester.tap(moon());
         await tester.pumpAndSettle();

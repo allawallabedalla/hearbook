@@ -177,6 +177,24 @@ class AppStrings {
     'cellularPromptDontShowAgain': 'Nicht wieder anzeigen',
     'cellularPromptLoad': 'Laden',
     'cellularPromptNotNow': 'Nicht jetzt',
+    'playerAppearanceDark': 'Dunkel einschalten',
+    'playerAppearanceLight': 'Hell einschalten',
+    'libraryFilterAll': 'Alle',
+    'libraryFilterStarted': 'Läuft',
+    'libraryFilterUnstarted': 'Neu',
+    'libraryFilterFinished': 'Gehört',
+    'libraryFilterGenre': 'Genre',
+    'libraryFilterAllGenres': 'Alle Genres',
+    'libraryFilterEmpty': 'Keine Bücher in diesem Filter.',
+    'librarySortLength': 'Länge',
+    'libraryGroupList': 'Liste',
+    'libraryGroupAuthor': 'Nach Autor',
+    'libraryUnknownAuthor': 'Unbekannt',
+    'genreChange': 'Genre ändern',
+    'genreAutomatic': 'Automatisch',
+    'genreNone': 'Kein Genre',
+    'genreOffline': 'Nur mit Verbindung zum Server.',
+    'genreChangeFailed': 'Das Genre ließ sich nicht ändern. Bitte erneut versuchen.',
   };
 
   static String _of(String key) {
@@ -406,4 +424,24 @@ class AppStrings {
       _of(approximate ? 'cellularChapterSizeApprox' : 'cellularChapterSize')
           .replaceAll('{chapter}', chapter)
           .replaceAll('{size}', size);
+
+  // Library filters and grouping, genre (E70); player appearance (E69).
+  static String get playerAppearanceDark => _of('playerAppearanceDark');
+  static String get playerAppearanceLight => _of('playerAppearanceLight');
+  static String get libraryFilterAll => _of('libraryFilterAll');
+  static String get libraryFilterStarted => _of('libraryFilterStarted');
+  static String get libraryFilterUnstarted => _of('libraryFilterUnstarted');
+  static String get libraryFilterFinished => _of('libraryFilterFinished');
+  static String get libraryFilterGenre => _of('libraryFilterGenre');
+  static String get libraryFilterAllGenres => _of('libraryFilterAllGenres');
+  static String get libraryFilterEmpty => _of('libraryFilterEmpty');
+  static String get librarySortLength => _of('librarySortLength');
+  static String get libraryGroupList => _of('libraryGroupList');
+  static String get libraryGroupAuthor => _of('libraryGroupAuthor');
+  static String get libraryUnknownAuthor => _of('libraryUnknownAuthor');
+  static String get genreChange => _of('genreChange');
+  static String get genreAutomatic => _of('genreAutomatic');
+  static String get genreNone => _of('genreNone');
+  static String get genreOffline => _of('genreOffline');
+  static String get genreChangeFailed => _of('genreChangeFailed');
 }

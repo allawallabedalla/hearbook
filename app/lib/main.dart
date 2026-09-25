@@ -40,6 +40,8 @@ Future<void> main() async {
   final deviceId = await settings.deviceId();
   // Read before the first frame so it already has the chosen look (E28).
   final appearance = await settings.appearance();
+  // The library's order, filters and grouping (E70), for its first frame.
+  final libraryView = await settings.libraryView();
   final serverConfig = ServerConfig(url: await settings.serverUrl(), token: await settings.serverToken());
   // The night view follows the display brightness (E54), read through a
   // small channel in ios/Runner/AppDelegate.swift; no source elsewhere, so
@@ -101,6 +103,7 @@ Future<void> main() async {
         sleepDataSourceProvider.overrideWithValue(sleepDataSource),
         audioHandlerProvider.overrideWithValue(audioHandler),
         initialAppearanceProvider.overrideWithValue(appearance),
+        initialLibraryViewProvider.overrideWithValue(libraryView),
         screenBrightnessSourceProvider.overrideWithValue(brightnessSource),
         initialNightModeProvider.overrideWithValue(nightAtStart),
       ],

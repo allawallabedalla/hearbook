@@ -172,6 +172,29 @@ void main() {
     expect(seen!.path, '/api/v1/books/b1/manifests/m2/confirm');
   });
 
+  test('setGenre() PUTs {"genre": label|null} and returns the answer (E70)', () async {
+    final seen = <RequestOptions>[];
+    final dio = _fakeDio((o) {
+      seen.add(o);
+      final genre = (o.data as Map)['genre'];
+      return Response(requestOptions: o, statusCode: 200, data: {'book_id': 'b1', 'genre': genre});
+    });
+    expect(await ApiClient(dio).setGenre('b1', 'Humor'), 'Humor');
+    expect(await ApiClient(dio).setGenre('b1', null), isNull);
+    expect(seen.map((o) => o.method), ['PUT', 'PUT']);
+    expect(seen.first.path, '/api/v1/books/b1/genre');
+    expect(seen.first.data, {'genre': 'Humor'});
+    expect(seen.last.data, {'genre': null});
+  });
+
+  test('genres() GETs the label list (E70)', () async {
+    final dio = _fakeDio((o) {
+      expect(o.path, '/api/v1/genres');
+      return Response(requestOptions: o, statusCode: 200, data: ['Krimi & Thriller', 'Humor']);
+    });
+    expect(await ApiClient(dio).genres(), ['Krimi & Thriller', 'Humor']);
+  });
+
   test('rescan() POSTs /api/v1/rescan', () async {
     RequestOptions? seen;
     final dio = _fakeDio((o) {

@@ -4,6 +4,24 @@ import 'dart:io';
 import '../domain/manifest.dart';
 import 'api.dart';
 
+/// The genre labels of `GET /api/v1/genres` (docs/ARCHITEKTUR.md section
+/// 3.7), in the server's display order. Orders the genre filter and stands
+/// in when the server cannot be asked for its list.
+const knownGenres = [
+  'Krimi & Thriller',
+  'Fantasy & Science-Fiction',
+  'Romane',
+  'Kinder & Jugend',
+  'Sachbuch',
+  'Biografie',
+  'Klassiker',
+  'Humor',
+];
+
+/// A `genre` field as sent by the server: a non-empty string, else null
+/// (older servers send no field at all).
+String? _genreFrom(Object? raw) => raw is String && raw.trim().isNotEmpty ? raw : null;
+
 /// One row of `GET /api/v1/books` (server/src/faden_server/api.py
 /// `list_books`).
 class BookSummary {
@@ -11,6 +29,9 @@ class BookSummary {
   final String title;
   final String? author;
   final int? durationMs;
+
+  /// One of [knownGenres], or null: none known yet, or an older server.
+  final String? genre;
 
   /// Server status: `ok`, `needs_review`, `pending`, `incomplete`, `empty`.
   final String serverStatus;
@@ -21,6 +42,7 @@ class BookSummary {
     required this.author,
     required this.durationMs,
     required this.serverStatus,
+    this.genre,
   });
 
   factory BookSummary.fromJson(Map<String, dynamic> json) => BookSummary(
@@ -29,6 +51,16 @@ class BookSummary {
         author: json['author'] as String?,
         durationMs: json['duration_ms'] as int?,
         serverStatus: json['status'] as String,
+        genre: _genreFrom(json['genre']),
+      );
+
+  BookSummary withGenre(String? genre) => BookSummary(
+        bookId: bookId,
+        title: title,
+        author: author,
+        durationMs: durationMs,
+        serverStatus: serverStatus,
+        genre: genre,
       );
 
   bool get needsReview => serverStatus == 'needs_review' || serverStatus == 'pending';
@@ -55,6 +87,7 @@ class BookDetail {
   final String bookId;
   final String title;
   final String? author;
+  final String? genre;
   final String status;
   final Manifest? activeManifest;
   final List<ManifestCandidate> candidates;
@@ -63,6 +96,7 @@ class BookDetail {
     required this.bookId,
     required this.title,
     required this.author,
+    this.genre,
     required this.status,
     required this.activeManifest,
     required this.candidates,
@@ -74,6 +108,7 @@ class BookDetail {
       bookId: json['book_id'] as String,
       title: json['title'] as String? ?? '',
       author: json['author'] as String?,
+      genre: _genreFrom(json['genre']),
       status: json['status'] as String? ?? 'ok',
       activeManifest: active == null ? null : Manifest.fromJson(active),
       candidates: [
@@ -240,6 +275,41 @@ class LibraryRepository {
     } catch (_) {
       return cachedDetail(bookId);
     }
+  }
+
+  /// Sets [bookId]'s genre on the server (null: back to automatic) and
+  /// writes the answer into the cached list and detail, so the library
+  /// shows it offline too. Returns the genre the server reports. Throws
+  /// when no server is configured or it cannot be reached; the cache is
+  /// only touched after the server said yes.
+  Future<String?> setGenre(String bookId, String? genre) async {
+    final client = api;
+    if (client == null) throw StateError('no server configured');
+    final now = await client.setGenre(bookId, genre);
+    final c = cache;
+    if (c != null) {
+      final list = await c.loadBookList();
+      if (list != null) {
+        await c.saveBookList([
+          for (final b in list) b['book_id'] == bookId ? {...b, 'genre': now} : b,
+        ]);
+      }
+      final detail = await c.loadBookDetail(bookId);
+      if (detail != null) await c.saveBookDetail(bookId, {...detail, 'genre': now});
+    }
+    return now;
+  }
+
+  /// The server's genre labels, or [knownGenres] when it cannot say
+  /// (unreachable, or too old for `GET /api/v1/genres`). Never throws.
+  Future<List<String>> genreLabels() async {
+    try {
+      final labels = await api?.genres();
+      if (labels != null && labels.isNotEmpty) return labels;
+    } catch (_) {
+      // Fall back to the known list below.
+    }
+    return knownGenres;
   }
 
   /// The pause index of [bookId] (docs/ARCHITEKTUR.md section 4) from the

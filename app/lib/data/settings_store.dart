@@ -18,6 +18,10 @@ class SettingsKeys {
   static const autoDownload = 'auto_download';
   static const cellularChapters = 'cellular_chapters';
   static const cellularHintOff = 'cellular_hint_off';
+  static const librarySort = 'library_sort';
+  static const libraryStatus = 'library_status';
+  static const libraryGrouping = 'library_grouping';
+  static const libraryGenre = 'library_genre';
 
   /// Prefix of the per-book playback speed (decision E38), one key per
   /// book: `book_speed:<book_id>`.
@@ -29,6 +33,62 @@ class SettingsKeys {
 /// [system] follows the phone's light/dark setting. Stored by [name], so
 /// the order of the values here never matters for existing data.
 enum Appearance { system, light, dark }
+
+/// Library order (decision E48, "Länge" and the surname order: E70).
+enum LibrarySort { recent, title, author, length }
+
+/// The library's status filter (decision E70): "Alle · Läuft · Neu ·
+/// Gehört", as the book rows name a book's state.
+enum LibraryStatusFilter { all, started, unstarted, finished }
+
+/// "Liste" or grouped under author headers (decision E70).
+enum LibraryGrouping { list, author }
+
+/// How "Alle Bücher" is shown (decision E70): order, status filter,
+/// grouping and genre filter (null: every genre). Remembered per device;
+/// each part is stored by name, so unknown values fall back to the default.
+class LibraryView {
+  final LibrarySort sort;
+  final LibraryStatusFilter status;
+  final LibraryGrouping grouping;
+  final String? genre;
+
+  const LibraryView({
+    this.sort = LibrarySort.recent,
+    this.status = LibraryStatusFilter.all,
+    this.grouping = LibraryGrouping.list,
+    this.genre,
+  });
+
+  LibraryView copyWith({LibrarySort? sort, LibraryStatusFilter? status, LibraryGrouping? grouping}) =>
+      LibraryView(
+        sort: sort ?? this.sort,
+        status: status ?? this.status,
+        grouping: grouping ?? this.grouping,
+        genre: genre,
+      );
+
+  LibraryView withGenre(String? genre) =>
+      LibraryView(sort: sort, status: status, grouping: grouping, genre: genre);
+
+  @override
+  bool operator ==(Object other) =>
+      other is LibraryView &&
+      other.sort == sort &&
+      other.status == status &&
+      other.grouping == grouping &&
+      other.genre == genre;
+
+  @override
+  int get hashCode => Object.hash(sort, status, grouping, genre);
+}
+
+T _byName<T extends Enum>(List<T> values, String? name, T fallback) {
+  for (final v in values) {
+    if (v.name == name) return v;
+  }
+  return fallback;
+}
 
 /// Typed wrapper around [KeyValueSettings]: server connection, device id
 /// and the small settings docs/KONZEPT.md's "Einstellungen" screen exposes
@@ -142,6 +202,33 @@ class SettingsStore {
   Future<bool> cellularHintOff() async => await _get(SettingsKeys.cellularHintOff) == 'true';
 
   Future<void> setCellularHintOff(bool off) => _set(SettingsKeys.cellularHintOff, off.toString());
+
+  /// The library's order, filters and grouping (decision E70); defaults
+  /// for anything unset or unknown.
+  Future<LibraryView> libraryView() async {
+    final genre = await _get(SettingsKeys.libraryGenre);
+    return LibraryView(
+      sort: _byName(LibrarySort.values, await _get(SettingsKeys.librarySort), LibrarySort.recent),
+      status: _byName(
+        LibraryStatusFilter.values,
+        await _get(SettingsKeys.libraryStatus),
+        LibraryStatusFilter.all,
+      ),
+      grouping: _byName(
+        LibraryGrouping.values,
+        await _get(SettingsKeys.libraryGrouping),
+        LibraryGrouping.list,
+      ),
+      genre: genre == null || genre.isEmpty ? null : genre,
+    );
+  }
+
+  Future<void> setLibraryView(LibraryView view) async {
+    await _set(SettingsKeys.librarySort, view.sort.name);
+    await _set(SettingsKeys.libraryStatus, view.status.name);
+    await _set(SettingsKeys.libraryGrouping, view.grouping.name);
+    await _set(SettingsKeys.libraryGenre, view.genre ?? '');
+  }
 
   /// Playback speed of [bookId] (decision E38), 1.0 when never set or
   /// unreadable. Local only: speed is not an event (docs/ARCHITEKTUR.md

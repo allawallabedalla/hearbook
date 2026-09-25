@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:math' as math;
 
+import 'package:flutter/cupertino.dart' show CupertinoIcons;
 import 'package:flutter/gestures.dart' show DragStartBehavior;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -8,6 +9,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../audio/handler.dart';
 import '../audio/playback_status.dart';
+import '../data/settings_store.dart' show Appearance;
 import '../domain/manifest.dart';
 import '../domain/pause_index.dart';
 import '../domain/position.dart';
@@ -318,6 +320,15 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
                         icon: const Icon(Icons.keyboard_arrow_down, size: 32),
                         onPressed: _close,
                       ),
+                      // Hell/Dunkel at hand (E69); not in the night view,
+                      // which has no app bar and is always dark.
+                      actions: [
+                        AppearanceToggle(
+                          dark: tokens.isDark,
+                          onToggle: (dark) =>
+                              ref.read(appearanceProvider.notifier).set(dark ? Appearance.dark : Appearance.light),
+                        ),
+                      ],
                     ),
               body: SafeArea(
                 // The type scale stays readable up to 1.6x; beyond that the
@@ -956,8 +967,41 @@ class _SeekButton extends StatelessWidget {
   }
 }
 
+/// Switches the stored "Erscheinungsbild" to the other of Hell and Dunkel
+/// (decision E69), in the player's top bar: a moon while it is light, a
+/// sun while it is dark. "Wie iPhone" stays a choice in the settings; a
+/// tap here always picks one of the two fixed looks.
+class AppearanceToggle extends StatelessWidget {
+  /// Whether the player is dark right now (by setting or by the phone).
+  final bool dark;
+
+  /// Called with the look to switch to: true for Dunkel.
+  final ValueChanged<bool> onToggle;
+
+  const AppearanceToggle({super.key, required this.dark, required this.onToggle});
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox.square(
+      dimension: fadenMinTapTarget,
+      // No tooltip: the icon's semantic label names the button.
+      child: IconButton(
+        icon: Icon(
+          dark ? CupertinoIcons.sun_max : CupertinoIcons.moon,
+          size: 26,
+          semanticLabel: dark ? AppStrings.playerAppearanceLight : AppStrings.playerAppearanceDark,
+        ),
+        onPressed: () {
+          unawaited(HapticFeedback.selectionClick());
+          onToggle(!dark);
+        },
+      ),
+    );
+  }
+}
+
 /// The sleep timer on the player itself (decision E61), day and night: a
-/// moon, and while a timer runs what is left. Opens the choice
+/// moon with "zzz" (E69), and while a timer runs what is left. Opens the choice
 /// ([showSleepTimerSheet]). Follows the shared [SleepTimerController], so
 /// it and the details sheet always agree.
 class SleepTimerButton extends StatelessWidget {
@@ -995,7 +1039,8 @@ class SleepTimerButton extends StatelessWidget {
             child: Row(
               mainAxisSize: MainAxisSize.min,
               children: [
-                Icon(text == null ? Icons.bedtime_outlined : Icons.bedtime, size: 26, color: color),
+                // Moon with "zzz" (E69): sleep, not the Hell/Dunkel moon above.
+                Icon(CupertinoIcons.moon_zzz, size: 26, color: color),
                 if (text != null) ...[
                   const SizedBox(width: 6),
                   Flexible(

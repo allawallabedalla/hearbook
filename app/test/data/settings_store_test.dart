@@ -68,4 +68,23 @@ void main() {
     expect(await settings.cellularChapters(), isTrue);
     expect(await settings.cellularHintOff(), isTrue);
   });
+
+  test('library view (E70): defaults, round-trips, and unknown values fall back', () async {
+    expect(await settings.libraryView(), const LibraryView());
+    const view = LibraryView(
+      sort: LibrarySort.length,
+      status: LibraryStatusFilter.finished,
+      grouping: LibraryGrouping.author,
+      genre: 'Humor',
+    );
+    await settings.setLibraryView(view);
+    expect(await settings.libraryView(), view);
+    await settings.setLibraryView(view.withGenre(null));
+    expect((await settings.libraryView()).genre, isNull);
+
+    await db.into(db.keyValueSettings).insertOnConflictUpdate(
+          KeyValueSettingsCompanion.insert(key: SettingsKeys.libraryStatus, value: 'someday'),
+        );
+    expect((await settings.libraryView()).status, LibraryStatusFilter.all);
+  });
 }

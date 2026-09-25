@@ -200,6 +200,27 @@ class ApiClient {
     return res.data ?? const {};
   }
 
+  /// Sets [bookId]'s genre by hand (`PUT /api/v1/books/{id}/genre`); null
+  /// goes back to the automatic one. Returns the genre the server now
+  /// reports (null after going back to automatic, until its lookup ran).
+  Future<String?> setGenre(String bookId, String? genre) async {
+    final res = await _dio.put<Map<String, dynamic>>(
+      '/api/v1/books/$bookId/genre',
+      data: {'genre': genre},
+    );
+    final answer = res.data?['genre'];
+    return answer is String ? answer : null;
+  }
+
+  /// The genre labels the server knows (`GET /api/v1/genres`), in display
+  /// order.
+  Future<List<String>> genres() async {
+    final res = await _dio.get<List<dynamic>>('/api/v1/genres');
+    return [
+      for (final g in res.data ?? const []) if (g is String) g,
+    ];
+  }
+
   Future<void> confirmManifest(String bookId, String manifestId) async {
     await _dio.post<void>('/api/v1/books/$bookId/manifests/$manifestId/confirm');
   }

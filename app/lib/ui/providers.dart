@@ -32,7 +32,8 @@ import '../signals/night.dart';
 import '../signals/screen_brightness.dart';
 import '../signals/sleep_timer.dart';
 
-export '../data/library.dart' show BookSummary, ManifestCandidate, BookDetail;
+export '../data/library.dart' show BookSummary, ManifestCandidate, BookDetail, knownGenres;
+export '../data/settings_store.dart' show LibrarySort, LibraryStatusFilter, LibraryGrouping, LibraryView;
 
 /// Wiring for the singletons main.dart creates before `runApp` (the
 /// database file, the audio_service handler, ...). Every provider here is
@@ -388,18 +389,32 @@ class NightModeController extends Notifier<bool> {
 
 final nightModeProvider = NotifierProvider<NightModeController, bool>(NightModeController.new);
 
-/// Library order (decision E48). Kept for the app's lifetime, not stored.
-enum LibrarySort { recent, title, author }
+/// The library view as read once in main.dart before `runApp` (decision
+/// E70); the defaults for tests that do not override it.
+final initialLibraryViewProvider = Provider<LibraryView>((ref) => const LibraryView());
 
-class LibrarySortController extends Notifier<LibrarySort> {
+/// Order, status filter, grouping and genre filter of "Alle Bücher"
+/// (decisions E48, E70), remembered per device. A change shows at once;
+/// storing it follows in the background (a view preference, not progress,
+/// so a lost write only costs the choice).
+class LibraryViewController extends Notifier<LibraryView> {
   @override
-  LibrarySort build() => LibrarySort.recent;
+  LibraryView build() => ref.watch(initialLibraryViewProvider);
 
-  void set(LibrarySort sort) => state = sort;
+  void setSort(LibrarySort sort) => _set(state.copyWith(sort: sort));
+  void setStatus(LibraryStatusFilter status) => _set(state.copyWith(status: status));
+  void setGrouping(LibraryGrouping grouping) => _set(state.copyWith(grouping: grouping));
+  void setGenre(String? genre) => _set(state.withGenre(genre));
+
+  void _set(LibraryView view) {
+    if (view == state) return;
+    state = view;
+    unawaited(ref.read(settingsStoreProvider).setLibraryView(view).catchError((Object _) {}));
+  }
 }
 
-final librarySortProvider =
-    NotifierProvider<LibrarySortController, LibrarySort>(LibrarySortController.new);
+final libraryViewProvider =
+    NotifierProvider<LibraryViewController, LibraryView>(LibraryViewController.new);
 
 /// The book the library is busy with (decision E65): being opened (until
 /// the player has it) or loading its "Reihenfolge prüfen" choice. Its row
@@ -688,6 +703,18 @@ class LibraryController extends ChangeNotifier {
 
   /// Bytes all downloaded audio takes on this device.
   Future<int> totalDownloadedBytes() async => await downloads?.totalBytesOnDisk() ?? 0;
+
+  /// Changes [bookId]'s genre on the server (null: back to automatic,
+  /// decision E70) and in the list and cache. Throws when the server
+  /// cannot be reached or refuses; then nothing changes here.
+  Future<void> setGenre(String bookId, String? genre) async {
+    final now = await repository.setGenre(bookId, genre);
+    books = [for (final b in books) b.bookId == bookId ? b.withGenre(now) : b];
+    _notify();
+  }
+
+  /// The labels "Genre ändern" offers (server list, else [knownGenres]).
+  Future<List<String>> genreLabels() => repository.genreLabels();
 
   Future<List<ManifestCandidate>> reviewCandidates(String bookId) async {
     if (repository.api == null) return const [];

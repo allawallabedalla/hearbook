@@ -1,5 +1,6 @@
 // Tests ui/library_screen.dart (decision E48): search, order and the
-// "Weiterhören" section; the first-launch state without a server; a
+// "Weiterhören" section; the status and genre filters, "Nach Autor" and
+// "Genre ändern" (E70); the first-launch state without a server; a
 // running download saying what is left (E62), with cancel and retry; the
 // library as the base route without a back button (E60); and the
 // "Reihenfolge prüfen" dialog, which shows each candidate's real file
@@ -8,12 +9,14 @@
 import 'dart:async';
 import 'dart:io';
 
+import 'package:dio/dio.dart';
 import 'package:faden/data/api.dart' show ApiClient;
 import 'package:faden/data/book_downloads.dart';
 import 'package:faden/data/db.dart';
 import 'package:faden/data/downloads.dart';
 import 'package:faden/data/journal.dart';
 import 'package:faden/data/library.dart';
+import 'package:faden/data/settings_store.dart';
 import 'package:faden/domain/manifest.dart';
 import 'package:faden/domain/position.dart';
 import 'package:faden/domain/resolver.dart' show BookState;
@@ -34,12 +37,15 @@ import 'fake_audio_handler.dart';
 
 const _hour = 3600 * 1000;
 
-BookSummary _book(String id, String title, String? author, {String status = 'ok'}) => BookSummary(
+BookSummary _book(String id, String title, String? author,
+        {String status = 'ok', String? genre, int? durationMs = 10 * _hour}) =>
+    BookSummary(
       bookId: id,
       title: title,
       author: author,
-      durationMs: 10 * _hour,
+      durationMs: durationMs,
       serverStatus: status,
+      genre: genre,
     );
 
 final _books = [
@@ -147,6 +153,29 @@ class _ReviewController extends _FixedLibraryController {
   }
 }
 
+/// A library with a server behind it for "Genre ändern" only (E70).
+class _GenreController extends _FixedLibraryController {
+  _GenreController({required super.books}) : super(progress: const {});
+
+  final _api = ApiClient.tryCreate(baseUrl: 'http://nas.local:8000', token: 'secret-token-1234');
+  bool fail = false;
+  final List<(String, String?)> changes = [];
+
+  @override
+  ApiClient? get api => _api;
+
+  @override
+  Future<List<String>> genreLabels() async => knownGenres;
+
+  @override
+  Future<void> setGenre(String bookId, String? genre) async {
+    changes.add((bookId, genre));
+    if (fail) throw Exception('422');
+    books = [for (final b in books) b.bookId == bookId ? b.withGenre(genre) : b];
+    notifyListeners();
+  }
+}
+
 /// A session the gated opener below fills as opening a book would.
 class _Session extends PlayerSessionController {
   _Session({required super.handler, required super.journal});
@@ -230,14 +259,25 @@ void main() {
       ]);
     });
 
-    test('by author, books without one last', () {
+    test('by author\'s surname (E70), books without one last', () {
       expect(titles(arrangeBooks(books: _books, progress: const {}, sort: LibrarySort.author)), [
-        'Über Nacht', // Anna Weber
         'Halbe Sachen', // Bert Brecht
         'Momo', // Michael Ende
         'Der Zauberberg', // Thomas Mann
+        'Über Nacht', // Anna Weber
         'Anonyme Briefe',
       ]);
+    });
+
+    test('by length (E70): shortest first, unknown lengths last', () {
+      final books = [
+        _book('a', 'Lang', null, durationMs: 20 * _hour),
+        _book('b', 'Unbekannt lang', null, durationMs: null),
+        _book('c', 'Kurz', null, durationMs: 2 * _hour),
+        _book('d', 'Auch kurz', null, durationMs: 2 * _hour),
+      ];
+      expect(titles(arrangeBooks(books: books, progress: const {}, sort: LibrarySort.length)),
+          ['Auch kurz', 'Kurz', 'Lang', 'Unbekannt lang']);
     });
 
     test('search matches title or author, case and umlauts folded', () {
@@ -248,6 +288,123 @@ void main() {
       expect(titles(arrangeBooks(books: _books, progress: const {}, sort: LibrarySort.title, query: 'uber n')),
           ['Über Nacht']);
     });
+  });
+
+  group('filters (E70)', () {
+    List<String> titles(List<BookSummary> books) => [for (final b in books) b.title];
+    List<String> filtered(LibraryStatusFilter status, {String? genre, String query = ''}) => titles(arrangeBooks(
+          books: _books,
+          progress: _progressByBook,
+          sort: LibrarySort.title,
+          status: status,
+          genre: genre,
+          query: query,
+        ));
+
+    test('status as the rows say it: "neu", started, "gehört"', () {
+      expect(listeningStateOf(null), ListeningState.unstarted);
+      expect(listeningStateOf(_progress('x', 0, 1)), ListeningState.unstarted);
+      expect(listeningStateOf(_progress('x', 0.3, 1)), ListeningState.started);
+      expect(listeningStateOf(_progress('x', 0.996, 1)), ListeningState.finished);
+      // Progress whose share is not known yet reads "neu", as in its row.
+      final unknownShare = BookProgress(
+        bookId: 'x',
+        position: const Position(fileHash: 'h', offsetMs: 1),
+        fraction: null,
+        lastPlayed: DateTime(2026),
+      );
+      expect(listeningStateOf(unknownShare), ListeningState.unstarted);
+    });
+
+    test('"Alle · Läuft · Neu · Gehört"', () {
+      expect(filtered(LibraryStatusFilter.all), hasLength(5));
+      expect(filtered(LibraryStatusFilter.started), ['Der Zauberberg', 'Momo']);
+      expect(filtered(LibraryStatusFilter.unstarted), ['Anonyme Briefe', 'Halbe Sachen']);
+      expect(filtered(LibraryStatusFilter.finished), ['Über Nacht']);
+    });
+
+    test('genre filters too; a search ignores both filters', () {
+      final books = [
+        _book('k', 'Krimi', 'A', genre: 'Krimi & Thriller'),
+        _book('h', 'Witz', 'B', genre: 'Humor'),
+        _book('n', 'Ohne', 'C'),
+      ];
+      List<String> of({String? genre, LibraryStatusFilter status = LibraryStatusFilter.all, String query = ''}) =>
+          titles(arrangeBooks(
+            books: books,
+            progress: const {},
+            sort: LibrarySort.title,
+            status: status,
+            genre: genre,
+            query: query,
+          ));
+      expect(of(genre: 'Humor'), ['Witz']);
+      expect(of(genre: 'Humor', status: LibraryStatusFilter.finished), isEmpty);
+      expect(of(genre: 'Humor', status: LibraryStatusFilter.finished, query: 'krimi'), ['Krimi']);
+      expect(filtered(LibraryStatusFilter.finished, query: 'momo'), ['Momo']);
+    });
+
+    test('genresIn lists the library\'s genres in the server\'s order', () {
+      expect(genresIn(_books), isEmpty);
+      expect(
+        genresIn([
+          _book('1', 'A', null, genre: 'Humor'),
+          _book('2', 'B', null, genre: 'Krimi & Thriller'),
+          _book('3', 'C', null, genre: 'Humor'),
+          _book('4', 'D', null, genre: 'Lyrik'),
+          _book('5', 'E', null),
+        ]),
+        ['Krimi & Thriller', 'Humor', 'Lyrik'],
+      );
+    });
+  });
+
+  group('"Nach Autor" (E70)', () {
+    test('the surname is the last word of the name', () {
+      expect(authorSortKey('Thomas Mann'), 'mann');
+      expect(authorSortKey('  Ursula K. Le Guin '), 'guin');
+      expect(authorSortKey('Homer'), 'homer');
+      expect(authorSortKey('Anna Österreich'), 'osterreich');
+    });
+
+    test('groups by surname, "Unbekannt" last, each keeping the chosen order', () {
+      final books = [
+        _book('1', 'Zeta', 'Thomas Mann'),
+        _book('2', 'Alpha', 'Heinrich Mann'),
+        _book('3', 'Zulu', 'thomas  mann'),
+        _book('4', 'Gamma', null),
+        _book('5', 'Delta', 'Bert Brecht'),
+        _book('6', 'Epsilon', '  '),
+      ];
+      final byTitle = arrangeBooks(books: books, progress: const {}, sort: LibrarySort.title);
+      final groups = groupByAuthor(byTitle);
+      expect([for (final g in groups) g.author], ['Bert Brecht', 'Heinrich Mann', 'Thomas Mann', null]);
+      expect([for (final b in groups[2].books) b.title], ['Zeta', 'Zulu'], reason: 'case and spaces fold');
+      expect([for (final b in groups[3].books) b.title], ['Epsilon', 'Gamma']);
+
+      final entries = libraryEntries(byTitle, LibraryGrouping.author);
+      expect(entries.first.author, 'Bert Brecht');
+      expect(entries.first.book, isNull);
+      expect(entries, hasLength(books.length + groups.length));
+      expect(libraryEntries(byTitle, LibraryGrouping.list).every((e) => e.book != null), isTrue);
+    });
+  });
+
+  test('LibraryController.setGenre updates the list after the server said yes', () async {
+    final dio = Dio(BaseOptions(baseUrl: 'http://nas.local:8787'))
+      ..interceptors.add(InterceptorsWrapper(onRequest: (o, h) {
+        h.resolve(Response(requestOptions: o, statusCode: 200, data: {'genre': (o.data as Map)['genre']}));
+      }));
+    final controller = LibraryController(
+      repository: LibraryRepository(api: ApiClient(dio), cache: null),
+      downloads: null,
+    )..books = [_book('b1', 'Eins', null), _book('b2', 'Zwei', null, genre: 'Romane')];
+    var notified = 0;
+    controller.addListener(() => notified++);
+    await controller.setGenre('b1', 'Humor');
+    expect({for (final b in controller.books) b.bookId: b.genre}, {'b1': 'Humor', 'b2': 'Romane'});
+    expect(notified, 1);
+    controller.dispose();
   });
 
   group('LibraryScreen', () {
@@ -261,6 +418,8 @@ void main() {
       bool withNavigator = false,
       FadenTokens tokens = FadenTokens.day,
       List<Override> extra = const [],
+      Size size = const Size(430, 1400),
+      double textScale = 1.0,
     }) async {
       await tester.runAsync(() async {
         db = AppDatabase.memory();
@@ -268,7 +427,7 @@ void main() {
         session = _Session(handler: handler, journal: Journal(db));
       });
       _session = session;
-      tester.view.physicalSize = const Size(430 * 3, 1400 * 3);
+      tester.view.physicalSize = size * 3;
       tester.view.devicePixelRatio = 3;
       addTearDown(tester.view.reset);
       await tester.pumpWidget(
@@ -282,6 +441,10 @@ void main() {
           ],
           child: MaterialApp(
             theme: fadenThemeFor(tokens),
+            builder: (context, child) => MediaQuery(
+              data: MediaQuery.of(context).copyWith(textScaler: TextScaler.linear(textScale)),
+              child: child!,
+            ),
             home: withNavigator ? null : const LibraryScreen(),
             onGenerateRoute: withNavigator ? (_) => LibraryScreen.route() : null,
           ),
@@ -374,6 +537,199 @@ void main() {
       expect(top(tester, 'Halbe Sachen'), lessThan(top(tester, 'Über Nacht')));
       await tearDownLibrary(tester);
     });
+
+    Future<void> settleStore(WidgetTester tester) async {
+      for (var i = 0; i < 3; i++) {
+        await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 10)));
+        await tester.pumpAndSettle();
+      }
+    }
+
+    List<String> rowTitles(WidgetTester tester) => [
+          for (final row in tester.widgetList<BookRow>(find.byType(BookRow))) row.book.title,
+        ];
+
+    testWidgets('status chips sit above "Alle Bücher", filter only that list and are remembered (E70)',
+        (tester) async {
+      await pumpLibrary(tester, _FixedLibraryController(books: _books, progress: _progressByBook));
+      for (final label in ['Alle', 'Läuft', 'Neu', 'Gehört']) {
+        expect(find.text(label), findsOneWidget, reason: label);
+      }
+      expect(find.byType(LibraryFilterBar), findsOneWidget);
+      expect(find.text(AppStrings.libraryFilterGenre), findsNothing, reason: 'no book has a genre');
+      final chips = tester.getRect(find.byType(LibraryFilterBar));
+      expect(chips.top, greaterThan(top(tester, AppStrings.libraryAllBooks)));
+      expect(chips.bottom, lessThanOrEqualTo(tester.getTopLeft(find.byType(BookRow).first).dy));
+      expect(tester.getSemantics(find.bySemanticsLabel('Alle')), isSemantics(isSelected: true, isButton: true));
+
+      await tester.tap(find.text('Gehört'));
+      await settleStore(tester);
+      expect(rowTitles(tester), ['Über Nacht']);
+      // "Weiterhören" stays as it was.
+      expect(find.byType(ContinueCard), findsNWidgets(2));
+
+      await tester.tap(find.text('Neu'));
+      await settleStore(tester);
+      expect(rowTitles(tester), ['Anonyme Briefe', 'Halbe Sachen']);
+
+      // The started books are all under "Weiterhören": nothing left here.
+      await tester.tap(find.text('Läuft'));
+      await settleStore(tester);
+      expect(find.byType(BookRow), findsNothing);
+      expect(find.text(AppStrings.libraryFilterEmpty), findsOneWidget);
+      expect(find.byType(LibraryFilterBar), findsOneWidget, reason: 'the way back stays');
+      expect((await tester.runAsync(SettingsStore(db).libraryView))!.status, LibraryStatusFilter.started);
+
+      // A search finds every book, whatever the filter, and hides the chips.
+      await tester.enterText(find.byType(TextField), 'nacht');
+      await tester.pump();
+      expect(rowTitles(tester), ['Über Nacht']);
+      expect(find.byType(LibraryFilterBar), findsNothing);
+      await tearDownLibrary(tester);
+    });
+
+    testWidgets('a remembered filter is there on the next start (E70)', (tester) async {
+      await pumpLibrary(
+        tester,
+        _FixedLibraryController(books: _books, progress: _progressByBook),
+        extra: [
+          initialLibraryViewProvider.overrideWithValue(const LibraryView(status: LibraryStatusFilter.finished)),
+        ],
+      );
+      expect(rowTitles(tester), ['Über Nacht']);
+      await tearDownLibrary(tester);
+    });
+
+    testWidgets('"Genre ▾" lists the library\'s genres and filters by one (E70)', (tester) async {
+      final books = [
+        _book('k', 'Mord im Nebel', 'Ada Krimi', genre: 'Krimi & Thriller'),
+        _book('h', 'Lachen', 'Bo Witz', genre: 'Humor'),
+        _book('n', 'Ohne Genre', 'Cy Leer'),
+      ];
+      await pumpLibrary(tester, _FixedLibraryController(books: books, progress: const {}));
+      expect(rowTitles(tester), ['Lachen', 'Mord im Nebel', 'Ohne Genre']);
+      // The test font is wide: the row scrolls sideways to "Genre ▾".
+      await tester.ensureVisible(find.text(AppStrings.libraryFilterGenre));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text(AppStrings.libraryFilterGenre));
+      await tester.pumpAndSettle();
+      expect(find.text(AppStrings.libraryFilterAllGenres), findsOneWidget);
+      expect(find.text('Krimi & Thriller'), findsOneWidget);
+      expect(find.text('Humor'), findsOneWidget);
+      expect(find.text('Romane'), findsNothing, reason: 'only genres the library has');
+      await tester.tap(find.text('Humor'));
+      await settleStore(tester);
+      expect(rowTitles(tester), ['Lachen']);
+      expect(find.descendant(of: find.byType(LibraryFilterBar), matching: find.text('Humor')), findsOneWidget);
+      expect((await tester.runAsync(SettingsStore(db).libraryView))!.genre, 'Humor');
+
+      await tester.tap(find.text('Humor'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text(AppStrings.libraryFilterAllGenres));
+      await settleStore(tester);
+      expect(rowTitles(tester), hasLength(3));
+      await tearDownLibrary(tester);
+    });
+
+    testWidgets('"Nach Autor" groups under author headers, "Unbekannt" last (E70)', (tester) async {
+      await pumpLibrary(tester, _FixedLibraryController(books: _books, progress: const {}));
+      await tester.tap(find.byTooltip(AppStrings.librarySortTooltip));
+      await tester.pumpAndSettle();
+      expect(find.text(AppStrings.librarySortLength), findsOneWidget);
+      await tester.tap(find.text(AppStrings.libraryGroupAuthor));
+      await settleStore(tester);
+      expect(find.text(AppStrings.libraryUnknownAuthor), findsOneWidget);
+      // Header and the row's own author line.
+      expect(find.text('Bert Brecht'), findsNWidgets(2));
+      final order = ['Bert Brecht', 'Michael Ende', 'Thomas Mann', 'Anna Weber'];
+      for (var i = 0; i + 1 < order.length; i++) {
+        expect(tester.getTopLeft(find.text(order[i]).first).dy, lessThan(tester.getTopLeft(find.text(order[i + 1]).first).dy));
+      }
+      expect(top(tester, 'Anna Weber'), lessThan(top(tester, AppStrings.libraryUnknownAuthor)));
+      expect(top(tester, AppStrings.libraryUnknownAuthor), lessThan(top(tester, 'Anonyme Briefe')));
+      expect((await tester.runAsync(SettingsStore(db).libraryView))!.grouping, LibraryGrouping.author);
+      await tearDownLibrary(tester);
+    });
+
+    testWidgets('long press: "Genre ändern" sends the choice, says when it fails, and waits for the server (E70)',
+        (tester) async {
+      final controller = _GenreController(books: [_book('b-anon', 'Anonyme Briefe', null)]);
+      await pumpLibrary(tester, controller);
+      await tester.longPress(find.text('Anonyme Briefe'));
+      await tester.pumpAndSettle();
+      expect(find.text(AppStrings.genreNone), findsOneWidget);
+      await tester.tap(find.text(AppStrings.genreChange));
+      await tester.pumpAndSettle();
+      expect(find.text(AppStrings.genreAutomatic), findsOneWidget);
+      for (final g in knownGenres) {
+        expect(find.text(g), findsOneWidget, reason: g);
+      }
+      await tester.tap(find.text('Humor'));
+      await tester.pumpAndSettle();
+      expect(controller.changes, [('b-anon', 'Humor')]);
+
+      // Back to automatic; the current genre is ticked.
+      await tester.longPress(find.text('Anonyme Briefe'));
+      await tester.pumpAndSettle();
+      expect(find.text('Humor'), findsOneWidget, reason: 'the current genre under the action');
+      await tester.tap(find.text(AppStrings.genreChange));
+      await tester.pumpAndSettle();
+      expect(find.descendant(of: find.widgetWithText(ListTile, 'Humor'), matching: find.byIcon(Icons.check)),
+          findsOneWidget);
+      controller.fail = true;
+      await tester.tap(find.text(AppStrings.genreAutomatic));
+      await tester.pumpAndSettle();
+      expect(controller.changes.last, ('b-anon', null));
+      expect(find.text(AppStrings.genreChangeFailed), findsOneWidget);
+      await tester.pump(const Duration(seconds: 5));
+      await tester.pumpAndSettle();
+
+      controller.offline = true;
+      controller.notifyListeners();
+      await tester.pump();
+      await tester.longPress(find.text('Anonyme Briefe'));
+      await tester.pumpAndSettle();
+      expect(find.text(AppStrings.genreOffline), findsOneWidget);
+      expect(tester.widget<ListTile>(find.widgetWithText(ListTile, AppStrings.genreChange)).enabled, isFalse);
+      await tester.tap(find.text(AppStrings.genreChange));
+      await tester.pumpAndSettle();
+      expect(find.text(AppStrings.genreAutomatic), findsNothing);
+      await tearDownLibrary(tester);
+    });
+
+    for (final tokens in [FadenTokens.day, FadenTokens.night]) {
+      testWidgets('${tokens.isDark ? 'dark' : 'day'}: SE x1.35 fits the chips in one row (E70)', (tester) async {
+        final books = [
+          for (final b in _books) b.withGenre(b.bookId == 'b-anon' ? 'Fantasy & Science-Fiction' : null),
+        ];
+        await pumpLibrary(
+          tester,
+          _FixedLibraryController(books: books, progress: _progressByBook),
+          size: const Size(375, 667),
+          textScale: 1.35,
+          tokens: tokens,
+        );
+        await tester.drag(find.byType(CustomScrollView), const Offset(0, -300));
+        await tester.pump();
+        expect(tester.takeException(), isNull);
+        final bar = tester.getRect(find.byType(LibraryFilterBar));
+        expect(bar.height, greaterThanOrEqualTo(fadenMinTapTarget));
+        expect(bar.width, lessThanOrEqualTo(375));
+        for (final label in ['Alle', 'Läuft', 'Neu', 'Gehört']) {
+          final chip = tester.getRect(find.text(label));
+          expect(chip.top, greaterThanOrEqualTo(bar.top));
+          expect(chip.bottom, lessThanOrEqualTo(bar.bottom), reason: label);
+        }
+        // "Genre ▾" may sit past the edge; the row scrolls to it.
+        await tester.ensureVisible(find.text(AppStrings.libraryFilterGenre));
+        await tester.pumpAndSettle();
+        await tester.tap(find.text(AppStrings.libraryFilterGenre));
+        await tester.pumpAndSettle();
+        expect(find.text('Fantasy & Science-Fiction'), findsOneWidget);
+        expect(tester.takeException(), isNull);
+        await tearDownLibrary(tester);
+      });
+    }
 
     testWidgets('an incomplete book explains itself on tap', (tester) async {
       await pumpLibrary(tester, _FixedLibraryController(books: _books, progress: const {}));

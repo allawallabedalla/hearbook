@@ -425,5 +425,59 @@
   "@cellularPromptLoad": { "description": "Zustimmen: über Mobilfunk laden (E66)." },
 
   "cellularPromptNotNow": "Nicht jetzt",
-  "@cellularPromptNotNow": { "description": "Ablehnen: bis zum nächsten App-Start nicht über Mobilfunk laden (E66)." }
+  "@cellularPromptNotNow": { "description": "Ablehnen: bis zum nächsten App-Start nicht über Mobilfunk laden (E66)." },
+
+  "playerAppearanceDark": "Dunkel einschalten",
+  "@playerAppearanceDark": { "description": "Bedienhilfe des Knopfs oben rechts im Player, solange er hell ist: schaltet das Erscheinungsbild auf Dunkel (E69)." },
+
+  "playerAppearanceLight": "Hell einschalten",
+  "@playerAppearanceLight": { "description": "Bedienhilfe des Knopfs oben rechts im Player, solange er dunkel ist: schaltet das Erscheinungsbild auf Hell (E69)." },
+
+  "libraryFilterAll": "Alle",
+  "@libraryFilterAll": { "description": "Statusfilter der Bibliothek: alle Bücher (E70)." },
+
+  "libraryFilterStarted": "Läuft",
+  "@libraryFilterStarted": { "description": "Statusfilter: angefangen, nicht zu Ende gehört (E70)." },
+
+  "libraryFilterUnstarted": "Neu",
+  "@libraryFilterUnstarted": { "description": "Statusfilter: noch nie gehört (E70)." },
+
+  "libraryFilterFinished": "Gehört",
+  "@libraryFilterFinished": { "description": "Statusfilter: zu Ende gehört (E70)." },
+
+  "libraryFilterGenre": "Genre",
+  "@libraryFilterGenre": { "description": "Genre-Filter, solange keins gewählt ist (E70)." },
+
+  "libraryFilterAllGenres": "Alle Genres",
+  "@libraryFilterAllGenres": { "description": "Auswahl im Genre-Filter: kein Genre-Filter (E70)." },
+
+  "libraryFilterEmpty": "Keine Bücher in diesem Filter.",
+  "@libraryFilterEmpty": { "description": "Filter ohne Treffer unter „Alle Bücher“ (E70)." },
+
+  "librarySortLength": "Länge",
+  "@librarySortLength": { "description": "Sortierung nach Buchlänge, kürzeste zuerst (E70)." },
+
+  "libraryGroupList": "Liste",
+  "@libraryGroupList": { "description": "Ansicht: eine Liste ohne Gruppen (E70)." },
+
+  "libraryGroupAuthor": "Nach Autor",
+  "@libraryGroupAuthor": { "description": "Ansicht: nach Autor gruppiert (E70)." },
+
+  "libraryUnknownAuthor": "Unbekannt",
+  "@libraryUnknownAuthor": { "description": "Gruppe der Bücher ohne Autor, am Ende (E70)." },
+
+  "genreChange": "Genre ändern",
+  "@genreChange": { "description": "Aktion auf einem Buch (langer Druck), öffnet die Genre-Auswahl (E70)." },
+
+  "genreAutomatic": "Automatisch",
+  "@genreAutomatic": { "description": "Genre-Auswahl: zurück zum vom Server bestimmten Genre (E70)." },
+
+  "genreNone": "Kein Genre",
+  "@genreNone": { "description": "Unter „Genre ändern“, solange das Buch keins hat (E70)." },
+
+  "genreOffline": "Nur mit Verbindung zum Server.",
+  "@genreOffline": { "description": "Warum „Genre ändern“ offline nicht geht (E70)." },
+
+  "genreChangeFailed": "Das Genre ließ sich nicht ändern. Bitte erneut versuchen.",
+  "@genreChangeFailed": { "description": "Fehler beim Ändern des Genres (E70)." }
 }
