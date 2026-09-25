@@ -1,0 +1,16 @@
+{
+  "kind": "books#volumes",
+  "totalItems": 3,
+  "items": [
+    {"kind": "books#volume", "id": "a"},
+    {"kind": "books#volume", "id": "b", "volumeInfo": {"title": "Ohne Kategorie"}},
+    {
+      "kind": "books#volume",
+      "id": "c",
+      "volumeInfo": {
+        "title": "Die Tote am Deich",
+        "categories": ["Fiction / Mystery & Detective / General", 7]
+      }
+    }
+  ]
+}

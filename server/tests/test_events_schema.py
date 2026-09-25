@@ -78,8 +78,16 @@ def test_data_field_optional():
 
 def test_all_event_types_accepted():
     for t in (
-        "PLAY", "SEEK", "RESUME", "UNDO", "HEARTBEAT", "PAUSE",
-        "AWAKE", "SLEEP_HINT", "PROBE", "FINISHED",
+        "PLAY",
+        "SEEK",
+        "RESUME",
+        "UNDO",
+        "HEARTBEAT",
+        "PAUSE",
+        "AWAKE",
+        "SLEEP_HINT",
+        "PROBE",
+        "FINISHED",
     ):
         body = copy.deepcopy(VALID_EVENT)
         body["type"] = t

@@ -15,11 +15,14 @@ from pathlib import Path
 
 from fastapi import APIRouter, Depends, FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse, StreamingResponse
+from pydantic import BaseModel
 
 from . import db
 from .auth import make_auth_dependency
 from .config import Settings
 from .events import PUSH_LIMIT, EventValidationError, is_skewed, validate_event
+from .genre_refresh import GenreRefresher, Lookup
+from .genres import GENRES
 from .library_path import (
     PathTraversalError,
     effective_library,
@@ -46,6 +49,13 @@ logger = logging.getLogger(__name__)
 
 def _now() -> str:
     return datetime.now(UTC).isoformat()
+
+
+class GenreUpdate(BaseModel):
+    """Body of PUT /api/v1/books/{book_id}/genre: a label from GENRES, or
+    null to go back to the automatic genre."""
+
+    genre: str | None
 
 
 def _manifest_files_detail(conn: sqlite3.Connection, manifest_id: str) -> list[dict]:
@@ -108,9 +118,7 @@ def _get_book_or_404(conn: sqlite3.Connection, book_id: str) -> sqlite3.Row:
     return book
 
 
-def _resolve_cover(
-    conn: sqlite3.Connection, book_row: sqlite3.Row
-) -> tuple[str, bytes] | None:
+def _resolve_cover(conn: sqlite3.Connection, book_row: sqlite3.Row) -> tuple[str, bytes] | None:
     folder = Path(book_row["path"])
     if folder.is_dir():
         cover_path = find_cover_file(folder)
@@ -137,9 +145,7 @@ def _resolve_cover(
     if cached is not None:
         return cached["mime"], cached["data"]
 
-    file_row = conn.execute(
-        "SELECT path FROM files WHERE file_hash = ?", (first_hash,)
-    ).fetchone()
+    file_row = conn.execute("SELECT path FROM files WHERE file_hash = ?", (first_hash,)).fetchone()
     if file_row is None or not Path(file_row["path"]).is_file():
         return None
 
@@ -202,26 +208,36 @@ def _run_periodic_rescan_tick(
     effective_library: Callable[[sqlite3.Connection], Path],
     noise_db: float,
     silence_s: float,
+    after_scan: Callable[[], None] | None = None,
 ) -> None:
     """One tick of the periodic background rescan (section 12): the same
     scan_library() call POST /api/v1/rescan makes, under the same
     `scan_lock` so a manual scan and the periodic one never run at once.
     Skips (does not block) if a scan is already in progress, and never lets
-    an exception escape -- one bad tick must not kill the loop."""
+    an exception escape -- one bad tick must not kill the loop.
+    `after_scan` runs after a successful scan, once the lock is released
+    (section 3.7: it starts the background genre lookup)."""
     if not scan_lock.acquire(blocking=False):
         logger.info("periodic rescan: skipped, a scan is already in progress")
         return
+    scanned = False
     try:
         conn = db.connect(db_path)
         try:
             library = effective_library(conn)
             scan_library(conn, library=library, noise_db=noise_db, silence_s=silence_s)
+            scanned = True
         finally:
             conn.close()
     except Exception:
         logger.exception("periodic rescan tick failed")
     finally:
         scan_lock.release()
+    if scanned and after_scan is not None:
+        try:
+            after_scan()
+        except Exception:
+            logger.exception("periodic rescan: after-scan hook failed")
 
 
 def _periodic_rescan_loop(
@@ -241,7 +257,9 @@ def _periodic_rescan_loop(
         tick()
 
 
-def create_app(settings: Settings) -> FastAPI:
+def create_app(settings: Settings, *, genre_lookup: Lookup | None = None) -> FastAPI:
+    """`genre_lookup` replaces the catalog lookup (tests); by default
+    genre_lookup.lookup is used, if FADEN_GENRE_LOOKUP allows it."""
     # Section 12: a background thread rescans the library every
     # `rescan_min` minutes (0 disables it), started on startup and stopped
     # cleanly on shutdown via the lifespan below, so a fresh container picks
@@ -262,6 +280,7 @@ def create_app(settings: Settings) -> FastAPI:
                     effective_library=_effective_library,
                     noise_db=settings.silence_db,
                     silence_s=settings.silence_s,
+                    after_scan=app.state.genre_refresher.trigger,
                 )
 
             thread = threading.Thread(
@@ -280,6 +299,7 @@ def create_app(settings: Settings) -> FastAPI:
             yield
         finally:
             rescan_stop_event.set()
+            app.state.genre_refresher.stop()
             if thread is not None:
                 thread.join(timeout=5)
 
@@ -292,6 +312,11 @@ def create_app(settings: Settings) -> FastAPI:
     # busy_timeout. A non-blocking acquire here instead rejects a manual
     # request with 409 immediately, and makes the periodic tick skip.
     app.state.scan_lock = threading.Lock()
+    # Section 3.7: looks up missing genres on its own thread after every
+    # scan, never under scan_lock and never delaying a scan response.
+    app.state.genre_refresher = GenreRefresher(
+        settings.db_path, enabled=settings.genre_lookup, lookup=genre_lookup
+    )
 
     def get_conn():
         conn = db.connect(settings.db_path)
@@ -304,11 +329,13 @@ def create_app(settings: Settings) -> FastAPI:
         if not app.state.scan_lock.acquire(blocking=False):
             raise HTTPException(status_code=409, detail="a scan is already in progress")
         try:
-            return scan_library(
+            summary = scan_library(
                 conn, library=library, noise_db=settings.silence_db, silence_s=settings.silence_s
             )
         finally:
             app.state.scan_lock.release()
+        app.state.genre_refresher.trigger()
+        return summary
 
     require_token = make_auth_dependency(settings.token)
 
@@ -342,6 +369,7 @@ def create_app(settings: Settings) -> FastAPI:
                     "book_id": book["book_id"],
                     "title": book["title"],
                     "author": book["author"],
+                    "genre": book["genre"],
                     "duration_ms": duration_ms,
                     "status": _book_status(conn, book, active),
                 }
@@ -361,11 +389,49 @@ def create_app(settings: Settings) -> FastAPI:
             "book_id": book["book_id"],
             "title": book["title"],
             "author": book["author"],
+            "genre": book["genre"],
+            "genre_source": book["genre_source"],
             "incomplete": bool(book["incomplete"]),
             "status": _book_status(conn, book, active),
             "active_manifest": _manifest_payload(conn, active) if active else None,
             "candidates": [_manifest_payload(conn, c) for c in candidates],
         }
+
+    @api.put("/api/v1/books/{book_id}/genre")
+    def set_genre(
+        book_id: str, body: GenreUpdate, conn: sqlite3.Connection = Depends(get_conn)
+    ) -> dict:
+        """Section 3.7: a label sets the genre manually (never overwritten by
+        a lookup); null clears it back to automatic and looks it up again."""
+        _get_book_or_404(conn, book_id)
+        if body.genre is not None and body.genre not in GENRES:
+            raise HTTPException(
+                status_code=422, detail=f"genre must be one of {list(GENRES)} or null"
+            )
+        if body.genre is None:
+            conn.execute(
+                "UPDATE books SET genre = NULL, genre_source = NULL, genre_checked_at = NULL "
+                "WHERE book_id = ?",
+                (book_id,),
+            )
+        else:
+            conn.execute(
+                "UPDATE books SET genre = ?, genre_source = 'manual', genre_checked_at = ? "
+                "WHERE book_id = ?",
+                (body.genre, int(time.time()), book_id),
+            )
+        conn.commit()
+        if body.genre is None:
+            app.state.genre_refresher.trigger()
+        return {
+            "book_id": book_id,
+            "genre": body.genre,
+            "genre_source": None if body.genre is None else "manual",
+        }
+
+    @api.get("/api/v1/genres")
+    def list_genres() -> list[str]:
+        return list(GENRES)
 
     @api.get("/api/v1/books/{book_id}/cover")
     def get_cover(book_id: str, conn: sqlite3.Connection = Depends(get_conn)):
@@ -410,20 +476,14 @@ def create_app(settings: Settings) -> FastAPI:
             "AND manifest_id != ?",
             (book_id, manifest_id),
         )
-        conn.execute(
-            "UPDATE manifests SET status = 'active' WHERE manifest_id = ?", (manifest_id,)
-        )
+        conn.execute("UPDATE manifests SET status = 'active' WHERE manifest_id = ?", (manifest_id,))
         conn.execute("UPDATE books SET incomplete = 0 WHERE book_id = ?", (book_id,))
         conn.commit()
         return {"manifest_id": manifest_id, "status": "active"}
 
     @api.get("/api/v1/files/{file_hash}")
-    def get_file(
-        file_hash: str, request: Request, conn: sqlite3.Connection = Depends(get_conn)
-    ):
-        row = conn.execute(
-            "SELECT path FROM files WHERE file_hash = ?", (file_hash,)
-        ).fetchone()
+    def get_file(file_hash: str, request: Request, conn: sqlite3.Connection = Depends(get_conn)):
+        row = conn.execute("SELECT path FROM files WHERE file_hash = ?", (file_hash,)).fetchone()
         if row is None:
             raise HTTPException(status_code=404, detail="file not found")
         path = Path(row["path"])
@@ -444,9 +504,7 @@ def create_app(settings: Settings) -> FastAPI:
 
         parsed = _parse_range(range_header, file_size)
         if parsed is None:
-            raise HTTPException(
-                status_code=416, headers={"Content-Range": f"bytes */{file_size}"}
-            )
+            raise HTTPException(status_code=416, headers={"Content-Range": f"bytes */{file_size}"})
         start, end = parsed
         headers = {
             "Accept-Ranges": "bytes",
@@ -462,9 +520,7 @@ def create_app(settings: Settings) -> FastAPI:
         )
 
     @api.post("/api/v1/events")
-    def post_events(
-        events: list[dict], conn: sqlite3.Connection = Depends(get_conn)
-    ) -> dict:
+    def post_events(events: list[dict], conn: sqlite3.Connection = Depends(get_conn)) -> dict:
         """Section 6: push up to 500 events, idempotent on event_id.
 
         Only a malformed request body (not a JSON array, or more than
@@ -475,9 +531,7 @@ def create_app(settings: Settings) -> FastAPI:
         device from ever syncing the rest of the batch again.
         """
         if len(events) > PUSH_LIMIT:
-            raise HTTPException(
-                status_code=422, detail=f"at most {PUSH_LIMIT} events per request"
-            )
+            raise HTTPException(status_code=422, detail=f"at most {PUSH_LIMIT} events per request")
 
         server_now_ms = int(time.time() * 1000)
         received_at = _now()
@@ -503,8 +557,7 @@ def create_app(settings: Settings) -> FastAPI:
             skewed = is_skewed(body["hlc"]["pt"], server_now_ms)
             if skewed:
                 logger.warning(
-                    "event %s from device %s flagged skew_flag: hlc.pt=%d, "
-                    "server_now_ms=%d",
+                    "event %s from device %s flagged skew_flag: hlc.pt=%d, server_now_ms=%d",
                     body["event_id"],
                     body["device_id"],
                     body["hlc"]["pt"],
@@ -550,9 +603,7 @@ def create_app(settings: Settings) -> FastAPI:
     ) -> dict:
         """Section 6: pull events after `since` (a seq cursor), paged."""
         if limit <= 0 or limit > PUSH_LIMIT:
-            raise HTTPException(
-                status_code=422, detail=f"limit must be between 1 and {PUSH_LIMIT}"
-            )
+            raise HTTPException(status_code=422, detail=f"limit must be between 1 and {PUSH_LIMIT}")
 
         rows = conn.execute(
             "SELECT seq, body, skew_flag FROM events WHERE seq > ? ORDER BY seq LIMIT ?",

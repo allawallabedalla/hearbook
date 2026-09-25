@@ -64,9 +64,7 @@ def test_post_library_requires_auth(settings):
 
 def test_browse_rejects_wrong_token(settings):
     client = TestClient(create_app(settings))
-    resp = client.get(
-        "/api/v1/setup/browse", headers={"Authorization": "Bearer wrong"}
-    )
+    resp = client.get("/api/v1/setup/browse", headers={"Authorization": "Bearer wrong"})
     assert resp.status_code == 401
 
 
@@ -91,9 +89,7 @@ def test_browse_subpath_lists_nested_subdirs(settings, auth_headers):
     (settings.library / "Autor A" / "Buch 2").mkdir(parents=True)
 
     client = TestClient(create_app(settings))
-    resp = client.get(
-        "/api/v1/setup/browse", params={"path": "Autor A"}, headers=auth_headers
-    )
+    resp = client.get("/api/v1/setup/browse", params={"path": "Autor A"}, headers=auth_headers)
     assert resp.status_code == 200
     assert resp.json()["dirs"] == ["Buch 1", "Buch 2"]
 
@@ -132,9 +128,7 @@ def test_browse_on_a_file_404(settings, auth_headers):
 )
 def test_browse_rejects_path_traversal(settings, auth_headers, malicious_path):
     client = TestClient(create_app(settings))
-    resp = client.get(
-        "/api/v1/setup/browse", params={"path": malicious_path}, headers=auth_headers
-    )
+    resp = client.get("/api/v1/setup/browse", params={"path": malicious_path}, headers=auth_headers)
     assert resp.status_code == 400
 
 
@@ -145,9 +139,7 @@ def test_browse_rejects_symlink_escape(settings, auth_headers, tmp_path):
     (settings.library / "escape").symlink_to(outside)
 
     client = TestClient(create_app(settings))
-    resp = client.get(
-        "/api/v1/setup/browse", params={"path": "escape"}, headers=auth_headers
-    )
+    resp = client.get("/api/v1/setup/browse", params={"path": "escape"}, headers=auth_headers)
     assert resp.status_code == 400
 
 
@@ -168,9 +160,7 @@ def test_post_library_stores_valid_selection(settings, auth_headers):
     (settings.library / "books" / "Mort").mkdir(parents=True)
     client = TestClient(create_app(settings))
 
-    resp = client.post(
-        "/api/v1/setup/library", json={"path": "books"}, headers=auth_headers
-    )
+    resp = client.post("/api/v1/setup/library", json={"path": "books"}, headers=auth_headers)
     assert resp.status_code == 200
     assert resp.json() == {"path": "books"}
 
@@ -199,9 +189,7 @@ def test_post_library_404_for_missing_path(settings, auth_headers):
 def test_post_library_404_for_a_file(settings, auth_headers):
     (settings.library / "a-file.txt").write_text("x")
     client = TestClient(create_app(settings))
-    resp = client.post(
-        "/api/v1/setup/library", json={"path": "a-file.txt"}, headers=auth_headers
-    )
+    resp = client.post("/api/v1/setup/library", json={"path": "a-file.txt"}, headers=auth_headers)
     assert resp.status_code == 404
 
 
@@ -211,9 +199,7 @@ def test_post_library_404_for_a_file(settings, auth_headers):
 )
 def test_post_library_rejects_path_traversal(settings, auth_headers, malicious_path):
     client = TestClient(create_app(settings))
-    resp = client.post(
-        "/api/v1/setup/library", json={"path": malicious_path}, headers=auth_headers
-    )
+    resp = client.post("/api/v1/setup/library", json={"path": malicious_path}, headers=auth_headers)
     assert resp.status_code == 400
     # nothing must be stored on a rejected attempt
     conn = connect(settings.data / "faden.db")
@@ -227,17 +213,13 @@ def test_post_library_rejects_symlink_escape(settings, auth_headers, tmp_path):
     (settings.library / "escape").symlink_to(outside)
 
     client = TestClient(create_app(settings))
-    resp = client.post(
-        "/api/v1/setup/library", json={"path": "escape"}, headers=auth_headers
-    )
+    resp = client.post("/api/v1/setup/library", json={"path": "escape"}, headers=auth_headers)
     assert resp.status_code == 400
 
 
 def test_post_library_rejects_non_string_path(settings, auth_headers):
     client = TestClient(create_app(settings))
-    resp = client.post(
-        "/api/v1/setup/library", json={"path": 123}, headers=auth_headers
-    )
+    resp = client.post("/api/v1/setup/library", json={"path": 123}, headers=auth_headers)
     assert resp.status_code == 422
 
 
@@ -260,9 +242,7 @@ def test_post_library_selection_triggers_immediate_rescan(make_mp3, settings, au
 
     client = TestClient(create_app(settings))
     # library_path unset (root) -> both books would be found once /rescan runs.
-    resp = client.post(
-        "/api/v1/setup/library", json={"path": "books"}, headers=auth_headers
-    )
+    resp = client.post("/api/v1/setup/library", json={"path": "books"}, headers=auth_headers)
     assert resp.status_code == 200
 
     books = client.get("/api/v1/books", headers=auth_headers).json()

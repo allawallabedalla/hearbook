@@ -65,8 +65,7 @@ def _order_a(entries: list[FileEntry]) -> list[str] | None:
     if any(e.tag_track is None for e in entries):
         return None
     pairs = [
-        (e.tag_disc if e.tag_disc is not None else e.disc_from_folder, e.tag_track)
-        for e in entries
+        (e.tag_disc if e.tag_disc is not None else e.disc_from_folder, e.tag_track) for e in entries
     ]
     if len(set(pairs)) != len(pairs):
         return None

@@ -8,8 +8,16 @@ from __future__ import annotations
 from faden_server.manifest_rules import FileEntry, compute_order, diff_rescan
 
 
-def entry(hash_, *, disc_folder=1, tag_disc=None, tag_track=None, filename=None,
-          duration_ms=1000, readable=True):
+def entry(
+    hash_,
+    *,
+    disc_folder=1,
+    tag_disc=None,
+    tag_track=None,
+    filename=None,
+    duration_ms=1000,
+    readable=True,
+):
     return FileEntry(
         file_hash=hash_,
         filename=filename or f"{hash_}.mp3",
@@ -160,9 +168,7 @@ def test_rescan_first_import_no_prior_manifest_becomes_active():
 def test_rescan_ambiguous_order_always_needs_review_even_if_appended():
     # even though it extends the active list, ambiguous ordering must not
     # auto-activate silently (invariant 4: order never changes silently)
-    outcome = diff_rescan(
-        ["h1"], "needs_review", [["h1", "h3", "h2"], ["h1", "h2", "h3"]]
-    )
+    outcome = diff_rescan(["h1"], "needs_review", [["h1", "h3", "h2"], ["h1", "h2", "h3"]])
     assert outcome.action == "needs_review"
     assert outcome.new_manifests == [
         (["h1", "h3", "h2"], "needs_review"),

@@ -9,6 +9,8 @@ from pathlib import Path
 
 import pytest
 
+from faden_server import genre_lookup
+
 FFMPEG = shutil.which("ffmpeg")
 FFPROBE = shutil.which("ffprobe")
 SQLITE3_CLI = shutil.which("sqlite3")
@@ -16,9 +18,7 @@ SQLITE3_CLI = shutil.which("sqlite3")
 requires_ffmpeg = pytest.mark.skipif(
     FFMPEG is None or FFPROBE is None, reason="ffmpeg/ffprobe not installed"
 )
-requires_sqlite3_cli = pytest.mark.skipif(
-    SQLITE3_CLI is None, reason="sqlite3 CLI not installed"
-)
+requires_sqlite3_cli = pytest.mark.skipif(SQLITE3_CLI is None, reason="sqlite3 CLI not installed")
 
 
 def synth_tone(
@@ -45,9 +45,7 @@ def synth_tone(
                 f"sine=frequency={freq}:duration={seconds}:sample_rate={sample_rate}[{label}]"
             )
         elif kind == "silence":
-            filter_inputs.append(
-                f"anullsrc=r={sample_rate}:cl=mono:d={seconds}[{label}]"
-            )
+            filter_inputs.append(f"anullsrc=r={sample_rate}:cl=mono:d={seconds}[{label}]")
         else:
             raise ValueError(f"unknown segment kind: {kind}")
         concat_labels.append(f"[{label}]")
@@ -95,3 +93,15 @@ def make_mp3(tmp_path: Path):
         return synth_tone(tmp_path / name, segments=segments, freq=freq, **kwargs)
 
     return _make
+
+
+@pytest.fixture(autouse=True)
+def _no_catalog_requests(monkeypatch):
+    """No test ever talks to a real book catalog: any genre lookup that is
+    not given a fake fetch finds every source unreachable, immediately."""
+
+    def offline(url: str) -> bytes:
+        raise OSError(f"network disabled in tests: {url}")
+
+    monkeypatch.setattr(genre_lookup, "_http_get", offline)
+    monkeypatch.setattr(genre_lookup, "_default_throttle", lambda: None)

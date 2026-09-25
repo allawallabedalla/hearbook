@@ -16,6 +16,9 @@ class Settings:
     rescan_min: int
     silence_db: float
     silence_s: float
+    # FADEN_GENRE_LOOKUP: look up missing genres in public catalogs after a
+    # scan (section 3.7). Defaulted so Settings(...) in tests stays short.
+    genre_lookup: bool = True
 
     @property
     def db_path(self) -> Path:
@@ -24,6 +27,15 @@ class Settings:
     @property
     def covers_dir(self) -> Path:
         return self.data / "covers"
+
+
+_FALSE_WORDS = frozenset({"0", "false", "no", "off"})
+
+
+def _flag(value: str | None, *, default: bool) -> bool:
+    if value is None or not value.strip():
+        return default
+    return value.strip().lower() not in _FALSE_WORDS
 
 
 def load_settings(env: dict[str, str] | None = None) -> Settings:
@@ -47,4 +59,5 @@ def load_settings(env: dict[str, str] | None = None) -> Settings:
         rescan_min=int(src.get("FADEN_RESCAN_MIN", "10")),
         silence_db=float(src.get("FADEN_SILENCE_DB", "-35")),
         silence_s=float(src.get("FADEN_SILENCE_S", "0.35")),
+        genre_lookup=_flag(src.get("FADEN_GENRE_LOOKUP"), default=True),
     )

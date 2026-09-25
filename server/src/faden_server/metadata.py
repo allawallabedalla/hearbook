@@ -33,7 +33,7 @@ class EmbeddedCover:
 
 
 def _parse_leading_int(value: str) -> int | None:
-    """"3/12" -> 3, "3" -> 3, garbage -> None."""
+    """ "3/12" -> 3, "3" -> 3, garbage -> None."""
     if not value:
         return None
     head = value.split("/")[0].strip()
@@ -97,9 +97,7 @@ def find_cover_file(folder: Path) -> Path | None:
     return None
 
 
-def extract_embedded_cover(
-    path: Path, *, max_bytes: int = MAX_COVER_BYTES
-) -> EmbeddedCover | None:
+def extract_embedded_cover(path: Path, *, max_bytes: int = MAX_COVER_BYTES) -> EmbeddedCover | None:
     tags = _read_id3(path)
     if tags is None:
         return None

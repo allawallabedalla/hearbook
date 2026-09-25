@@ -74,9 +74,7 @@ def test_same_audio_different_tags_or_name_same_hash(tmp_path, base_audio):
     plain.write_bytes(base_audio)
 
     tagged = tmp_path / "very-different-name-with-tags.mp3"
-    tagged.write_bytes(
-        build_id3v2(b"\x00" * 40, footer=False) + base_audio + build_id3v1()
-    )
+    tagged.write_bytes(build_id3v2(b"\x00" * 40, footer=False) + base_audio + build_id3v1())
 
     assert audio_hash(plain) == audio_hash(tagged)
     assert audio_hash(plain) == audio_hash_bytes(base_audio)

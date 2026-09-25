@@ -24,7 +24,10 @@ CREATE TABLE IF NOT EXISTS books (
     title      TEXT,
     author     TEXT,
     incomplete INTEGER NOT NULL DEFAULT 0,
-    created_at TEXT NOT NULL
+    created_at TEXT NOT NULL,
+    genre            TEXT,
+    genre_source     TEXT CHECK (genre_source IN ('dnb', 'google', 'openlibrary', 'manual')),
+    genre_checked_at INTEGER
 );
 
 CREATE TABLE IF NOT EXISTS manifests (
@@ -75,6 +78,34 @@ CREATE TABLE IF NOT EXISTS settings (
 """
 
 
+# Columns added after the first release. CREATE TABLE IF NOT EXISTS leaves
+# an existing table alone, so connect() adds whatever is missing here with
+# ALTER TABLE (SQLite has no ADD COLUMN IF NOT EXISTS). Append-only: new
+# columns go at the end, each must be nullable or have a default.
+ADDED_COLUMNS: tuple[tuple[str, str, str], ...] = (
+    ("books", "genre", "TEXT"),
+    (
+        "books",
+        "genre_source",
+        "TEXT CHECK (genre_source IN ('dnb', 'google', 'openlibrary', 'manual'))",
+    ),
+    ("books", "genre_checked_at", "INTEGER"),
+)
+
+
+def _add_missing_columns(conn: sqlite3.Connection) -> None:
+    for table, column, decl in ADDED_COLUMNS:
+        existing = {row[1] for row in conn.execute(f"PRAGMA table_info({table})")}
+        if column in existing:
+            continue
+        try:
+            conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {decl}")
+        except sqlite3.OperationalError as exc:
+            # Another connection migrated between our check and the ALTER.
+            if "duplicate column" not in str(exc):
+                raise
+
+
 # How long a connection waits for a write lock held by another connection
 # before raising "database is locked" (sqlite3's default is 5000ms, which a
 # multi-minute library scan can easily outlast for a concurrent writer).
@@ -90,5 +121,6 @@ def connect(db_path: Path) -> sqlite3.Connection:
     conn.execute("PRAGMA foreign_keys=ON")
     conn.execute(f"PRAGMA busy_timeout={BUSY_TIMEOUT_MS}")
     conn.executescript(SCHEMA)
+    _add_missing_columns(conn)
     conn.commit()
     return conn

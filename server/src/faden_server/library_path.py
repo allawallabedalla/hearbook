@@ -74,9 +74,7 @@ def list_subdirs(root: Path, rel: str) -> list[str]:
 def get_library_path(conn: sqlite3.Connection) -> str:
     """The stored `settings.library_path` (section 2); "" (the root
     itself) if unset."""
-    row = conn.execute(
-        "SELECT value FROM settings WHERE key = ?", (LIBRARY_PATH_KEY,)
-    ).fetchone()
+    row = conn.execute("SELECT value FROM settings WHERE key = ?", (LIBRARY_PATH_KEY,)).fetchone()
     return row["value"] if row else ""
 
 

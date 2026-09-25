@@ -127,9 +127,7 @@ def scan_file(conn: sqlite3.Connection, bf: BookFile) -> FileEntry:
     stat = path.stat()
     file_hash = _cached_hash(conn, path)
 
-    row = conn.execute(
-        "SELECT duration_ms FROM files WHERE file_hash = ?", (file_hash,)
-    ).fetchone()
+    row = conn.execute("SELECT duration_ms FROM files WHERE file_hash = ?", (file_hash,)).fetchone()
     readable = True
     if row is not None and row["duration_ms"] is not None:
         duration_ms = row["duration_ms"]
@@ -184,9 +182,7 @@ def ensure_pauses(
     """Compute (or reuse) the pause index for a file, cached by hash and by
     the detection params (section 4)."""
     params = {"noise_db": noise_db, "silence_s": silence_s}
-    row = conn.execute(
-        "SELECT params FROM pauses WHERE file_hash = ?", (file_hash,)
-    ).fetchone()
+    row = conn.execute("SELECT params FROM pauses WHERE file_hash = ?", (file_hash,)).fetchone()
     if row is not None and json.loads(row["params"]) == params:
         return
     try:
@@ -289,10 +285,22 @@ def scan_book(
         )
         active_row = None
     else:
+        previous = conn.execute(
+            "SELECT title, author FROM books WHERE book_id = ?", (book_id,)
+        ).fetchone()
         conn.execute(
             "UPDATE books SET path = ?, title = ?, author = ? WHERE book_id = ?",
             (str(folder.path), title, author, book_id),
         )
+        if previous is not None and (previous["title"], previous["author"]) != (title, author):
+            # Section 3.7: an automatic genre was looked up for the old
+            # title/author; forget it so the next lookup uses the new one.
+            # A manual genre stays.
+            conn.execute(
+                "UPDATE books SET genre = NULL, genre_source = NULL, genre_checked_at = NULL "
+                "WHERE book_id = ? AND genre_source IS NOT 'manual'",
+                (book_id,),
+            )
         active_row = active_manifest(conn, book_id)
 
     active_hashes = manifest_hashes(conn, active_row["manifest_id"]) if active_row else None

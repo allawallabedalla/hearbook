@@ -153,9 +153,7 @@ def test_loop_never_ticks_if_stopped_during_the_initial_delay():
 
 def test_rescan_min_zero_disables_the_periodic_loop(settings, monkeypatch):
     started = []
-    monkeypatch.setattr(
-        api_module, "_periodic_rescan_loop", lambda *a, **k: started.append(1)
-    )
+    monkeypatch.setattr(api_module, "_periodic_rescan_loop", lambda *a, **k: started.append(1))
 
     disabled = replace(settings, rescan_min=0)
     with TestClient(create_app(disabled)):
@@ -188,9 +186,7 @@ def test_plain_testclient_use_never_starts_the_background_thread(settings, monke
     never trigger FastAPI's lifespan; make sure that really holds, so they
     do not spawn a slow real scan in the background."""
     started = []
-    monkeypatch.setattr(
-        api_module, "_periodic_rescan_loop", lambda *a, **k: started.append(1)
-    )
+    monkeypatch.setattr(api_module, "_periodic_rescan_loop", lambda *a, **k: started.append(1))
 
     client = TestClient(create_app(settings))
     client.get("/api/v1/health")
