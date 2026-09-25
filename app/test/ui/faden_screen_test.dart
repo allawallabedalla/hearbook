@@ -476,6 +476,12 @@ void main() {
             expect(tester.takeException(), isNull);
             expectOnScreen(tester, find.text(AppStrings.fadenResultFound));
             expectOnScreen(tester, find.text(AppStrings.fadenDone));
+            // "Fertig" is a full-width capsule at the bottom (E76).
+            final done = find.widgetWithText(FilledButton, AppStrings.fadenDone);
+            expect(tester.getSize(done).width, closeTo(size.width - 48, 0.5));
+            expect(tester.getSize(done).height, greaterThanOrEqualTo(56));
+            expect(tester.getTopLeft(done).dy, greaterThanOrEqualTo(tester.getBottomLeft(find.byType(ListView)).dy),
+                reason: 'below the list, which scrolls above it');
             expectOnScreen(tester, find.text(AppStrings.fadenLadderEarlier));
             expectOnScreen(tester, alternativeRows().first);
             await tearDownFaden(tester);

@@ -34,7 +34,7 @@ class FadenSegmented<T> extends StatelessWidget {
     return Container(
       height: fadenMinTapTarget,
       padding: const EdgeInsets.all(3),
-      decoration: BoxDecoration(color: tokens.flaeche, borderRadius: BorderRadius.circular(12)),
+      decoration: BoxDecoration(color: tokens.flaeche, borderRadius: BorderRadius.circular(FadenRadii.tileLarge)),
       child: Row(
         children: [
           for (final value in values)
@@ -83,7 +83,7 @@ class _Segment extends StatelessWidget {
           decoration: BoxDecoration(
             color: selected && !outline ? tokens.faden : Colors.transparent,
             border: selected && outline ? Border.all(color: tokens.faden, width: 1.5) : null,
-            borderRadius: BorderRadius.circular(9),
+            borderRadius: BorderRadius.circular(13),
           ),
           child: Center(
             child: Padding(
@@ -138,10 +138,11 @@ class SectionTitle extends StatelessWidget {
 }
 
 /// An iOS-style grouped section (decision E65): an optional small header,
-/// the rows on one rounded [FadenTokens.flaeche] surface divided by
-/// hairlines, and an explanation *below* ([footer]), as in the iPhone's
-/// own settings. Rows are usually [ListTile]s; they draw their pressed
-/// state on the section's surface.
+/// the rows on one rounded card divided by hairlines, and an explanation
+/// *below* ([footer]), as in the iPhone's own settings. Rows are usually
+/// [ListTile]s; they draw their pressed state on the section's surface.
+/// Since E75 the surface is a white [FadenTokens.karte] with a soft shadow
+/// by day (the near-black card at night), radius 20.
 class FadenGroup extends StatelessWidget {
   final String? header;
   final Widget? headerTrailing;
@@ -180,17 +181,14 @@ class FadenGroup extends StatelessWidget {
               ),
             ),
           if (divided.isNotEmpty)
-            Material(
-              color: tokens.flaeche,
-              borderRadius: BorderRadius.circular(12),
-              clipBehavior: Clip.antiAlias,
+            FadenCard(
               child: ListTileTheme.merge(
                 contentPadding: const EdgeInsets.symmetric(horizontal: inset),
-                // Secondary text on the raised surface keeps 4.5:1 (E65).
+                // Secondary text on the card keeps 4.5:1 (E65, E75).
                 subtitleTextStyle: TextStyle(
                   fontFamily: fadenFontFamily,
                   fontSize: FadenTypeSizes.caption,
-                  color: tokens.leiseAufFlaeche,
+                  color: tokens.leiseAufKarte,
                   height: 1.25,
                 ),
                 child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: divided),
@@ -274,4 +272,151 @@ Future<bool> confirmDeleteDownload(BuildContext context, String title) async {
     ),
   );
   return ok ?? false;
+}
+
+/// A card of the softer look (decision E75): [FadenTokens.karte] with a
+/// soft shadow by day instead of a hairline border, radius 20 unless
+/// given. [color] and [border] override the fill and outline (the open
+/// book's card, E73). A [Material], so list tiles and ink on it draw their
+/// pressed state on the card.
+class FadenCard extends StatelessWidget {
+  final Widget child;
+  final double radius;
+  final Color? color;
+  final BorderSide? border;
+
+  const FadenCard({super.key, required this.child, this.radius = FadenRadii.card, this.color, this.border});
+
+  @override
+  Widget build(BuildContext context) {
+    final tokens = FadenTokens.of(context);
+    final shape = RoundedRectangleBorder(
+      borderRadius: BorderRadius.circular(radius),
+      side: border ?? BorderSide.none,
+    );
+    return DecoratedBox(
+      decoration: ShapeDecoration(shape: shape, shadows: tokens.kartenSchatten),
+      child: Material(
+        color: color ?? tokens.karte,
+        shape: shape,
+        clipBehavior: Clip.antiAlias,
+        child: child,
+      ),
+    );
+  }
+}
+
+/// An icon (or icon and short text) on a subtle rounded-square tile
+/// (decision E72), so the tap target is visible: [FadenTokens.karte] with
+/// a small shadow by day, the near-black card at night (no glow). The
+/// visible tile is [size] high (44 in bars, 56 in the player's controls);
+/// the tap target is always at least [fadenMinTapTarget]. [tooltip] names
+/// the button for VoiceOver unless the icon carries its own
+/// `semanticLabel`.
+class FadenTileButton extends StatelessWidget {
+  final Widget child;
+  final VoidCallback? onPressed;
+  final String? tooltip;
+  final double size;
+  final double radius;
+
+  /// Horizontal padding inside the tile once its content is wider than
+  /// an icon (the sleep timer with its time left).
+  final double padding;
+
+  const FadenTileButton({
+    super.key,
+    required this.child,
+    required this.onPressed,
+    this.tooltip,
+    this.size = 44,
+    this.radius = FadenRadii.tile,
+    this.padding = 0,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final tokens = FadenTokens.of(context);
+    final shape = RoundedRectangleBorder(borderRadius: BorderRadius.circular(radius));
+    Widget button = GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTap: onPressed,
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(minWidth: fadenMinTapTarget, minHeight: fadenMinTapTarget),
+        child: Center(
+          widthFactor: 1,
+          heightFactor: 1,
+          child: Padding(
+            padding: EdgeInsets.all(size >= fadenMinTapTarget ? 0 : (fadenMinTapTarget - size) / 2),
+            child: DecoratedBox(
+              decoration: ShapeDecoration(shape: shape, shadows: tokens.kachelSchatten),
+              child: Material(
+                color: tokens.karte,
+                shape: shape,
+                clipBehavior: Clip.antiAlias,
+                child: InkWell(
+                  onTap: onPressed,
+                  customBorder: shape,
+                  child: ConstrainedBox(
+                    constraints: BoxConstraints(minWidth: size, minHeight: size, maxHeight: size),
+                    child: Padding(
+                      padding: EdgeInsets.symmetric(horizontal: padding),
+                      child: Center(widthFactor: 1, child: child),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+    if (tooltip != null) button = Tooltip(message: tooltip, child: button);
+    return button;
+  }
+}
+
+/// A small status capsule (decision E73): "noch 8 Std.", "neu", "gehört",
+/// or "34 %" and "noch 8 Std." in one. [texts] are shown one after the
+/// other with a thin dot between them, each its own [Text] (findable,
+/// read one after the other).
+class FadenCapsule extends StatelessWidget {
+  final List<String> texts;
+  final Color? background;
+  final Color? foreground;
+
+  const FadenCapsule({super.key, required this.texts, this.background, this.foreground});
+
+  @override
+  Widget build(BuildContext context) {
+    final tokens = FadenTokens.of(context);
+    final style = TextStyle(
+      fontSize: FadenTypeSizes.caption,
+      color: foreground ?? tokens.leiseAufKarte,
+      height: 1.2,
+      fontFeatures: const [FontFeature.tabularFigures()],
+    );
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: background ?? tokens.flaecheAufKarte,
+        borderRadius: BorderRadius.circular(100),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            for (var i = 0; i < texts.length; i++) ...[
+              if (i > 0) Text(' · ', style: style),
+              // Only the last part gives way when space is short.
+              if (i < texts.length - 1)
+                Text(texts[i], maxLines: 1, style: style)
+              else
+                Flexible(child: Text(texts[i], maxLines: 1, overflow: TextOverflow.ellipsis, style: style)),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
 }

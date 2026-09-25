@@ -74,14 +74,16 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen> {
     final controller = ref.watch(libraryControllerProvider);
     final view = ref.watch(libraryViewProvider);
     final viewController = ref.read(libraryViewProvider.notifier);
+    final tokens = FadenTokens.of(context);
     final titleBar = LargeTitleBar(
       title: AppStrings.libraryTitle,
       actions: [
         if (controller.books.isNotEmpty)
-          // Order, then "Liste / Nach Autor" (E70), in one quiet menu.
+          // Order, then "Liste / Nach Autor / Kacheln" (E70, E73), in one
+          // quiet menu, on a tile (E72).
           PopupMenuButton<Object>(
             tooltip: AppStrings.librarySortTooltip,
-            icon: const Icon(Icons.swap_vert),
+            child: FadenTileButton(onPressed: null, child: Icon(Icons.swap_vert, size: 22, color: tokens.tinte)),
             onSelected: (choice) {
               if (choice is LibrarySort) viewController.setSort(choice);
               if (choice is LibraryGrouping) viewController.setGrouping(choice);
@@ -102,11 +104,13 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen> {
                 ),
             ],
           ),
-        IconButton(
+        FadenTileButton(
           tooltip: AppStrings.settingsTitle,
-          icon: const Icon(Icons.settings_outlined),
           onPressed: _openSettings,
+          child: Icon(Icons.settings_outlined, size: 22, color: tokens.tinte),
         ),
+        // The tiles' faces end at the list's 16 dp margin.
+        const SizedBox(width: 16 - (fadenMinTapTarget - 44) / 2),
       ],
     );
     return Scaffold(
@@ -131,6 +135,8 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen> {
           _EmptyState(
             icon: Icons.menu_book_outlined,
             title: AppStrings.setupTitle,
+            // "Willkommen bei **Faden**" (E76).
+            emphasis: AppStrings.appTitle,
             body: AppStrings.setupBody,
             action: FilledButton(onPressed: _openSettings, child: Text(AppStrings.setupAction)),
           ),
@@ -187,26 +193,37 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen> {
       SliverToBoxAdapter(
         child: Padding(
           padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
-          child: TextField(
-            controller: _search,
-            textInputAction: TextInputAction.search,
-            decoration: InputDecoration(
-              hintText: AppStrings.librarySearchHint,
-              prefixIcon: const Icon(Icons.search),
-              suffixIcon: _query.isEmpty
-                  ? null
-                  : IconButton(
-                      tooltip: AppStrings.cancelAction,
-                      icon: const Icon(Icons.close),
-                      onPressed: _search.clear,
-                    ),
+          // A white field with a soft shadow by day (E75), like the cards.
+          child: DecoratedBox(
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(14),
+              boxShadow: FadenTokens.of(context).kachelSchatten,
+            ),
+            child: TextField(
+              controller: _search,
+              textInputAction: TextInputAction.search,
+              decoration: InputDecoration(
+                fillColor: FadenTokens.of(context).karte,
+                hintText: AppStrings.librarySearchHint,
+                prefixIcon: const Icon(Icons.search),
+                suffixIcon: _query.isEmpty
+                    ? null
+                    : IconButton(
+                        tooltip: AppStrings.cancelAction,
+                        icon: const Icon(Icons.close),
+                        onPressed: _search.clear,
+                      ),
+              ),
             ),
           ),
         ),
       ),
       if (continueBooks.isNotEmpty) ...[
         SliverToBoxAdapter(child: _SectionHeader(AppStrings.libraryContinueSection)),
-        SliverList.list(children: [for (final b in continueBooks) ContinueCard(book: b)]),
+        // The latest as the large card, the others smaller (E73).
+        SliverList.list(children: [
+          for (var i = 0; i < continueBooks.length; i++) ContinueCard(book: continueBooks[i], hero: i == 0),
+        ]),
         if (rest.isNotEmpty) SliverToBoxAdapter(child: _SectionHeader(AppStrings.libraryAllBooks)),
       ],
       if (showFilters)
@@ -226,6 +243,22 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen> {
             child: Text(
               showFilters ? AppStrings.libraryFilterEmpty : AppStrings.libraryNoMatches,
               textAlign: TextAlign.center,
+            ),
+          ),
+        )
+      else if (view.grouping == LibraryGrouping.grid)
+        // "Kacheln" (E73): two columns of large covers, row by row so each
+        // row is as tall as its taller tile at any text size.
+        SliverPadding(
+          padding: const EdgeInsets.symmetric(horizontal: 8),
+          sliver: SliverList.builder(
+            itemCount: (arranged.length + 1) ~/ 2,
+            itemBuilder: (context, i) => Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Expanded(child: BookTile(book: arranged[2 * i])),
+                Expanded(child: 2 * i + 1 < arranged.length ? BookTile(book: arranged[2 * i + 1]) : const SizedBox()),
+              ],
             ),
           ),
         )
@@ -376,6 +409,7 @@ String librarySortLabel(LibrarySort sort) => switch (sort) {
 String libraryGroupingLabel(LibraryGrouping grouping) => switch (grouping) {
   LibraryGrouping.list => AppStrings.libraryGroupList,
   LibraryGrouping.author => AppStrings.libraryGroupAuthor,
+  LibraryGrouping.grid => AppStrings.libraryGroupGrid,
 };
 
 String libraryStatusLabel(LibraryStatusFilter status) => switch (status) {
@@ -528,9 +562,10 @@ class LibraryEntry {
   const LibraryEntry.header(this.author) : book = null;
 }
 
-/// The lines of "Alle Bücher" for [grouping] (E70).
+/// The lines of "Alle Bücher" for [grouping] (E70); "Kacheln" (E73) lists
+/// the books like "Liste" and lays them out in two columns.
 List<LibraryEntry> libraryEntries(List<BookSummary> arranged, LibraryGrouping grouping) {
-  if (grouping == LibraryGrouping.list) return [for (final b in arranged) LibraryEntry.book(b)];
+  if (grouping != LibraryGrouping.author) return [for (final b in arranged) LibraryEntry.book(b)];
   return [
     for (final g in groupByAuthor(arranged)) ...[
       LibraryEntry.header(g.author),
@@ -757,39 +792,67 @@ class _OfflineBanner extends StatelessWidget {
 class _EmptyState extends StatelessWidget {
   final IconData icon;
   final String title;
+
+  /// A part of [title] set in bold ("Willkommen bei **Faden**", E76).
+  final String? emphasis;
   final String? body;
   final Widget? action;
   final Widget? secondary;
 
-  const _EmptyState({required this.icon, required this.title, this.body, this.action, this.secondary});
+  const _EmptyState({required this.icon, required this.title, this.emphasis, this.body, this.action, this.secondary});
 
   @override
   Widget build(BuildContext context) {
     final tokens = FadenTokens.of(context);
+    final at = emphasis == null ? -1 : title.indexOf(emphasis!);
+    final headline = TextStyle(color: tokens.tinte, fontSize: FadenTypeSizes.display, height: 1.2);
+    const bold = TextStyle(fontWeight: FontWeight.w700);
     // Part of the scroll view, so pull-to-refresh works here too.
     return SliverFillRemaining(
       hasScrollBody: false,
       child: Padding(
-        padding: const EdgeInsets.fromLTRB(32, 40, 32, 32),
+        padding: const EdgeInsets.fromLTRB(24, 32, 24, 32),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            Icon(icon, size: 48, color: tokens.faden),
-            const SizedBox(height: 16),
-            Text(
-              title,
+            // The icon on a quiet squircle in the thread colour; at night
+            // only its outline (no lit surface).
+            Center(
+              child: DecoratedBox(
+                decoration: ShapeDecoration(
+                  color: tokens.isDark ? null : tokens.faden.withValues(alpha: 0.1),
+                  shape: ContinuousRectangleBorder(
+                    borderRadius: BorderRadius.circular(40),
+                    side: tokens.isDark ? BorderSide(color: tokens.faden, width: 1.5) : BorderSide.none,
+                  ),
+                ),
+                child: SizedBox.square(dimension: 80, child: Icon(icon, size: 36, color: tokens.faden)),
+              ),
+            ),
+            const SizedBox(height: 24),
+            Text.rich(
+              at < 0
+                  ? TextSpan(text: title, style: bold)
+                  : TextSpan(
+                      children: [
+                        TextSpan(text: title.substring(0, at)),
+                        TextSpan(text: emphasis, style: bold),
+                        TextSpan(text: title.substring(at + emphasis!.length)),
+                      ],
+                    ),
               textAlign: TextAlign.center,
-              style: TextStyle(color: tokens.tinte, fontSize: FadenTypeSizes.title),
+              style: headline,
             ),
             if (body != null) ...[
-              const SizedBox(height: 8),
+              const SizedBox(height: 12),
               Text(
                 body!,
                 textAlign: TextAlign.center,
-                style: TextStyle(color: tokens.tinteLeise, fontSize: FadenTypeSizes.body),
+                style: TextStyle(color: tokens.tinteLeise, fontSize: FadenTypeSizes.body, height: 1.35),
               ),
             ],
-            if (action != null) ...[const SizedBox(height: 24), Center(child: action)],
+            // Primary actions as full-width capsules (E76).
+            if (action != null) ...[const SizedBox(height: 32), action!],
             if (secondary != null) ...[const SizedBox(height: 8), Center(child: secondary)],
           ],
         ),
@@ -972,84 +1035,413 @@ Future<void> changeGenre(BuildContext context, LibraryController controller, Boo
   }
 }
 
-/// A "Weiterhören" book (decision E65): a larger card with a bigger cover
-/// and title, set apart by a hairline frame, so the section does not look
-/// like the list below it. Same tap, long press and download control as a
-/// [BookRow].
+/// What a book's card says about its state (E73): a [line] for what needs
+/// words (a download running or failed, "Reihenfolge prüfen", an
+/// incomplete book), [capsule] texts for where the listener stands ("noch
+/// 8 Std.", "neu", "gehört"), and the heard [fraction] for the thin thread
+/// while a book is under way.
+class BookStatus {
+  final String? line;
+  final bool lineIsError;
+  final bool lineIsAction;
+  final List<String> capsule;
+  final double? fraction;
+
+  const BookStatus({
+    this.line,
+    this.lineIsError = false,
+    this.lineIsAction = false,
+    this.capsule = const [],
+    this.fraction,
+  });
+}
+
+/// [BookStatus] of [book]. Pure, like the row texts before it (E48, E62):
+/// the remaining time coarse ("noch 5 Std."), "neu" without a known share,
+/// "gehört" from 99.5 %; offline and not on the device: "… · nur online"
+/// (E58). [withPercent] puts the heard share in front ("34 %", the large
+/// "Weiterhören" card).
+BookStatus bookStatusOf({
+  required BookSummary book,
+  required BookProgress? progress,
+  required BookDownloadState download,
+  bool onlineOnly = false,
+  bool withPercent = false,
+}) {
+  if (book.needsReview) return BookStatus(line: AppStrings.libraryFolderChanged, lineIsAction: true);
+  if (book.serverStatus == 'incomplete') return BookStatus(line: AppStrings.libraryStatusIncomplete);
+  if (book.serverStatus == 'empty') return BookStatus(line: AppStrings.libraryStatusEmpty);
+  String? line;
+  var lineIsError = false;
+  if (download.hasFailed) {
+    line = AppStrings.libraryDownloadFailed;
+    lineIsError = true;
+  } else if (download.isDownloading) {
+    // What is left, not what arrived (E62); "Lädt …" until a first file
+    // size gives the estimate a basis.
+    final rest = download.remainingBytes;
+    line = rest == null ? AppStrings.libraryDownloading : AppStrings.downloadRemaining(formatRemainingBytes(rest));
+  }
+  final fraction = progress?.fraction;
+  final List<String> capsule;
+  double? thread;
+  if (progress == null || fraction == null || fraction <= 0) {
+    capsule = [AppStrings.libraryStatusNew];
+  } else if (fraction >= 0.995) {
+    capsule = [AppStrings.libraryProgressFinished];
+  } else {
+    thread = fraction;
+    final total = book.durationMs;
+    final percent = (fraction * 100).floor();
+    capsule = total == null
+        ? [AppStrings.threadValue(percent)]
+        : [
+            if (withPercent) AppStrings.libraryPercent(percent),
+            AppStrings.remainingTime(formatRemaining((total * (1 - fraction)).round(), coarse: true)),
+          ];
+  }
+  if (onlineOnly) capsule[capsule.length - 1] = AppStrings.libraryOnlineOnly(capsule.last);
+  return BookStatus(line: line, lineIsError: lineIsError, capsule: capsule, fraction: thread);
+}
+
+/// How the open book's card stands out (E73): by day and in "Dunkel" a
+/// fill in the thread colour at low alpha; in the night view only an
+/// outline in `faden`, no lit surface.
+({Color color, BorderSide? border}) _cardLook(FadenTokens tokens, {required bool current, required bool night}) {
+  if (!current) return (color: tokens.karte, border: null);
+  if (night) return (color: tokens.karte, border: BorderSide(color: tokens.faden, width: 1.5));
+  return (color: tokens.karteMarkiert, border: null);
+}
+
+/// The open book (null: none), for the highlighted card (E73).
+String? _openBookId(WidgetRef ref) => ref.watch(playerSessionProvider.select((s) => s.bookId));
+
+/// A "Weiterhören" book. The latest one ([hero], E73) is a large card: a
+/// 120 dp cover, the title in bold, the author, the thread and a capsule
+/// "34 % · noch 8 Std.", radius 24 and a soft shadow by day. The others are
+/// smaller cards (cover 72). Same tap, long press and download control as
+/// a [BookRow]; the open book's card is highlighted.
 class ContinueCard extends ConsumerWidget {
   final BookSummary book;
+  final bool hero;
 
-  const ContinueCard({super.key, required this.book});
+  const ContinueCard({super.key, required this.book, this.hero = false});
 
-  static const double coverSize = 88;
+  static const double coverSize = 120;
+  static const double smallCoverSize = 72;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final controller = ref.watch(libraryControllerProvider);
     final busy = ref.watch(libraryBusyBookProvider) == book.bookId;
+    final current = _openBookId(ref) == book.bookId;
+    final night = ref.watch(nightModeProvider);
     final tokens = FadenTokens.of(context);
     final download = controller.downloadStateFor(book.bookId);
     final progress = controller.progressByBook[book.bookId];
     final author = book.author?.trim();
     final onlineOnly = BookRow.onlineOnly(controller, book, download);
-    final radius = BorderRadius.circular(16);
+    final look = _cardLook(tokens, current: current, night: night);
+    final control = busy
+        ? const _BusySpinner()
+        : _DownloadControl(book: book, download: download, controller: controller, tokens: tokens);
+    final capsuleColor = current && !night ? tokens.karte : null;
 
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
-      child: Material(
-        color: tokens.grund,
-        shape: RoundedRectangleBorder(borderRadius: radius, side: BorderSide(color: tokens.linie)),
-        clipBehavior: Clip.antiAlias,
-        child: InkWell(
-          onTap: () => openBookFromLibrary(context, ref, book),
-          onLongPress: () => _showBookActions(context, controller, book, download),
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(12, 12, 4, 12),
-            child: Row(
-              children: [
-                Opacity(
-                  opacity: onlineOnly ? 0.5 : 1,
-                  child: BookCover(bookId: book.bookId, title: book.title, size: coverSize, radius: 8, thumbnail: true),
-                ),
-                const SizedBox(width: 14),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        book.title,
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                        style: TextStyle(fontSize: FadenTypeSizes.title, color: tokens.tinte, height: 1.2),
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        // Narrow and large text: a smaller cover leaves the title room.
+        // Room beside the 120 dp cover for a title and "34 % · noch 8 Std."
+        // at this text size.
+        final wide = constraints.maxWidth - 188 >= 190 * MediaQuery.textScalerOf(context).scale(1);
+        final cover = hero ? (wide ? coverSize : 96.0) : smallCoverSize;
+        final status = bookStatusOf(
+          book: book,
+          progress: progress,
+          download: download,
+          onlineOnly: onlineOnly,
+          // "nur online" and a narrow card need the room the share takes.
+          withPercent: hero && wide && !onlineOnly,
+        );
+        return Padding(
+          padding: EdgeInsets.fromLTRB(16, 0, 16, hero ? 12 : 10),
+          child: FadenCard(
+            radius: hero ? FadenRadii.hero : FadenRadii.card,
+            color: look.color,
+            border: look.border,
+            child: InkWell(
+              onTap: () => openBookFromLibrary(context, ref, book),
+              onLongPress: () => _showBookActions(context, controller, book, download),
+              child: Padding(
+                padding: hero ? const EdgeInsets.fromLTRB(14, 14, 6, 14) : const EdgeInsets.fromLTRB(12, 12, 4, 12),
+                child: Row(
+                  crossAxisAlignment: hero ? CrossAxisAlignment.start : CrossAxisAlignment.center,
+                  children: [
+                    Opacity(
+                      opacity: onlineOnly ? 0.5 : 1,
+                      child: BookCover(
+                        bookId: book.bookId,
+                        title: book.title,
+                        size: cover,
+                        radius: hero ? 16 : 12,
+                        thumbnail: true,
                       ),
-                      if (author != null && author.isNotEmpty)
-                        Text(
-                          author,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: TextStyle(fontSize: FadenTypeSizes.caption, color: tokens.tinteLeise),
-                        ),
-                      const SizedBox(height: 8),
-                      _StatusLine(
-                        book: book,
-                        progress: progress,
-                        download: download,
-                        tokens: tokens,
-                        onlineOnly: onlineOnly,
-                        threadWidth: 72,
-                      ),
-                    ],
-                  ),
+                    ),
+                    const SizedBox(width: 16),
+                    Expanded(
+                      child: hero
+                          ? ConstrainedBox(
+                              constraints: BoxConstraints(minHeight: cover),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                children: [
+                                  Row(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      Expanded(
+                                        child: Padding(
+                                          padding: const EdgeInsets.only(top: 2),
+                                          child: _TitleAuthor(
+                                            title: book.title,
+                                            author: author,
+                                            tokens: tokens,
+                                            titleSize: FadenTypeSizes.title,
+                                          ),
+                                        ),
+                                      ),
+                                      // Top right, so the capsule below has
+                                      // the column's whole width.
+                                      Transform.translate(offset: const Offset(0, -10), child: control),
+                                    ],
+                                  ),
+                                  const SizedBox(height: 10),
+                                  if (status.line != null)
+                                    Padding(
+                                      padding: const EdgeInsets.only(bottom: 6),
+                                      child: _StatusText(status: status, tokens: tokens),
+                                    ),
+                                  Padding(
+                                    padding: const EdgeInsets.only(right: 8),
+                                    child: Column(
+                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      children: [
+                                        if (status.fraction != null) ...[
+                                          _MiniThread(fraction: status.fraction!, tokens: tokens),
+                                          const SizedBox(height: 10),
+                                        ],
+                                        if (status.capsule.isNotEmpty)
+                                          FadenCapsule(texts: status.capsule, background: capsuleColor),
+                                      ],
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            )
+                          : _RowText(
+                              book: book,
+                              author: author,
+                              status: status,
+                              tokens: tokens,
+                              capsuleColor: capsuleColor,
+                              titleWeight: FontWeight.w700,
+                            ),
+                    ),
+                    if (!hero) ...[const SizedBox(width: 4), control],
+                  ],
                 ),
-                const SizedBox(width: 4),
-                busy
-                    ? const _BusySpinner()
-                    : _DownloadControl(book: book, download: download, controller: controller, tokens: tokens),
-              ],
+              ),
             ),
+          ),
+        );
+      },
+    );
+  }
+}
+
+/// Title (bold for the "Weiterhören" cards) and author.
+class _TitleAuthor extends StatelessWidget {
+  final String title;
+  final String? author;
+  final FadenTokens tokens;
+  final double titleSize;
+  final FontWeight titleWeight;
+  final bool dimmed;
+
+  const _TitleAuthor({
+    required this.title,
+    required this.author,
+    required this.tokens,
+    required this.titleSize,
+    this.titleWeight = FontWeight.w700,
+    this.dimmed = false,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final author = this.author;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Text(
+          title,
+          maxLines: 2,
+          overflow: TextOverflow.ellipsis,
+          style: TextStyle(
+            fontSize: titleSize,
+            fontWeight: titleWeight,
+            color: dimmed ? tokens.leiseAufKarte : tokens.tinte,
+            height: 1.2,
+          ),
+        ),
+        if (author != null && author.isNotEmpty)
+          Padding(
+            padding: const EdgeInsets.only(top: 2),
+            child: Text(
+              author,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(fontSize: FadenTypeSizes.caption, color: tokens.leiseAufKarte),
+            ),
+          ),
+      ],
+    );
+  }
+}
+
+/// The words of a [BookStatus.line]: in `fehler` for a failed download, in
+/// `faden` for "Reihenfolge prüfen".
+class _StatusText extends StatelessWidget {
+  final BookStatus status;
+  final FadenTokens tokens;
+
+  const _StatusText({required this.status, required this.tokens});
+
+  @override
+  Widget build(BuildContext context) {
+    final color = status.lineIsError
+        ? tokens.fehler
+        : status.lineIsAction
+            ? tokens.faden
+            : tokens.leiseAufKarte;
+    return Text(
+      status.line!,
+      maxLines: 2,
+      overflow: TextOverflow.ellipsis,
+      style: TextStyle(fontSize: FadenTypeSizes.caption, color: color),
+    );
+  }
+}
+
+/// The small progress thread of a card (heard in `faden`, the rest in the
+/// thread grey), rounded ends.
+class _MiniThread extends StatelessWidget {
+  final double fraction;
+  final FadenTokens tokens;
+  final double? width;
+
+  const _MiniThread({required this.fraction, required this.tokens, this.width});
+
+  @override
+  Widget build(BuildContext context) {
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(2),
+      child: SizedBox(
+        width: width ?? double.infinity,
+        height: 3,
+        child: ColoredBox(
+          color: tokens.tinteLeiseFaden,
+          child: FractionallySizedBox(
+            alignment: Alignment.centerLeft,
+            widthFactor: fraction.clamp(0.0, 1.0),
+            child: ColoredBox(color: tokens.faden),
           ),
         ),
       ),
+    );
+  }
+}
+
+/// Title, author and state of a card row (E73): the state's capsule on the
+/// right when there is room, else as a third line; a download or error
+/// line under the author; the thin thread under it while under way.
+class _RowText extends StatelessWidget {
+  final BookSummary book;
+  final String? author;
+  final BookStatus status;
+  final FadenTokens tokens;
+  final Color? capsuleColor;
+  final FontWeight titleWeight;
+  final bool dimmed;
+
+  const _RowText({
+    required this.book,
+    required this.author,
+    required this.status,
+    required this.tokens,
+    this.capsuleColor,
+    this.titleWeight = FontWeight.w400,
+    this.dimmed = false,
+  });
+
+  /// The text column keeps at least this much beside the capsule.
+  static const double minText = 120;
+
+  @override
+  Widget build(BuildContext context) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        // A download or error line keeps the room; the capsule then waits
+        // until it is gone (E73).
+        final capsule = status.capsule.isEmpty || status.line != null
+            ? null
+            : FadenCapsule(texts: status.capsule, background: capsuleColor);
+        var beside = false;
+        if (capsule != null) {
+          final painter = TextPainter(
+            text: TextSpan(
+              text: status.capsule.join(' · '),
+              style: const TextStyle(fontFamily: fadenFontFamily, fontSize: FadenTypeSizes.caption),
+            ),
+            textDirection: TextDirection.ltr,
+            textScaler: MediaQuery.textScalerOf(context),
+            maxLines: 1,
+          )..layout();
+          beside = constraints.maxWidth - (painter.width + 20) - 10 >= minText;
+          painter.dispose();
+        }
+        final column = Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            _TitleAuthor(
+              title: book.title,
+              author: author,
+              tokens: tokens,
+              titleSize: FadenTypeSizes.body,
+              titleWeight: titleWeight,
+              dimmed: dimmed,
+            ),
+            if (status.line != null) ...[
+              const SizedBox(height: 2),
+              _StatusText(status: status, tokens: tokens),
+            ],
+            if (status.fraction != null) ...[
+              const SizedBox(height: 8),
+              _MiniThread(fraction: status.fraction!, tokens: tokens, width: 64),
+            ],
+            if (capsule != null && !beside) ...[const SizedBox(height: 6), capsule],
+          ],
+        );
+        if (capsule == null || !beside) return column;
+        return Row(
+          children: [
+            Expanded(child: column),
+            const SizedBox(width: 10),
+            capsule,
+          ],
+        );
+      },
     );
   }
 }
@@ -1068,7 +1460,9 @@ class _BusySpinner extends StatelessWidget {
   );
 }
 
-/// One book: cover, title, author, progress, download state.
+/// One book under "Alle Bücher" (E73): its own rounded card with a small
+/// gap to the next; cover, title, author, the state as a capsule on the
+/// right, the download control. The open book's card is highlighted.
 class BookRow extends ConsumerWidget {
   final BookSummary book;
 
@@ -1085,58 +1479,50 @@ class BookRow extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final controller = ref.watch(libraryControllerProvider);
     final busy = ref.watch(libraryBusyBookProvider) == book.bookId;
+    final current = _openBookId(ref) == book.bookId;
+    final night = ref.watch(nightModeProvider);
     final tokens = FadenTokens.of(context);
     final download = controller.downloadStateFor(book.bookId);
     final progress = controller.progressByBook[book.bookId];
     final author = book.author?.trim();
     final canDelete = download.bytesOnDisk > 0;
-    final dimmed = _unavailable(book) || onlineOnly(controller, book, download);
+    final isOnlineOnly = onlineOnly(controller, book, download);
+    final dimmed = _unavailable(book) || isOnlineOnly;
+    final look = _cardLook(tokens, current: current, night: night);
+    final status = bookStatusOf(book: book, progress: progress, download: download, onlineOnly: isOnlineOnly);
+    final radius = BorderRadius.circular(FadenRadii.card);
 
-    Widget row = InkWell(
-      onTap: () => openBookFromLibrary(context, ref, book),
-      onLongPress: () => _showBookActions(context, controller, book, download),
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(16, 10, 4, 10),
-        child: Row(
-          children: [
-            Opacity(
-              opacity: dimmed ? 0.5 : 1,
-              child: BookCover(bookId: book.bookId, title: book.title, size: coverSize, radius: 6, thumbnail: true),
-            ),
-            const SizedBox(width: 14),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    book.title,
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(fontSize: FadenTypeSizes.body, color: dimmed ? tokens.tinteLeise : tokens.tinte),
-                  ),
-                  if (author != null && author.isNotEmpty)
-                    Text(
-                      author,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(fontSize: FadenTypeSizes.caption, color: tokens.tinteLeise),
-                    ),
-                  const SizedBox(height: 4),
-                  _StatusLine(
-                    book: book,
-                    progress: progress,
-                    download: download,
-                    tokens: tokens,
-                    onlineOnly: onlineOnly(controller, book, download),
-                  ),
-                ],
+    Widget row = FadenCard(
+      color: look.color,
+      border: look.border,
+      child: InkWell(
+        onTap: () => openBookFromLibrary(context, ref, book),
+        onLongPress: () => _showBookActions(context, controller, book, download),
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(12, 12, 4, 12),
+          child: Row(
+            children: [
+              Opacity(
+                opacity: dimmed ? 0.5 : 1,
+                child: BookCover(bookId: book.bookId, title: book.title, size: coverSize, radius: 12, thumbnail: true),
               ),
-            ),
-            const SizedBox(width: 4),
-            busy
-                ? const _BusySpinner()
-                : _DownloadControl(book: book, download: download, controller: controller, tokens: tokens),
-          ],
+              const SizedBox(width: 14),
+              Expanded(
+                child: _RowText(
+                  book: book,
+                  author: author,
+                  status: status,
+                  tokens: tokens,
+                  capsuleColor: current && !night ? tokens.karte : null,
+                  dimmed: dimmed,
+                ),
+              ),
+              const SizedBox(width: 4),
+              busy
+                  ? const _BusySpinner()
+                  : _DownloadControl(book: book, download: download, controller: controller, tokens: tokens),
+            ],
+          ),
         ),
       ),
     );
@@ -1153,7 +1539,7 @@ class BookRow extends ConsumerWidget {
           return false;
         },
         background: Container(
-          color: tokens.fehler,
+          decoration: BoxDecoration(color: tokens.fehler, borderRadius: radius),
           alignment: Alignment.centerRight,
           padding: const EdgeInsets.symmetric(horizontal: 20),
           child: Text(
@@ -1164,87 +1550,124 @@ class BookRow extends ConsumerWidget {
         child: row,
       );
     }
-    return row;
+    return Padding(padding: const EdgeInsets.fromLTRB(16, 0, 16, 8), child: row);
   }
 }
 
-class _StatusLine extends StatelessWidget {
+/// One book in "Kacheln" (E73): a large cover, the thin thread under it
+/// while under way, title and author below, and the download control
+/// unless the book is already on the device. The open book's tile sits on
+/// a highlighted card; the others stand on the background.
+class BookTile extends ConsumerWidget {
   final BookSummary book;
-  final BookProgress? progress;
-  final BookDownloadState download;
-  final FadenTokens tokens;
-  final bool onlineOnly;
 
-  /// Length of the little progress thread.
-  final double threadWidth;
-
-  const _StatusLine({
-    required this.book,
-    required this.progress,
-    required this.download,
-    required this.tokens,
-    this.onlineOnly = false,
-    this.threadWidth = 48,
-  });
+  const BookTile({super.key, required this.book});
 
   @override
-  Widget build(BuildContext context) {
-    final small = TextStyle(fontSize: FadenTypeSizes.caption, color: tokens.tinteLeise);
-    if (book.needsReview) {
-      return Text(AppStrings.libraryFolderChanged, style: small.copyWith(color: tokens.faden));
-    }
-    if (book.serverStatus == 'incomplete') return Text(AppStrings.libraryStatusIncomplete, style: small);
-    if (book.serverStatus == 'empty') return Text(AppStrings.libraryStatusEmpty, style: small);
-    if (download.hasFailed) {
-      return Text(AppStrings.libraryDownloadFailed, style: small.copyWith(color: tokens.fehler));
-    }
-    if (download.isDownloading) {
-      // What is left, not what arrived (E62); "Lädt …" until a first
-      // file size gives the estimate a basis.
-      final rest = download.remainingBytes;
-      return Text(
-        rest == null ? AppStrings.libraryDownloading : AppStrings.downloadRemaining(formatRemainingBytes(rest)),
-        maxLines: 1,
-        overflow: TextOverflow.ellipsis,
-        style: small,
-      );
-    }
-    final fraction = progress?.fraction;
-    String text;
-    double? thread;
-    if (progress == null || fraction == null || fraction <= 0) {
-      text = AppStrings.libraryStatusNew;
-    } else if (fraction >= 0.995) {
-      text = AppStrings.libraryProgressFinished;
-    } else {
-      thread = fraction;
-      final total = book.durationMs;
-      text = total == null
-          ? AppStrings.threadValue((fraction * 100).floor())
-          : AppStrings.remainingTime(formatRemaining((total * (1 - fraction)).round(), coarse: true));
-    }
-    if (onlineOnly) text = AppStrings.libraryOnlineOnly(text);
-    return Row(
-      children: [
-        if (thread != null) ...[
-          SizedBox(
-            width: threadWidth,
-            height: 2,
-            child: ColoredBox(
-              color: tokens.tinteLeiseFaden,
-              child: FractionallySizedBox(
-                alignment: Alignment.centerLeft,
-                widthFactor: thread,
-                child: ColoredBox(color: tokens.faden),
-              ),
+  Widget build(BuildContext context, WidgetRef ref) {
+    final controller = ref.watch(libraryControllerProvider);
+    final busy = ref.watch(libraryBusyBookProvider) == book.bookId;
+    final current = _openBookId(ref) == book.bookId;
+    final night = ref.watch(nightModeProvider);
+    final tokens = FadenTokens.of(context);
+    final download = controller.downloadStateFor(book.bookId);
+    final progress = controller.progressByBook[book.bookId];
+    final isOnlineOnly = BookRow.onlineOnly(controller, book, download);
+    final dimmed = _unavailable(book) || isOnlineOnly;
+    final status = bookStatusOf(book: book, progress: progress, download: download, onlineOnly: isOnlineOnly);
+    final look = _cardLook(tokens, current: current, night: night);
+    final showControl = busy || book.needsReview || download.status != BookDownloadStatus.done;
+    final shape = RoundedRectangleBorder(
+      borderRadius: BorderRadius.circular(FadenRadii.card),
+      side: look.border ?? BorderSide.none,
+    );
+
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(4, 0, 4, 8),
+      child: Material(
+        color: current ? look.color : Colors.transparent,
+        shape: shape,
+        clipBehavior: Clip.antiAlias,
+        child: InkWell(
+          onTap: () => openBookFromLibrary(context, ref, book),
+          onLongPress: () => _showBookActions(context, controller, book, download),
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(8, 8, 0, 4),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Padding(
+                  padding: const EdgeInsets.only(right: 8),
+                  child: LayoutBuilder(
+                    builder: (context, constraints) => Stack(
+                      children: [
+                        DecoratedBox(
+                          decoration: BoxDecoration(
+                            borderRadius: BorderRadius.circular(16),
+                            boxShadow: tokens.kartenSchatten,
+                          ),
+                          child: Opacity(
+                            opacity: dimmed ? 0.5 : 1,
+                            child: BookCover(
+                              bookId: book.bookId,
+                              title: book.title,
+                              size: constraints.maxWidth,
+                              radius: 16,
+                              thumbnail: true,
+                            ),
+                          ),
+                        ),
+                        // The download control on a small tile in the
+                        // cover's corner, so title and author keep the
+                        // tile's whole width.
+                        if (showControl)
+                          Positioned(
+                            right: 0,
+                            bottom: 0,
+                            child: busy
+                                ? const _BusySpinner()
+                                : _DownloadControl(
+                                    book: book,
+                                    download: download,
+                                    controller: controller,
+                                    tokens: tokens,
+                                    onTile: true,
+                                  ),
+                          ),
+                      ],
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 8),
+                if (status.fraction != null)
+                  Padding(
+                    padding: const EdgeInsets.only(right: 8, bottom: 6),
+                    child: _MiniThread(fraction: status.fraction!, tokens: tokens),
+                  ),
+                Padding(
+                  padding: const EdgeInsets.only(top: 2, bottom: 6, right: 8),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      _TitleAuthor(
+                        title: book.title,
+                        author: book.author?.trim(),
+                        tokens: tokens,
+                        titleSize: FadenTypeSizes.body,
+                        dimmed: dimmed,
+                      ),
+                      if (status.line != null) ...[
+                        const SizedBox(height: 2),
+                        _StatusText(status: status, tokens: tokens),
+                      ],
+                    ],
+                  ),
+                ),
+              ],
             ),
           ),
-          const SizedBox(width: 8),
-        ],
-        Flexible(
-          child: Text(text, maxLines: 1, overflow: TextOverflow.ellipsis, style: small),
         ),
-      ],
+      ),
     );
   }
 }
@@ -1255,10 +1678,38 @@ class _DownloadControl extends StatelessWidget {
   final LibraryController controller;
   final FadenTokens tokens;
 
-  const _DownloadControl({required this.book, required this.download, required this.controller, required this.tokens});
+  /// On a small tile of its own (over a cover in "Kacheln", E73).
+  final bool onTile;
+
+  const _DownloadControl({
+    required this.book,
+    required this.download,
+    required this.controller,
+    required this.tokens,
+    this.onTile = false,
+  });
 
   @override
   Widget build(BuildContext context) {
+    final control = _control();
+    if (!onTile || control is! SizedBox || control.width != control.height) return control;
+    return Stack(
+      alignment: Alignment.center,
+      children: [
+        DecoratedBox(
+          decoration: BoxDecoration(
+            color: tokens.karte,
+            borderRadius: BorderRadius.circular(12),
+            boxShadow: tokens.kachelSchatten,
+          ),
+          child: const SizedBox.square(dimension: 38),
+        ),
+        control,
+      ],
+    );
+  }
+
+  Widget _control() {
     const box = fadenMinTapTarget;
     if (book.needsReview) {
       return SizedBox.square(

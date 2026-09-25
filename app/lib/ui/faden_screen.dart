@@ -386,17 +386,11 @@ class _FadenScreenState extends ConsumerState<FadenScreen> with SingleTickerProv
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        Align(
-          alignment: Alignment.centerRight,
-          child: TextButton(
-            onPressed: _closeToPlayer,
-            style: TextButton.styleFrom(foregroundColor: tokens.faden),
-            child: Text(AppStrings.fadenDone, style: const TextStyle(fontSize: FadenTypeSizes.body)),
-          ),
-        ),
-        Text(
-          AppStrings.fadenResultFound,
-          style: TextStyle(fontSize: FadenTypeSizes.title, color: tokens.tinte),
+        const SizedBox(height: 24),
+        // "**Gefunden.** Weiter ab hier." (E76): the first sentence bold.
+        Text.rich(
+          _firstSentenceBold(AppStrings.fadenResultFound),
+          style: TextStyle(fontSize: FadenTypeSizes.display, color: tokens.tinte, height: 1.2),
         ),
         const SizedBox(height: 12),
         if (playing != null)
@@ -443,9 +437,27 @@ class _FadenScreenState extends ConsumerState<FadenScreen> with SingleTickerProv
                 )
               : const SizedBox.shrink(),
         ),
+        // "Fertig" as a full-width capsule at the thumb (E76); with the
+        // night colours only its outline (no lit surface).
+        Padding(
+          padding: const EdgeInsets.only(top: 8, bottom: 16),
+          child: FilledButton(onPressed: _closeToPlayer, child: Text(AppStrings.fadenDone)),
+        ),
       ],
     );
   }
+}
+
+/// [text] with its first sentence (up to ". ") in bold.
+TextSpan _firstSentenceBold(String text) {
+  final end = text.indexOf('. ');
+  if (end < 0) return TextSpan(text: text);
+  return TextSpan(
+    children: [
+      TextSpan(text: text.substring(0, end + 1), style: const TextStyle(fontWeight: FontWeight.w700)),
+      TextSpan(text: text.substring(end + 1)),
+    ],
+  );
 }
 
 /// A quiet frame around a passage: a thin `tinte-leise` line on black.

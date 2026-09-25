@@ -28,6 +28,7 @@ import 'package:faden/domain/manifest.dart';
 import 'package:faden/domain/position.dart';
 import 'package:faden/domain/resolver.dart';
 import 'package:faden/l10n/strings.dart';
+import 'package:faden/ui/controls.dart';
 import 'package:faden/ui/cover.dart';
 import 'package:faden/ui/details_sheet.dart';
 import 'package:faden/ui/format.dart';
@@ -39,6 +40,7 @@ import 'package:faden/ui/player_screen.dart';
 import 'package:faden/ui/providers.dart';
 import 'package:faden/ui/routes.dart';
 import 'package:faden/ui/theme.dart';
+import 'package:faden/ui/thread_progress.dart';
 import 'package:flutter/cupertino.dart' show CupertinoIcons;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -53,8 +55,9 @@ final _manifest = Manifest(manifestId: 'm1', files: [
     ManifestFile(idx: i, fileHash: 'h$i', durationMs: (20 + i) * 60000, title: 'Kapitel ${i + 1}: Ein Titel'),
 ]);
 
-BookState _state({required bool sleepSuspected}) => BookState(
-      position: const Position(fileHash: 'h1', offsetMs: 5 * 60000),
+BookState _state({required bool sleepSuspected, Position position = const Position(fileHash: 'h1', offsetMs: 5 * 60000)}) =>
+    BookState(
+      position: position,
       globalMs: 25 * 60000,
       lastAwake: const Position(fileHash: 'h1', offsetMs: 0),
       stop: const Position(fileHash: 'h1', offsetMs: 5 * 60000),
@@ -93,6 +96,7 @@ void main() {
     bool serverReachable = true,
     PlaybackFailure? initialError,
     bool underLibrary = false,
+    Position? position,
   }) async {
     await tester.runAsync(() async {
       db = AppDatabase.memory();
@@ -116,7 +120,9 @@ void main() {
       ..bookTitle = title
       ..bookAuthor = author
       ..manifest = _manifest
-      ..bookState = _state(sleepSuspected: sleepSuspected);
+      ..bookState = position == null
+          ? _state(sleepSuspected: sleepSuspected)
+          : _state(sleepSuspected: sleepSuspected, position: position);
 
     const dpr = 3.0;
     tester.view.physicalSize = size * dpr;
@@ -261,6 +267,97 @@ void main() {
     });
   });
 
+  group('redesign (E71–E74)', () {
+    for (final night in [false, true]) {
+      testWidgets('${night ? 'night' : 'day'}: the main button is a squircle, ${night ? 'only its outline' : 'filled'}',
+          (tester) async {
+        await pumpPlayer(tester, night: night, sleepSuspected: night);
+        final button = find.descendant(of: find.byType(PlayerMainButton), matching: find.byWidgetPredicate((w) => w is ButtonStyleButton));
+        final style = tester.widget<ButtonStyleButton>(button).style!;
+        expect(style.shape?.resolve({}), isA<ContinuousRectangleBorder>());
+        final size = tester.getSize(find.byType(PlayerMainButton));
+        expect(size.width, greaterThanOrEqualTo(fadenMainButtonSize));
+        if (night) {
+          expect(tester.widget(button), isA<OutlinedButton>(), reason: '"Faden aufnehmen" as a squircle ring');
+        } else {
+          expect(tester.widget(button), isA<FilledButton>());
+        }
+        await tearDownPlayer(tester);
+      });
+    }
+
+    testWidgets('±30 s and the bar buttons sit on tiles with full tap targets (E72)', (tester) async {
+      await pumpPlayer(tester);
+      for (final label in [AppStrings.seekBackAction, AppStrings.seekForwardAction]) {
+        final tile = find.ancestor(of: find.bySemanticsLabel(label), matching: find.byType(FadenTileButton));
+        expect(tile, findsOneWidget, reason: label);
+        expect(tester.getSize(tile).height, greaterThanOrEqualTo(fadenMinTapTarget));
+      }
+      expect(find.ancestor(of: find.byTooltip(AppStrings.playerClose), matching: find.byType(FadenTileButton)),
+          findsOneWidget);
+      expect(find.descendant(of: find.byType(AppearanceToggle), matching: find.byType(FadenTileButton)), findsOneWidget);
+      expect(find.descendant(of: find.byType(SleepTimerButton), matching: find.byType(FadenTileButton)), findsOneWidget);
+      final surface = tester.widget<Material>(find
+          .descendant(of: find.byType(AppearanceToggle), matching: find.byType(Material))
+          .first);
+      expect(surface.color, FadenTokens.day.karte);
+      await tearDownPlayer(tester);
+    });
+
+    testWidgets('"Als Nächstes" peeks up at the bottom and opens the details (E74)', (tester) async {
+      final semantics = tester.ensureSemantics();
+      await pumpPlayer(tester);
+      expect(find.text(AppStrings.playerNextUp), findsOneWidget);
+      // Chapter 2 is playing; its title already says "Kapitel 3", so no
+      // label in front.
+      expect(find.text('Kapitel 3: Ein Titel'), findsOneWidget);
+      final peek = tester.getSemantics(find.bySemanticsLabel(AppStrings.detailsOpen));
+      expect(peek.value, '${AppStrings.playerNextUp} Kapitel 3: Ein Titel');
+      // Beside the sleep timer, as high as the grip row it replaces.
+      final strip = tester.getRect(find.text(AppStrings.playerNextUp));
+      final moon = tester.getRect(find.byType(SleepTimerButton));
+      expect(strip.right, lessThan(moon.left));
+      await tester.tap(find.text(AppStrings.playerNextUp));
+      await tester.pumpAndSettle();
+      expect(find.byType(DetailsSheetContent), findsOneWidget);
+      semantics.dispose();
+      await tearDownPlayer(tester);
+    });
+
+    testWidgets('on the last chapter nothing peeks; the bare grip stays', (tester) async {
+      await pumpPlayer(tester, position: const Position(fileHash: 'h23', offsetMs: 0));
+      expect(find.text(AppStrings.playerNextUp), findsNothing);
+      await tester.tap(find.bySemanticsLabel(AppStrings.detailsOpen));
+      await tester.pumpAndSettle();
+      expect(find.byType(DetailsSheetContent), findsOneWidget);
+      await tearDownPlayer(tester);
+    });
+
+    for (final night in [false, true]) {
+      testWidgets('${night ? 'night' : 'day'}, SE x1.35: "Als Nächstes" costs no height and fits beside a running timer',
+          (tester) async {
+        await pumpPlayer(tester, size: _se, textScale: 1.35, night: night);
+        expect(tester.takeException(), isNull);
+        expect(find.text(AppStrings.playerNextUp), findsOneWidget);
+        final strip = tester.getRect(find.ancestor(of: find.text(AppStrings.playerNextUp), matching: find.byType(InkWell)).first);
+        expect(strip.height, fadenMinTapTarget);
+        expectOnScreen(tester, find.byType(PlayerMainButton), _se);
+        final container = ProviderScope.containerOf(tester.element(find.byType(PlayerBody)));
+        container.read(sleepTimerProvider).startChapterEnd();
+        await tester.pump();
+        await tester.pump();
+        expect(tester.takeException(), isNull);
+        final peek = find.text(AppStrings.playerNextUp);
+        if (peek.evaluate().isNotEmpty) {
+          expect(tester.getRect(peek).right, lessThan(tester.getRect(find.byType(SleepTimerButton)).left));
+        }
+        expectOnScreen(tester, find.byType(SleepTimerButton), _se);
+        container.read(sleepTimerProvider).cancel();
+        await tearDownPlayer(tester);
+      });
+    }
+  });
+
   testWidgets('cover scales with the screen; no cover shows initials, not the title again', (tester) async {
     await pumpPlayer(tester, size: _proMax);
     final large = tester.getSize(find.byType(CoverMonogram)).width;
@@ -307,29 +404,52 @@ void main() {
   });
 
   group('audit fixes (E65)', () {
-    testWidgets('the book\'s time left is the thread\'s caption, between thread and chapter', (tester) async {
+    testWidgets('the book\'s time left is the thread\'s caption, right under the cover (E71)', (tester) async {
       await pumpPlayer(tester);
       final remaining = find.text(AppStrings.remainingTime(formatRemaining(_manifest.totalDurationMs - 25 * 60000)));
       expect(remaining, findsOneWidget);
-      final threadBottom = tester.getBottomLeft(find.byType(PlayerThread)).dy;
-      expect(tester.getTopLeft(remaining).dy, inInclusiveRange(threadBottom, threadBottom + 12));
-      expect(tester.getBottomLeft(remaining).dy, lessThan(tester.getTopLeft(find.text('Kapitel 2: Ein Titel')).dy));
-      expect(tester.getTopRight(remaining).dx, closeTo(tester.getTopRight(find.byType(PlayerThread)).dx, 0.5),
-          reason: 'under the unheard rest, like "−16:00" under the scrubber');
+      final ring = tester.getRect(find.byType(PlayerThread));
+      expect(tester.getTopLeft(remaining).dy, inInclusiveRange(ring.bottom, ring.bottom + 12));
+      expect(tester.getCenter(remaining).dx, closeTo(ring.center.dx, 0.5), reason: 'centred under the cover');
+      expect(tester.getBottomLeft(remaining).dy, lessThan(tester.getTopLeft(find.text('Der Zauberberg')).dy),
+          reason: 'between the cover and the title');
       await tearDownPlayer(tester);
     });
 
-    testWidgets('thread, scrubber and its times share one left and right edge', (tester) async {
+    testWidgets('the thread wraps the cover; scrubber and its times share one left and right edge (E71)',
+        (tester) async {
       await pumpPlayer(tester);
+      final ring = tester.getRect(find.byType(PlayerThread));
+      final cover = tester.getRect(find.byType(CoverMonogram));
+      expect(find.descendant(of: find.byType(PlayerThread), matching: find.byType(ThreadRing)), findsOneWidget);
+      expect(ring.width, closeTo(ring.height, 0.5), reason: 'a rounded square');
+      expect(cover.left - ring.left, ThreadRing.inset);
+      expect(ring.right - cover.right, ThreadRing.inset);
+      expect(cover.top - ring.top, ThreadRing.inset);
+      expect(ring.bottom - cover.bottom, ThreadRing.inset);
       final slider = find.descendant(of: find.byType(PlayerBody), matching: find.byType(Slider));
-      final thread = tester.getRect(find.byType(PlayerThread));
       final track = tester.getRect(slider);
-      expect(track.left, thread.left);
-      expect(track.right, thread.right);
-      expect(tester.getTopLeft(find.text(formatClock(5 * 60000)).last).dx, thread.left);
+      final body = tester.getRect(find.byType(PlayerBody));
+      expect(track.left, body.left + 24);
+      expect(track.right, body.right - 24);
+      expect(tester.getTopLeft(find.text(formatClock(5 * 60000)).last).dx, track.left);
       expect(tester.getTopRight(find.text(AppStrings.scrubberRemaining(formatClock(16 * 60000))).last).dx,
-          closeTo(thread.right, 0.5));
+          closeTo(track.right, 0.5));
       expect(tester.getSize(slider).height, greaterThanOrEqualTo(44), reason: 'still easy to grab');
+      await tearDownPlayer(tester);
+    });
+
+    testWidgets('without room for a cover the thread runs straight, edge to edge with the scrubber (E71)',
+        (tester) async {
+      await pumpPlayer(tester, size: _se, textScale: 1.35, sleepSuspected: true, title: _longTitle);
+      expect(tester.takeException(), isNull);
+      expect(find.byType(CoverMonogram), findsNothing);
+      expect(find.byType(ThreadRing), findsNothing);
+      final thread = tester.getRect(find.byType(PlayerThread));
+      final track = tester.getRect(find.descendant(of: find.byType(PlayerBody), matching: find.byType(Slider)));
+      expect(thread.left, track.left);
+      expect(thread.right, track.right);
+      expect(thread.bottom, lessThan(tester.getTopLeft(find.text(_longTitle)).dy));
       await tearDownPlayer(tester);
     });
 
@@ -354,7 +474,9 @@ void main() {
 
     testWidgets('the details grip keeps 3:1 against the background', (tester) async {
       for (final night in [false, true]) {
-        await pumpPlayer(tester, night: night);
+        // On the last chapter there is nothing to peek at: the bare grip.
+        await pumpPlayer(tester, night: night, position: const Position(fileHash: 'h23', offsetMs: 60000));
+        expect(find.text(AppStrings.playerNextUp), findsNothing);
         final tokens = night ? FadenTokens.night : FadenTokens.day;
         final grip = tester.widget<Container>(find.descendant(
             of: find.bySemanticsLabel(AppStrings.detailsOpen), matching: find.byType(Container)));
@@ -920,9 +1042,12 @@ void main() {
         expect(widget.style?.fontSize, inInclusiveRange(FadenTypeSizes.caption, FadenTypeSizes.body), reason: text);
         expect(widget.maxLines, inInclusiveRange(1, 2), reason: text);
       }
-      final thread = tester.getTopLeft(find.byType(PlayerThread)).dy;
-      expect(tester.getBottomLeft(find.text('Der Zauberberg')).dy, lessThanOrEqualTo(thread),
-          reason: 'the title sits above the thread');
+      // The dimmed thread wraps the dimmed cover (E71); the title below.
+      expect(find.descendant(of: find.byType(PlayerThread), matching: find.byType(BookCover)), findsOneWidget);
+      expect(tester.widget<ThreadRing>(find.byType(ThreadRing)).dim, isTrue);
+      final ring = tester.getBottomLeft(find.byType(PlayerThread)).dy;
+      expect(tester.getTopLeft(find.text('Der Zauberberg')).dy, greaterThanOrEqualTo(ring),
+          reason: 'the title sits under the thread');
       expect(find.textContaining('noch '), findsNothing, reason: 'no remaining time at night');
       await tearDownPlayer(tester);
     });

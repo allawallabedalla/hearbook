@@ -479,5 +479,17 @@
   "@genreOffline": { "description": "Warum „Genre ändern“ offline nicht geht (E70)." },
 
   "genreChangeFailed": "Das Genre ließ sich nicht ändern. Bitte erneut versuchen.",
-  "@genreChangeFailed": { "description": "Fehler beim Ändern des Genres (E70)." }
+  "@genreChangeFailed": { "description": "Fehler beim Ändern des Genres (E70)." },
+
+  "libraryGroupGrid": "Kacheln",
+  "@libraryGroupGrid": { "description": "Ansicht: zwei Spalten mit großen Covern, Titel und Autor darunter (E73)." },
+
+  "libraryPercent": "{n} %",
+  "@libraryPercent": { "description": "Gehörter Anteil in der Kapsel der großen „Weiterhören“-Karte, z. B. „34 %“ (E73).", "placeholders": { "n": {} } },
+
+  "playerNextUp": "Als Nächstes:",
+  "@playerNextUp": { "description": "Vorschau unten im Player auf das nächste Kapitel, z. B. „Als Nächstes: Kapitel 5 · Der Weg“ (E74)." },
+
+  "playerNextChapter": "{chapter} · {title}",
+  "@playerNextChapter": { "description": "Das nächste Kapitel in der Vorschau (E74); {chapter} ist chapterLabel, {title} der Kapiteltitel.", "placeholders": { "chapter": {}, "title": {} } }
 }

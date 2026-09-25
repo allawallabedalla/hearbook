@@ -195,6 +195,10 @@ class AppStrings {
     'genreNone': 'Kein Genre',
     'genreOffline': 'Nur mit Verbindung zum Server.',
     'genreChangeFailed': 'Das Genre ließ sich nicht ändern. Bitte erneut versuchen.',
+    'libraryGroupGrid': 'Kacheln',
+    'libraryPercent': '{n} %',
+    'playerNextUp': 'Als Nächstes:',
+    'playerNextChapter': '{chapter} · {title}',
   };
 
   static String _of(String key) {
@@ -444,4 +448,13 @@ class AppStrings {
   static String get genreNone => _of('genreNone');
   static String get genreOffline => _of('genreOffline');
   static String get genreChangeFailed => _of('genreChangeFailed');
+  static String get libraryGroupGrid => _of('libraryGroupGrid');
+  static String get playerNextUp => _of('playerNextUp');
+
+  /// "34 %" in the large "Weiterhören" card's capsule (E73).
+  static String libraryPercent(int n) => _of('libraryPercent').replaceAll('{n}', '$n');
+
+  /// "Kapitel 5 · Der Weg" in the player's "Als Nächstes" peek (E74).
+  static String playerNextChapter(String chapter, String title) =>
+      _of('playerNextChapter').replaceAll('{chapter}', chapter).replaceAll('{title}', title);
 }

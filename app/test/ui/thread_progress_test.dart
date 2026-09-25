@@ -74,4 +74,45 @@ void main() {
       findsNothing,
     );
   });
+
+  group('ThreadRing (E71)', () {
+    test('the path starts top-centre and runs clockwise around a rounded square', () {
+      const rect = Rect.fromLTWH(0, 0, 200, 200);
+      final metric = threadRingPath(rect, 20).computeMetrics().single;
+      expect(metric.getTangentForOffset(0)!.position, const Offset(100, 0));
+      // A quarter of the way round: the middle of the right edge.
+      final quarter = metric.getTangentForOffset(metric.length / 4)!.position;
+      expect(quarter.dx, closeTo(200, 0.01));
+      expect(quarter.dy, closeTo(100, 0.5));
+      // Half way: the middle of the bottom edge.
+      final half = metric.getTangentForOffset(metric.length / 2)!.position;
+      expect(half.dx, closeTo(100, 0.5));
+      expect(half.dy, closeTo(200, 0.01));
+      // Four sides minus the corners plus four quarter circles.
+      expect(metric.length, closeTo(4 * (200 - 40) + 2 * 3.14159265 * 20, 2));
+    });
+
+    testWidgets('the cover sits inside the ring, with room for the dot', (tester) async {
+      await tester.pumpWidget(
+        const Directionality(
+          textDirection: TextDirection.ltr,
+          child: Center(
+            child: SizedBox(
+              width: 240,
+              child: ThreadRing(
+                layout: ThreadLayout(heardFraction: 0.3, chapterBoundaryFractions: [0.25, 0.5]),
+                tokens: FadenTokens.day,
+                child: SizedBox.expand(key: ValueKey('cover')),
+              ),
+            ),
+          ),
+        ),
+      );
+      expect(tester.getSize(find.byType(ThreadRing)), const Size(240, 240));
+      expect(tester.getSize(find.byKey(const ValueKey('cover'))).width, ThreadRing.coverSizeFor(240));
+      expect(ThreadRing.coverSizeFor(240), 240 - 2 * ThreadRing.inset);
+      expect(ThreadRing.coverRadiusFor(300), 18);
+      expect(ThreadRing.coverRadiusFor(80), 10);
+    });
+  });
 }

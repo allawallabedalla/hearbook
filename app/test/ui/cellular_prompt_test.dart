@@ -55,6 +55,12 @@ void main() {
       expect(tester.widget<Checkbox>(find.byType(Checkbox)).value, isFalse);
       expect(find.text(AppStrings.cellularPromptLoad), findsOneWidget);
       expect(find.text(AppStrings.cellularPromptNotNow), findsOneWidget);
+      // "Laden" is a full-width capsule, "Nicht jetzt" a quiet text below (E76).
+      final load = find.widgetWithText(FilledButton, AppStrings.cellularPromptLoad);
+      expect(load, findsOneWidget);
+      final notNow = find.widgetWithText(TextButton, AppStrings.cellularPromptNotNow);
+      expect(tester.getSize(load).width, closeTo(tester.getSize(notNow).width, 0.5));
+      expect(tester.getTopLeft(notNow).dy, greaterThan(tester.getBottomLeft(load).dy));
     });
 
     testWidgets('"Laden" with "Nicht wieder anzeigen" ticked', (tester) async {

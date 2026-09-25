@@ -5,7 +5,6 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../data/cellular_downloads.dart';
 import '../l10n/strings.dart';
-import 'controls.dart';
 import 'format.dart';
 import 'providers.dart';
 import 'theme.dart';
@@ -16,8 +15,11 @@ typedef CellularAnswer = ({bool load, bool dontShowAgain});
 /// "Über Mobilfunk laden?" (decision E66) with the book's real estimate
 /// ("1 Std. ≈ 58 MB · Kapitel 3 ≈ 24 MB"), "Nicht wieder anzeigen" and
 /// "Laden" / "Nicht jetzt". In the app's look, day or night.
+///
+/// In the app's own dialog look on every platform (decision E76), so that
+/// "Laden" can be a full-width capsule with "Nicht jetzt" below it.
 Future<CellularAnswer?> showCellularPromptDialog(BuildContext context, CellularEstimate estimate) =>
-    showAdaptiveDialog<CellularAnswer>(
+    showDialog<CellularAnswer>(
       context: context,
       barrierDismissible: false,
       builder: (_) => CellularPromptDialog(estimate: estimate),
@@ -53,8 +55,9 @@ class _CellularPromptDialogState extends State<CellularPromptDialog> {
       checkColor: tokens.isDark ? tokens.faden : tokens.grund,
       side: BorderSide(color: tokens.isDark ? tokens.faden : tokens.tinteLeise, width: 1.5),
     );
-    return AlertDialog.adaptive(
+    return AlertDialog(
       title: Text(AppStrings.cellularPromptTitle),
+      actionsPadding: const EdgeInsets.fromLTRB(24, 0, 24, 16),
       content: Material(
         type: MaterialType.transparency,
         child: Column(
@@ -91,15 +94,19 @@ class _CellularPromptDialogState extends State<CellularPromptDialog> {
         ),
       ),
       actions: [
-        adaptiveDialogAction(
-          context,
-          text: AppStrings.cellularPromptNotNow,
-          onPressed: () => Navigator.of(context).pop((load: false, dontShowAgain: false)),
-        ),
-        adaptiveDialogAction(
-          context,
-          text: AppStrings.cellularPromptLoad,
-          onPressed: () => Navigator.of(context).pop((load: true, dontShowAgain: _dontShowAgain)),
+        Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            FilledButton(
+              onPressed: () => Navigator.of(context).pop((load: true, dontShowAgain: _dontShowAgain)),
+              child: Text(AppStrings.cellularPromptLoad),
+            ),
+            const SizedBox(height: 4),
+            TextButton(
+              onPressed: () => Navigator.of(context).pop((load: false, dontShowAgain: false)),
+              child: Text(AppStrings.cellularPromptNotNow),
+            ),
+          ],
         ),
       ],
     );

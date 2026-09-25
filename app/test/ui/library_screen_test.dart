@@ -21,6 +21,7 @@ import 'package:faden/domain/manifest.dart';
 import 'package:faden/domain/position.dart';
 import 'package:faden/domain/resolver.dart' show BookState;
 import 'package:faden/l10n/strings.dart';
+import 'package:faden/ui/controls.dart';
 import 'package:faden/ui/cover.dart';
 import 'package:faden/ui/library_screen.dart';
 import 'package:faden/ui/player_screen.dart';
@@ -34,6 +35,7 @@ import 'package:flutter_riverpod/misc.dart' show Override;
 import 'package:flutter_test/flutter_test.dart';
 
 import 'fake_audio_handler.dart';
+import 'fake_screen_brightness.dart';
 
 const _hour = 3600 * 1000;
 
@@ -925,6 +927,225 @@ void main() {
       final theme = Theme.of(tester.element(find.byType(TextField)));
       expect(theme.inputDecorationTheme.hintStyle?.color, FadenTokens.night.tinte);
       await tearDownLibrary(tester);
+    });
+  });
+
+  group('redesign (E71–E76)', () {
+    late AppDatabase db;
+    late FakeAudioHandler handler;
+    late _Session session;
+
+    Future<void> pump(
+      WidgetTester tester, {
+      FadenTokens tokens = FadenTokens.day,
+      bool night = false,
+      Size size = const Size(430, 1400),
+      double textScale = 1.0,
+      LibraryView view = const LibraryView(),
+      String? openBook,
+      List<BookSummary>? books,
+    }) async {
+      await tester.runAsync(() async {
+        db = AppDatabase.memory();
+        handler = FakeAudioHandler(Journal(db));
+        session = _Session(handler: handler, journal: Journal(db));
+      });
+      _session = session;
+      if (openBook != null) session.show(openBook, 'Der Zauberberg', resolved: true);
+      tester.view.physicalSize = size * 3;
+      tester.view.devicePixelRatio = 3;
+      addTearDown(tester.view.reset);
+      final brightness = FakeScreenBrightness(night ? 0.1 : 0.8);
+      addTearDown(brightness.close);
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            appDatabaseProvider.overrideWithValue(db),
+            audioHandlerProvider.overrideWithValue(handler),
+            libraryControllerProvider.overrideWith(
+              (ref) => _FixedLibraryController(books: books ?? _books, progress: _progressByBook),
+            ),
+            playerSessionProvider.overrideWith((ref) => session),
+            screenBrightnessSourceProvider.overrideWithValue(brightness),
+            initialNightModeProvider.overrideWithValue(night),
+            initialLibraryViewProvider.overrideWithValue(view),
+          ],
+          child: MaterialApp(
+            theme: fadenThemeFor(night ? FadenTokens.night : tokens),
+            builder: (context, child) => MediaQuery(
+              data: MediaQuery.of(context).copyWith(textScaler: TextScaler.linear(textScale)),
+              child: child!,
+            ),
+            home: const LibraryScreen(),
+          ),
+        ),
+      );
+      await tester.pump();
+    }
+
+    Future<void> tearDown(WidgetTester tester) async {
+      await tester.pumpWidget(const SizedBox());
+      await tester.runAsync(() async {
+        await handler.dispose();
+        await db.close();
+      });
+    }
+
+    Material cardOf(WidgetTester tester, String title, Type type) => tester.widget<Material>(find
+        .descendant(
+          of: find.ancestor(of: find.text(title), matching: find.byType(type)),
+          matching: find.byType(Material),
+        )
+        .first);
+
+    testWidgets('the latest "Weiterhören" book is a large card with a bold title and a progress capsule',
+        (tester) async {
+      await pump(tester);
+      final hero = find.byWidgetPredicate((w) => w is ContinueCard && w.hero);
+      expect(hero, findsOneWidget);
+      expect(tester.widget<ContinueCard>(hero).book.bookId, 'b-momo', reason: 'the most recent one');
+      expect(tester.getSize(find.descendant(of: hero, matching: find.byType(BookCover))).width,
+          ContinueCard.coverSize);
+      final title = tester.widget<Text>(find.text('Momo'));
+      expect(title.style?.fontWeight, FontWeight.w700);
+      final capsule = find.descendant(of: hero, matching: find.byType(FadenCapsule));
+      expect(find.descendant(of: capsule, matching: find.text(AppStrings.libraryPercent(50))), findsOneWidget);
+      expect(find.descendant(of: capsule, matching: find.text(AppStrings.remainingTime('5 Std.'))), findsOneWidget);
+      // The others are smaller cards.
+      final small = find.byWidgetPredicate((w) => w is ContinueCard && !w.hero);
+      expect(tester.getSize(find.descendant(of: small, matching: find.byType(BookCover))).width,
+          ContinueCard.smallCoverSize);
+      // Soft shadow by day instead of a border.
+      final decorated = tester.widget<DecoratedBox>(
+          find.descendant(of: hero, matching: find.byType(DecoratedBox)).first);
+      expect((decorated.decoration as ShapeDecoration).shadows, isNotEmpty);
+      await tearDown(tester);
+    });
+
+    testWidgets('each book under "Alle Bücher" is its own card, the state as a capsule on the right',
+        (tester) async {
+      await pump(tester);
+      final row = find.ancestor(of: find.text('Über Nacht'), matching: find.byType(BookRow));
+      expect(find.descendant(of: row, matching: find.byType(FadenCard)), findsOneWidget);
+      final capsule = find.descendant(of: row, matching: find.byType(FadenCapsule));
+      expect(find.descendant(of: capsule, matching: find.text(AppStrings.libraryProgressFinished)), findsOneWidget);
+      expect(tester.getTopLeft(capsule).dx, greaterThan(tester.getTopRight(find.text('Anna Weber')).dx),
+          reason: 'beside the text, not a third line');
+      // Cards stand apart by a small gap.
+      final rows = tester.widgetList<BookRow>(find.byType(BookRow)).toList();
+      final a = tester.getRect(find.byWidget(rows[0]));
+      final b = tester.getRect(find.byWidget(rows[1]));
+      expect(b.top - a.bottom, greaterThanOrEqualTo(0));
+      final cardA = tester.getRect(find.descendant(of: find.byWidget(rows[0]), matching: find.byType(FadenCard)));
+      final cardB = tester.getRect(find.descendant(of: find.byWidget(rows[1]), matching: find.byType(FadenCard)));
+      expect(cardB.top - cardA.bottom, inInclusiveRange(4, 16));
+      await tearDown(tester);
+    });
+
+    testWidgets('on a small phone with large text the capsule moves under the author, nothing overflows',
+        (tester) async {
+      for (final tokens in [FadenTokens.day, FadenTokens.night]) {
+        await pump(tester, tokens: tokens, size: const Size(375, 667), textScale: 1.35);
+        await tester.drag(find.byType(CustomScrollView), const Offset(0, -500));
+        await tester.pump();
+        expect(tester.takeException(), isNull);
+        final row = find.ancestor(of: find.text('Über Nacht'), matching: find.byType(BookRow));
+        final capsule = find.descendant(of: row, matching: find.byType(FadenCapsule));
+        expect(tester.getTopLeft(capsule).dy, greaterThan(tester.getBottomLeft(find.text('Anna Weber')).dy));
+        await tearDown(tester);
+      }
+    });
+
+    for (final (name, night, tokens) in [
+      ('day', false, FadenTokens.day),
+      ('Dunkel', false, FadenTokens.night),
+      ('night view', true, FadenTokens.night),
+    ]) {
+      testWidgets('$name: the open book\'s card is ${night ? 'outlined' : 'filled'} (E73)', (tester) async {
+        await pump(tester, tokens: tokens, night: night, openBook: 'b-zauber');
+        final card = cardOf(tester, 'Der Zauberberg', ContinueCard);
+        final other = cardOf(tester, 'Momo', ContinueCard);
+        expect(other.color, tokens.karte);
+        final shape = card.shape! as RoundedRectangleBorder;
+        if (night) {
+          expect(card.color, tokens.karte, reason: 'no lit surface at night');
+          expect(shape.side.color, tokens.faden);
+        } else {
+          expect(card.color, tokens.karteMarkiert);
+          expect(shape.side, BorderSide.none);
+        }
+        await tearDown(tester);
+      });
+    }
+
+    testWidgets('"Kacheln" shows two columns of large covers, chosen in the menu and remembered (E73)',
+        (tester) async {
+      await pump(tester);
+      await tester.tap(find.byTooltip(AppStrings.librarySortTooltip));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text(AppStrings.libraryGroupGrid));
+      await tester.pumpAndSettle();
+      expect(find.byType(BookRow), findsNothing);
+      expect(find.byType(BookTile), findsNWidgets(3), reason: 'the books not under "Weiterhören"');
+      final first = tester.getRect(find.byType(BookTile).at(0));
+      final second = tester.getRect(find.byType(BookTile).at(1));
+      expect(second.top, first.top, reason: 'side by side');
+      expect(second.left, greaterThan(first.right - 1));
+      final cover = tester.getSize(find.descendant(of: find.byType(BookTile).first, matching: find.byType(BookCover)));
+      expect(cover.width, greaterThan(150), reason: 'large covers');
+      expect(tester.getTopLeft(find.text('Anna Weber')).dy,
+          greaterThan(tester.getBottomLeft(find.descendant(of: find.byType(BookTile).first, matching: find.byType(BookCover))).dy),
+          reason: 'title and author below the cover');
+      await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 50)));
+      expect((await tester.runAsync(SettingsStore(db).libraryView))!.grouping, LibraryGrouping.grid);
+      await tearDown(tester);
+    });
+
+    testWidgets('"Kacheln" on a small phone with large text does not overflow', (tester) async {
+      for (final tokens in [FadenTokens.day, FadenTokens.night]) {
+        await pump(
+          tester,
+          tokens: tokens,
+          size: const Size(375, 667),
+          textScale: 1.35,
+          view: const LibraryView(grouping: LibraryGrouping.grid),
+        );
+        for (var i = 0; i < 3; i++) {
+          await tester.drag(find.byType(CustomScrollView), const Offset(0, -300));
+          await tester.pump();
+          expect(tester.takeException(), isNull);
+        }
+        await tearDown(tester);
+      }
+    });
+
+    testWidgets('bar buttons sit on tiles with a full tap target (E72)', (tester) async {
+      await pump(tester);
+      for (final tip in [AppStrings.librarySortTooltip, AppStrings.settingsTitle]) {
+        final size = tester.getSize(find.byTooltip(tip));
+        expect(size.width, greaterThanOrEqualTo(fadenMinTapTarget), reason: tip);
+        expect(size.height, greaterThanOrEqualTo(fadenMinTapTarget), reason: tip);
+        final tile = find.descendant(of: find.byTooltip(tip), matching: find.byType(FadenTileButton)).evaluate().length +
+            find.ancestor(of: find.byTooltip(tip), matching: find.byType(FadenTileButton)).evaluate().length;
+        expect(tile, 1, reason: tip);
+      }
+      await tearDown(tester);
+    });
+
+    testWidgets('first launch: "Willkommen bei **Faden**" and a full-width capsule (E76)', (tester) async {
+      await pump(tester, books: const []);
+      final headline = tester.widget<Text>(find.text(AppStrings.setupTitle));
+      final bold = <String>[];
+      headline.textSpan!.visitChildren((span) {
+        if (span is TextSpan && span.style?.fontWeight == FontWeight.w700 && span.text != null) bold.add(span.text!);
+        return true;
+      });
+      expect(bold, [AppStrings.appTitle]);
+      final button = find.widgetWithText(FilledButton, AppStrings.setupAction);
+      expect(tester.getSize(button).width, greaterThan(430 - 2 * 24 - 1));
+      expect(tester.widget<FilledButton>(button).style?.shape?.resolve({}) ??
+          Theme.of(tester.element(button)).filledButtonTheme.style?.shape?.resolve({}), isA<StadiumBorder>());
+      await tearDown(tester);
     });
   });
 

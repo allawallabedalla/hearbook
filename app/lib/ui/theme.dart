@@ -23,6 +23,11 @@ class FadenTokens extends ThemeExtension<FadenTokens> {
   /// night.
   final Color fehler;
 
+  /// Cards and tiles (decision E71): white on the warm off-white day
+  /// background, a barely lifted near-black at night. Not in the first
+  /// KONZEPT.md table; added with the softer day look.
+  final Color karte;
+
   const FadenTokens({
     required this.grund,
     required this.tinte,
@@ -30,15 +35,20 @@ class FadenTokens extends ThemeExtension<FadenTokens> {
     required this.faden,
     required this.knoten,
     required this.fehler,
+    required this.karte,
   });
 
+  /// Decision E75: a slightly warm off-white instead of the cool grey, with
+  /// white cards on it; ink, thread and error keep their colours (every
+  /// text pairing still 4.5:1, checked in test/ui/theme_contrast_test.dart).
   static const day = FadenTokens(
-    grund: Color(0xFFEEF0F3),
+    grund: Color(0xFFF4F2EE),
     tinte: Color(0xFF1C2130),
     tinteLeise: Color(0xFF5E6577),
     faden: Color(0xFF3346A8),
     knoten: Color(0xFF1C2130),
     fehler: Color(0xFFB3261E),
+    karte: Color(0xFFFFFFFF),
   );
 
   static const night = FadenTokens(
@@ -48,6 +58,7 @@ class FadenTokens extends ThemeExtension<FadenTokens> {
     faden: Color(0xFFE0A03A),
     knoten: Color(0xFFF2C879),
     fehler: Color(0xFFD9745A),
+    karte: Color(0xFF15120F),
   );
 
   bool get isDark => grund.computeLuminance() < 0.5;
@@ -71,6 +82,38 @@ class FadenTokens extends ThemeExtension<FadenTokens> {
   /// Hairlines and borders.
   Color get linie => Color.alphaBlend(tinteLeise.withValues(alpha: 0.35), grund);
 
+  /// Secondary text on a [karte] (library cards, grouped settings, tiles):
+  /// [tinteLeise] keeps 5.8:1 on white by day, but only 4.0:1 on the night
+  /// card, so there it takes [tinte] (like [leiseAufFlaeche], E65).
+  Color get leiseAufKarte => isDark ? tinte : tinteLeise;
+
+  /// A quiet capsule on a [karte] (the library's status capsule), the same
+  /// veil as [flaeche] but over the card.
+  Color get flaecheAufKarte => Color.alphaBlend(tinte.withValues(alpha: isDark ? 0.10 : 0.06), karte);
+
+  /// The open book's card in the library by day and in "Dunkel" (E73):
+  /// the thread colour at low alpha over the card. The night view outlines
+  /// it instead (no lit surface).
+  Color get karteMarkiert => Color.alphaBlend(faden.withValues(alpha: isDark ? 0.10 : 0.09), karte);
+
+  /// Soft shadow under cards by day, in place of the hairline border (E75);
+  /// none on black, where a shadow cannot show and a border would glow.
+  List<BoxShadow> get kartenSchatten => isDark
+      ? const []
+      : const [
+          BoxShadow(color: Color(0x0F1C2130), blurRadius: 18, offset: Offset(0, 6)),
+          BoxShadow(color: Color(0x0A1C2130), blurRadius: 3, offset: Offset(0, 1)),
+        ];
+
+  /// The smaller shadow of a tile (E72): just enough to lift a white tile
+  /// off the off-white background.
+  List<BoxShadow> get kachelSchatten => isDark
+      ? const []
+      : const [
+          BoxShadow(color: Color(0x0D1C2130), blurRadius: 10, offset: Offset(0, 3)),
+          BoxShadow(color: Color(0x0A1C2130), blurRadius: 2, offset: Offset(0, 1)),
+        ];
+
   /// The token set of the surrounding theme (see [buildFadenTheme]); day
   /// if none is set, e.g. in a bare test widget.
   static FadenTokens of(BuildContext context) =>
@@ -84,6 +127,7 @@ class FadenTokens extends ThemeExtension<FadenTokens> {
     Color? faden,
     Color? knoten,
     Color? fehler,
+    Color? karte,
   }) =>
       FadenTokens(
         grund: grund ?? this.grund,
@@ -92,6 +136,7 @@ class FadenTokens extends ThemeExtension<FadenTokens> {
         faden: faden ?? this.faden,
         knoten: knoten ?? this.knoten,
         fehler: fehler ?? this.fehler,
+        karte: karte ?? this.karte,
       );
 
   /// No colour blending: KONZEPT.md "Bewegung" allows no decorative
@@ -146,6 +191,25 @@ const double fadenMinTapTarget = 56.0;
 
 /// Minimum main-button size, KONZEPT.md "Hauptbutton": "mindestens 88 dp."
 const double fadenMainButtonSize = 88.0;
+
+/// Corner radii of the softer look (decision E75): cards 20, the large
+/// "Weiterhören" card 24, tiles 14 (small) and 16 (large), sheets and
+/// dialogs 24.
+class FadenRadii {
+  const FadenRadii._();
+
+  static const card = 20.0;
+  static const hero = 24.0;
+  static const tile = 14.0;
+  static const tileLarge = 16.0;
+  static const sheet = 24.0;
+}
+
+/// The main button's shape (decision E72): a squircle -- a rounded square
+/// with continuous corners like the app icon -- instead of a circle. The
+/// radius is Flutter's continuous one, which draws about half as round as
+/// a circular radius of the same number.
+const ContinuousRectangleBorder fadenSquircle = ContinuousRectangleBorder(borderRadius: BorderRadius.all(Radius.circular(44)));
 
 /// The whole Material theme from one token set (decision E45): every
 /// ColorScheme role and every TextTheme slot is defined, so no Material
@@ -260,14 +324,14 @@ ThemeData buildFadenTheme(FadenTokens tokens) {
       actionTextColor: inversePrimary,
       behavior: SnackBarBehavior.floating,
       elevation: 0,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
     ),
     dialogTheme: DialogThemeData(
-      backgroundColor: dark ? const Color(0xFF14110E) : tokens.grund,
+      backgroundColor: dark ? const Color(0xFF14110E) : tokens.karte,
       surfaceTintColor: Colors.transparent,
       titleTextStyle: style(FadenTypeSizes.title, tokens.tinte, weight: FontWeight.w700),
       contentTextStyle: style(FadenTypeSizes.body, tokens.tinte),
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(FadenRadii.sheet)),
     ),
     bottomSheetTheme: BottomSheetThemeData(
       backgroundColor: tokens.grund,
@@ -276,13 +340,13 @@ ThemeData buildFadenTheme(FadenTokens tokens) {
       elevation: 0,
       modalElevation: 0,
       showDragHandle: false,
-      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(16))),
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(FadenRadii.sheet))),
     ),
     popupMenuTheme: PopupMenuThemeData(
-      color: dark ? const Color(0xFF14110E) : tokens.grund,
+      color: dark ? const Color(0xFF14110E) : tokens.karte,
       surfaceTintColor: Colors.transparent,
       textStyle: style(FadenTypeSizes.body, tokens.tinte),
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
     ),
     progressIndicatorTheme: ProgressIndicatorThemeData(
       color: tokens.faden,
@@ -317,10 +381,10 @@ ThemeData buildFadenTheme(FadenTokens tokens) {
       prefixIconColor: tokens.leiseAufFlaeche,
       suffixIconColor: tokens.leiseAufFlaeche,
       contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
-      border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
-      enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
+      border: OutlineInputBorder(borderRadius: BorderRadius.circular(14), borderSide: BorderSide.none),
+      enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(14), borderSide: BorderSide.none),
       focusedBorder: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: BorderRadius.circular(14),
         borderSide: BorderSide(color: tokens.faden, width: 1.5),
       ),
     ),
@@ -331,7 +395,8 @@ ThemeData buildFadenTheme(FadenTokens tokens) {
     ),
     // By day a filled button; with the night colours only a ring in
     // `faden`, like the main button (KONZEPT.md "Hauptbutton"), so no lit
-    // amber surface glows in the dark (decision E65).
+    // amber surface glows in the dark (decision E65). Primary actions are
+    // capsules (decision E76), like the outlined secondary ones.
     filledButtonTheme: FilledButtonThemeData(
       style: FilledButton.styleFrom(
         backgroundColor: dark ? Colors.transparent : tokens.faden,
@@ -339,7 +404,8 @@ ThemeData buildFadenTheme(FadenTokens tokens) {
         minimumSize: minTap,
         side: dark ? BorderSide(color: tokens.faden, width: 1.5) : null,
         textStyle: style(FadenTypeSizes.body, dark ? tokens.faden : tokens.grund, weight: FontWeight.w700),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        padding: const EdgeInsets.symmetric(horizontal: 24),
+        shape: const StadiumBorder(),
       ),
     ),
     outlinedButtonTheme: OutlinedButtonThemeData(
@@ -348,7 +414,8 @@ ThemeData buildFadenTheme(FadenTokens tokens) {
         minimumSize: minTap,
         side: BorderSide(color: tokens.linie),
         textStyle: style(FadenTypeSizes.body, tokens.faden),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        padding: const EdgeInsets.symmetric(horizontal: 24),
+        shape: const StadiumBorder(),
       ),
     ),
     textButtonTheme: TextButtonThemeData(

@@ -41,8 +41,9 @@ enum LibrarySort { recent, title, author, length }
 /// Gehört", as the book rows name a book's state.
 enum LibraryStatusFilter { all, started, unstarted, finished }
 
-/// "Liste" or grouped under author headers (decision E70).
-enum LibraryGrouping { list, author }
+/// "Liste", grouped under author headers (decision E70), or "Kacheln", a
+/// two-column grid of large covers (decision E73).
+enum LibraryGrouping { list, author, grid }
 
 /// How "Alle Bücher" is shown (decision E70): order, status filter,
 /// grouping and genre filter (null: every genre). Remembered per device;

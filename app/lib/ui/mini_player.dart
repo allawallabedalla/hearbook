@@ -9,6 +9,7 @@ import '../domain/event.dart' show EventSource;
 import '../domain/manifest.dart';
 import '../domain/position.dart';
 import '../l10n/strings.dart';
+import 'controls.dart';
 import 'cover.dart';
 import 'details_sheet.dart' show livePosition;
 import 'format.dart';
@@ -41,8 +42,8 @@ class MiniPlayer extends ConsumerWidget {
   /// Height of the bar's content, without the progress line and the
   /// bottom safe area.
   static const double barHeight = 64;
-  static const double lineThickness = 2;
-  static const double coverSize = 48;
+  static const double lineThickness = 3;
+  static const double coverSize = 44;
 
   const MiniPlayer({super.key});
 
@@ -61,77 +62,89 @@ class MiniPlayer extends ConsumerWidget {
 
     void openPlayer() => showPlayerScreen(Navigator.of(context));
 
+    // A floating card (decision E75) over the list's background, the book's
+    // progress as a thin thread along its lower edge.
     return ColoredBox(
       color: tokens.grund,
       child: SafeArea(
         top: false,
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            _ProgressLine(manifest: manifest, handler: handler, initial: initial, tokens: tokens),
-            Semantics(
-              button: true,
-              label: AppStrings.miniPlayerOpen,
-              child: GestureDetector(
-                behavior: HitTestBehavior.opaque,
-                onTap: openPlayer,
-                // A swipe up on the bar opens the player as well.
-                onVerticalDragEnd: (details) {
-                  if ((details.primaryVelocity ?? 0) < -200) openPlayer();
-                },
-                child: ConstrainedBox(
-                  constraints: const BoxConstraints(minHeight: barHeight),
-                  child: Padding(
-                    padding: const EdgeInsets.only(left: 16, right: 4),
-                    child: Row(
-                      children: [
-                        BookCover(bookId: bookId, title: title, size: coverSize, radius: 6),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: Column(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                title,
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: TextStyle(color: tokens.tinte, fontSize: FadenTypeSizes.body),
+        minimum: const EdgeInsets.only(bottom: 8),
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(12, 4, 12, 0),
+          child: FadenCard(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Semantics(
+                  button: true,
+                  label: AppStrings.miniPlayerOpen,
+                  child: GestureDetector(
+                    behavior: HitTestBehavior.opaque,
+                    onTap: openPlayer,
+                    // A swipe up on the bar opens the player as well.
+                    onVerticalDragEnd: (details) {
+                      if ((details.primaryVelocity ?? 0) < -200) openPlayer();
+                    },
+                    child: ConstrainedBox(
+                      constraints: const BoxConstraints(minHeight: barHeight),
+                      child: Padding(
+                        padding: const EdgeInsets.only(left: 10, right: 4, top: 8, bottom: 8),
+                        child: Row(
+                          children: [
+                            BookCover(bookId: bookId, title: title, size: coverSize, radius: 12),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: Column(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    title,
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: TextStyle(color: tokens.tinte, fontSize: FadenTypeSizes.body),
+                                  ),
+                                  PositionText(
+                                    handler: handler,
+                                    initial: initial,
+                                    text: (pos) =>
+                                        AppStrings.remainingTime(formatRemaining(remainingMsAt(manifest, pos))),
+                                    style: TextStyle(color: tokens.tinteLeise, fontSize: FadenTypeSizes.caption),
+                                    textAlign: TextAlign.start,
+                                  ),
+                                ],
                               ),
-                              PositionText(
-                                handler: handler,
-                                initial: initial,
-                                text: (pos) =>
-                                    AppStrings.remainingTime(formatRemaining(remainingMsAt(manifest, pos))),
-                                style: TextStyle(color: tokens.tinteLeise, fontSize: FadenTypeSizes.caption),
-                                textAlign: TextAlign.start,
-                              ),
-                            ],
-                          ),
+                            ),
+                            StreamBuilder<PlaybackStatus>(
+                              stream: handler.statusStream,
+                              initialData: handler.status,
+                              builder: (context, snap) {
+                                final status = snap.data ?? handler.status;
+                                return _PlayPauseButton(
+                                  action: miniPlayerAction(
+                                    playing: status.playing,
+                                    sleepSuspected: bookState.sleepSuspected,
+                                  ),
+                                  buffering: status.buffering,
+                                  tokens: tokens,
+                                  onOpenPlayer: openPlayer,
+                                );
+                              },
+                            ),
+                          ],
                         ),
-                        StreamBuilder<PlaybackStatus>(
-                          stream: handler.statusStream,
-                          initialData: handler.status,
-                          builder: (context, snap) {
-                            final status = snap.data ?? handler.status;
-                            return _PlayPauseButton(
-                              action: miniPlayerAction(
-                                playing: status.playing,
-                                sleepSuspected: bookState.sleepSuspected,
-                              ),
-                              buffering: status.buffering,
-                              tokens: tokens,
-                              onOpenPlayer: openPlayer,
-                            );
-                          },
-                        ),
-                      ],
+                      ),
                     ),
                   ),
                 ),
-              ),
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 16),
+                  child: _ProgressLine(manifest: manifest, handler: handler, initial: initial, tokens: tokens),
+                ),
+                const SizedBox(height: 8),
+              ],
             ),
-          ],
+          ),
         ),
       ),
     );
@@ -199,12 +212,7 @@ class _ProgressLine extends StatefulWidget {
   final Position initial;
   final FadenTokens tokens;
 
-  const _ProgressLine({
-    required this.manifest,
-    required this.handler,
-    required this.initial,
-    required this.tokens,
-  });
+  const _ProgressLine({required this.manifest, required this.handler, required this.initial, required this.tokens});
 
   @override
   State<_ProgressLine> createState() => _ProgressLineState();
@@ -238,15 +246,18 @@ class _ProgressLineState extends State<_ProgressLine> {
   Widget build(BuildContext context) {
     final globalMs = widget.manifest.globalMsFor(_pos) ?? 0;
     final heard = computeThreadLayout(manifest: widget.manifest, globalMs: globalMs).heardFraction;
-    return SizedBox(
-      height: MiniPlayer.lineThickness,
-      width: double.infinity,
-      child: ColoredBox(
-        color: widget.tokens.tinteLeiseFaden,
-        child: FractionallySizedBox(
-          alignment: Alignment.centerLeft,
-          widthFactor: heard,
-          child: ColoredBox(color: widget.tokens.faden),
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(MiniPlayer.lineThickness),
+      child: SizedBox(
+        height: MiniPlayer.lineThickness,
+        width: double.infinity,
+        child: ColoredBox(
+          color: widget.tokens.tinteLeiseFaden,
+          child: FractionallySizedBox(
+            alignment: Alignment.centerLeft,
+            widthFactor: heard,
+            child: ColoredBox(color: widget.tokens.faden),
+          ),
         ),
       ),
     );

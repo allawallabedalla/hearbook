@@ -19,6 +19,7 @@ import '../signals/sleep_timer.dart';
 import 'cover.dart';
 import 'details_sheet.dart';
 import 'faden_screen.dart';
+import 'controls.dart';
 import 'format.dart';
 import 'library_screen.dart';
 import 'providers.dart';
@@ -60,6 +61,10 @@ class PlayerScreen extends ConsumerStatefulWidget {
 
 class _PlayerScreenState extends ConsumerState<PlayerScreen> {
   late final FadenAudioHandler _handler;
+
+  /// Space before the bar's first tile: its 44 dp face (in a 56 dp target)
+  /// then starts at the body's 24 dp margin.
+  static const double _barInset = 24 - (fadenMinTapTarget - 44) / 2;
 
   /// What the sheets need to look and act like the player (E46); updated
   /// after every build that changes it.
@@ -315,10 +320,16 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
                   ? null
                   : AppBar(
                       automaticallyImplyLeading: false,
-                      leading: IconButton(
-                        tooltip: AppStrings.playerClose,
-                        icon: const Icon(Icons.keyboard_arrow_down, size: 32),
-                        onPressed: _close,
+                      // The bar's buttons sit on tiles (E72) whose visible
+                      // edge lines up with the player's 24 dp margin.
+                      leadingWidth: _barInset + fadenMinTapTarget,
+                      leading: Padding(
+                        padding: const EdgeInsets.only(left: _barInset),
+                        child: FadenTileButton(
+                          tooltip: AppStrings.playerClose,
+                          onPressed: _close,
+                          child: Icon(Icons.keyboard_arrow_down, size: 28, color: tokens.tinte),
+                        ),
                       ),
                       // Hell/Dunkel at hand (E69); not in the night view,
                       // which has no app bar and is always dark.
@@ -328,6 +339,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
                           onToggle: (dark) =>
                               ref.read(appearanceProvider.notifier).set(dark ? Appearance.dark : Appearance.light),
                         ),
+                        const SizedBox(width: _barInset),
                       ],
                     ),
               body: SafeArea(
@@ -412,7 +424,8 @@ class PlayerBody extends ConsumerWidget {
   });
 
   /// Smallest cover worth showing; below this (tiny screen, huge text)
-  /// the cover gives way to the text and controls.
+  /// the cover gives way to the text and controls, and the thread runs
+  /// straight in its place (E71).
   static const double minCover = 72;
 
   @override
@@ -429,74 +442,46 @@ class PlayerBody extends ConsumerWidget {
       padding: const EdgeInsets.symmetric(horizontal: 24),
       child: LayoutBuilder(
         builder: (context, constraints) {
-          final coverMax = math.min(
+          // The ring around the cover (E71) takes a little more than the
+          // bare cover did (E44: 38 % of the height).
+          final ringMax = math.min(
             constraints.maxWidth,
-            constraints.maxHeight * 0.38,
+            constraints.maxHeight * 0.42,
           );
           // Short screen with large text: tighter gaps so every control fits.
           final gap = constraints.maxHeight < 640 ? 0.5 : 1.0;
           return Column(
             children: [
-              if (night) ...[
-                Expanded(
-                  child: _NightBookInfo(
-                    session: session,
-                    tokens: tokens,
-                    coverSize: math.min(coverMax * 0.6, 180).floorToDouble(),
-                  ),
-                ),
-              ] else
-                Expanded(
-                  child: _BookInfo(
-                    session: session,
-                    tokens: tokens,
-                    coverMax: coverMax,
-                  ),
-                ),
-              SizedBox(height: 24 * gap),
-              // A drag down never starts on the thread or the scrubber:
-              // they are horizontal (E63).
-              NoDismissDrag(
-                child: Column(
-                  children: [
-                    PlayerThread(
-                      manifest: manifest,
-                      handler: handler,
-                      initial: initial,
-                      tokens: tokens,
-                    ),
-                    // The book's time left is the thread's caption (E65),
-                    // right under its unheard rest, as "−16:00" is the
-                    // scrubber's. Not in the night view (KONZEPT.md).
-                    if (!night) ...[
-                      const SizedBox(height: 6),
-                      Align(
-                        alignment: AlignmentDirectional.centerEnd,
-                        child: PositionText(
-                          handler: handler,
-                          initial: initial,
-                          textAlign: TextAlign.end,
-                          text: (pos) => AppStrings.remainingTime(
-                            formatRemaining(remainingMsAt(manifest, pos)),
-                          ),
-                          style: TextStyle(
-                            fontSize: FadenTypeSizes.caption,
-                            color: tokens.tinteLeise,
-                          ),
-                        ),
+              Expanded(
+                child: night
+                    ? _NightBookInfo(
+                        session: session,
+                        tokens: tokens,
+                        manifest: manifest,
+                        handler: handler,
+                        initial: initial,
+                        ringSize: math.min(ringMax * 0.6, 200).floorToDouble(),
+                      )
+                    : _BookInfo(
+                        session: session,
+                        tokens: tokens,
+                        manifest: manifest,
+                        handler: handler,
+                        initial: initial,
+                        ringMax: ringMax,
+                        gap: gap,
                       ),
-                    ],
-                    SizedBox(height: (night ? 12 : 10) * gap),
-                    // Per the user (E59): scrubbing belongs on the player
-                    // too, not only in the details sheet. Journaled seek
-                    // with undo.
-                    ChapterScrubber(
-                      manifest: manifest,
-                      handler: handler,
-                      initial: initial,
-                      night: night,
-                    ),
-                  ],
+              ),
+              SizedBox(height: 20 * gap),
+              // Per the user (E59): scrubbing belongs on the player too,
+              // not only in the details sheet. Journaled seek with undo. A
+              // drag down never starts on it: it is horizontal (E63).
+              NoDismissDrag(
+                child: ChapterScrubber(
+                  manifest: manifest,
+                  handler: handler,
+                  initial: initial,
+                  night: night,
                 ),
               ),
               SizedBox(height: 16 * gap),
@@ -515,7 +500,7 @@ class PlayerBody extends ConsumerWidget {
                         night: night,
                         onPressed: () => onSeek(-30),
                       ),
-                      const SizedBox(width: 24),
+                      const SizedBox(width: 28),
                       PlayerMainButton(
                         tokens: tokens,
                         night: night,
@@ -524,7 +509,7 @@ class PlayerBody extends ConsumerWidget {
                         sleepSuspected: bookState.sleepSuspected,
                         onPressed: onMainButton,
                       ),
-                      const SizedBox(width: 24),
+                      const SizedBox(width: 28),
                       _SeekButton(
                         icon: Icons.forward_30,
                         label: AppStrings.seekForwardAction,
@@ -574,9 +559,13 @@ class PlayerBody extends ConsumerWidget {
                   child: Text(AppStrings.resumeFromStop),
                 ),
               ],
-              if (night) const Spacer() else const SizedBox(height: 8),
+              if (night) const Spacer() else SizedBox(height: 12 * gap),
               _BottomStrip(
-                handle: _DetailsHandle(tokens: tokens, onTap: onOpenDetails),
+                manifest: manifest,
+                handler: handler,
+                initial: initial,
+                tokens: tokens,
+                onOpenDetails: onOpenDetails,
                 sleepTimerButton: sleepTimerButton,
               ),
             ],
@@ -600,51 +589,129 @@ class NoDismissDrag extends StatelessWidget {
       GestureDetector(onVerticalDragStart: (_) {}, child: child);
 }
 
-/// Cover, title and author (day look only). The chapter line lives on the
-/// chapter scrubber (E59), the remaining time under the thread (E65).
+/// The cover wrapped in the thread (E71), or -- when there is no room for
+/// a cover of [PlayerBody.minCover] -- the straight thread in its place.
+/// Fills the incoming width; at most [ringMax] wide.
+class _ThreadedCover extends StatelessWidget {
+  final PlayerSessionController session;
+  final FadenTokens tokens;
+  final Manifest manifest;
+  final FadenAudioHandler handler;
+  final Position initial;
+  final double ringMax;
+
+  /// Height kept free below (the night view's gap to the title).
+  final double reserve;
+  final bool night;
+
+  const _ThreadedCover({
+    required this.session,
+    required this.tokens,
+    required this.manifest,
+    required this.handler,
+    required this.initial,
+    required this.ringMax,
+    this.reserve = 0,
+    this.night = false,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final ring = [
+          ringMax,
+          constraints.maxWidth,
+          constraints.maxHeight - reserve,
+        ].reduce(math.min).floorToDouble();
+        final coverSize = ThreadRing.coverSizeFor(ring);
+        if (coverSize < PlayerBody.minCover) {
+          // No room for a cover: the thread runs straight, never dragged
+          // (E63).
+          return NoDismissDrag(
+            child: PlayerThread(manifest: manifest, handler: handler, initial: initial, tokens: tokens),
+          );
+        }
+        Widget cover = BookCover(
+          bookId: session.bookId!,
+          title: session.bookTitle ?? '',
+          size: coverSize,
+          radius: ThreadRing.coverRadiusFor(coverSize),
+        );
+        // Dimmed so it doesn't light up a dark bedroom (E59).
+        if (night) cover = Opacity(opacity: 0.45, child: cover);
+        return Padding(
+          padding: EdgeInsets.only(bottom: reserve),
+          child: SizedBox.square(
+            dimension: ring,
+            child: PlayerThread(
+              manifest: manifest,
+              handler: handler,
+              initial: initial,
+              tokens: tokens,
+              dim: night,
+              cover: cover,
+            ),
+          ),
+        );
+      },
+    );
+  }
+}
+
+/// Cover in its thread, the book's time left right under it (the thread's
+/// caption, E65/E71), title and author (day look only). The chapter line
+/// lives on the chapter scrubber (E59).
 class _BookInfo extends StatelessWidget {
   final PlayerSessionController session;
   final FadenTokens tokens;
-  final double coverMax;
+  final Manifest manifest;
+  final FadenAudioHandler handler;
+  final Position initial;
+  final double ringMax;
+  final double gap;
 
   const _BookInfo({
     required this.session,
     required this.tokens,
-    required this.coverMax,
+    required this.manifest,
+    required this.handler,
+    required this.initial,
+    required this.ringMax,
+    required this.gap,
   });
 
   @override
   Widget build(BuildContext context) {
     final title = session.bookTitle ?? '';
     final author = session.bookAuthor?.trim();
-    final secondary = TextStyle(
-      fontSize: FadenTypeSizes.body,
-      color: tokens.tinteLeise,
-    );
     return Column(
       mainAxisAlignment: MainAxisAlignment.center,
       children: [
         Flexible(
-          child: LayoutBuilder(
-            builder: (context, constraints) {
-              final size = [
-                coverMax,
-                constraints.maxWidth,
-                constraints.maxHeight - 20,
-              ].reduce(math.min).floorToDouble();
-              if (size < PlayerBody.minCover) return const SizedBox.shrink();
-              return Padding(
-                padding: const EdgeInsets.only(bottom: 20),
-                child: BookCover(
-                  bookId: session.bookId!,
-                  title: title,
-                  size: size,
-                  radius: 12,
-                ),
-              );
-            },
+          child: _ThreadedCover(
+            session: session,
+            tokens: tokens,
+            manifest: manifest,
+            handler: handler,
+            initial: initial,
+            ringMax: ringMax,
           ),
         ),
+        const SizedBox(height: 4),
+        PositionText(
+          handler: handler,
+          initial: initial,
+          text: (pos) => AppStrings.remainingTime(
+            formatRemaining(remainingMsAt(manifest, pos)),
+          ),
+          style: TextStyle(
+            fontSize: FadenTypeSizes.caption,
+            color: tokens.tinteLeise,
+            fontFeatures: const [FontFeature.tabularFigures()],
+          ),
+        ),
+        SizedBox(height: 14 * gap),
         Text(
           title,
           textAlign: TextAlign.center,
@@ -652,6 +719,7 @@ class _BookInfo extends StatelessWidget {
           overflow: TextOverflow.ellipsis,
           style: TextStyle(
             fontSize: FadenTypeSizes.display,
+            fontWeight: FontWeight.w700,
             color: tokens.tinte,
             height: 1.15,
           ),
@@ -664,7 +732,10 @@ class _BookInfo extends StatelessWidget {
               textAlign: TextAlign.center,
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
-              style: secondary,
+              style: TextStyle(
+                fontSize: FadenTypeSizes.body,
+                color: tokens.tinteLeise,
+              ),
             ),
           ),
       ],
@@ -673,20 +744,26 @@ class _BookInfo extends StatelessWidget {
 }
 
 /// The night view's book info (docs/KONZEPT.md "Nachtmodus", E54, E59):
-/// the dimmed cover and the title, small and in `tinte-leise`; no author,
-/// no remaining time. The current chapter is not repeated here: the
-/// chapter scrubber below names it, dimmed as well (E65).
+/// the dimmed cover in its dimmed thread (E71) and the title, small and in
+/// `tinte-leise`; no author, no remaining time. The current chapter is not
+/// repeated here: the chapter scrubber below names it, dimmed as well
+/// (E65).
 class _NightBookInfo extends StatelessWidget {
   final PlayerSessionController session;
   final FadenTokens tokens;
+  final Manifest manifest;
+  final FadenAudioHandler handler;
+  final Position initial;
+  final double ringSize;
 
   const _NightBookInfo({
     required this.session,
     required this.tokens,
-    required this.coverSize,
+    required this.manifest,
+    required this.handler,
+    required this.initial,
+    required this.ringSize,
   });
-
-  final double coverSize;
 
   @override
   Widget build(BuildContext context) {
@@ -694,26 +771,15 @@ class _NightBookInfo extends StatelessWidget {
       mainAxisAlignment: MainAxisAlignment.end,
       children: [
         Flexible(
-          child: LayoutBuilder(
-            builder: (context, constraints) {
-              final size = math
-                  .min(coverSize, constraints.maxHeight - 16)
-                  .floorToDouble();
-              if (size < PlayerBody.minCover) return const SizedBox.shrink();
-              return Padding(
-                padding: const EdgeInsets.only(bottom: 16),
-                // Dimmed so it doesn't light up a dark bedroom (E59).
-                child: Opacity(
-                  opacity: 0.45,
-                  child: BookCover(
-                    bookId: session.bookId!,
-                    title: session.bookTitle ?? '',
-                    size: size,
-                    radius: 12,
-                  ),
-                ),
-              );
-            },
+          child: _ThreadedCover(
+            session: session,
+            tokens: tokens,
+            manifest: manifest,
+            handler: handler,
+            initial: initial,
+            ringMax: ringSize,
+            reserve: 12,
+            night: true,
           ),
         ),
         Text(
@@ -799,12 +865,17 @@ class _PositionTextState extends State<PositionText> {
 }
 
 /// The Faden, the one element that follows the position live. Announces
-/// the heard share to screen readers.
+/// the heard share to screen readers. With a [cover] it runs around it
+/// ([ThreadRing], decision E71), otherwise straight ([ThreadProgress]).
 class PlayerThread extends StatefulWidget {
   final Manifest manifest;
   final FadenAudioHandler handler;
   final Position initial;
   final FadenTokens tokens;
+  final Widget? cover;
+
+  /// The night view: ring dimmed with the cover.
+  final bool dim;
 
   const PlayerThread({
     super.key,
@@ -812,6 +883,8 @@ class PlayerThread extends StatefulWidget {
     required this.handler,
     required this.initial,
     required this.tokens,
+    this.cover,
+    this.dim = false,
   });
 
   @override
@@ -853,7 +926,9 @@ class _PlayerThreadState extends State<PlayerThread> {
       container: true,
       label: AppStrings.threadLabel,
       value: AppStrings.threadValue((layout.heardFraction * 100).floor()),
-      child: ThreadProgress(layout: layout, tokens: widget.tokens),
+      child: widget.cover == null
+          ? ThreadProgress(layout: layout, tokens: widget.tokens)
+          : ThreadRing(layout: layout, tokens: widget.tokens, dim: widget.dim, child: widget.cover!),
     );
   }
 }
@@ -913,7 +988,9 @@ class PlayerMainButton extends StatelessWidget {
             ? OutlinedButton(
                 onPressed: onPressed,
                 style: OutlinedButton.styleFrom(
-                  shape: const CircleBorder(),
+                  // A squircle like the app icon (E72), at night only its
+                  // outline.
+                  shape: fadenSquircle,
                   padding: EdgeInsets.zero,
                   side: BorderSide(color: tokens.faden, width: 2),
                 ),
@@ -922,7 +999,7 @@ class PlayerMainButton extends StatelessWidget {
             : FilledButton(
                 onPressed: onPressed,
                 style: FilledButton.styleFrom(
-                  shape: const CircleBorder(),
+                  shape: fadenSquircle,
                   padding: EdgeInsets.zero,
                   backgroundColor: tokens.faden,
                   foregroundColor: tokens.grund,
@@ -951,17 +1028,17 @@ class _SeekButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // No tooltip: the icon's semantic label names the button.
-    return SizedBox.square(
-      dimension: fadenMinTapTarget,
-      child: IconButton(
-        icon: Icon(
-          icon,
-          size: 32,
-          color: night ? tokens.faden : tokens.tinte,
-          semanticLabel: label,
-        ),
-        onPressed: onPressed,
+    // On a tile (E72), so the target shows. No tooltip: the icon's
+    // semantic label names the button.
+    return FadenTileButton(
+      size: fadenMinTapTarget,
+      radius: FadenRadii.tileLarge,
+      onPressed: onPressed,
+      child: Icon(
+        icon,
+        size: 30,
+        color: night ? tokens.faden : tokens.tinte,
+        semanticLabel: label,
       ),
     );
   }
@@ -982,19 +1059,18 @@ class AppearanceToggle extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return SizedBox.square(
-      dimension: fadenMinTapTarget,
-      // No tooltip: the icon's semantic label names the button.
-      child: IconButton(
-        icon: Icon(
-          dark ? CupertinoIcons.sun_max : CupertinoIcons.moon,
-          size: 26,
-          semanticLabel: dark ? AppStrings.playerAppearanceLight : AppStrings.playerAppearanceDark,
-        ),
-        onPressed: () {
-          unawaited(HapticFeedback.selectionClick());
-          onToggle(!dark);
-        },
+    // On a tile like the close chevron (E72). No tooltip: the icon's
+    // semantic label names the button.
+    return FadenTileButton(
+      onPressed: () {
+        unawaited(HapticFeedback.selectionClick());
+        onToggle(!dark);
+      },
+      child: Icon(
+        dark ? CupertinoIcons.sun_max : CupertinoIcons.moon,
+        size: 22,
+        color: FadenTokens.of(context).tinte,
+        semanticLabel: dark ? AppStrings.playerAppearanceLight : AppStrings.playerAppearanceDark,
       ),
     );
   }
@@ -1029,18 +1105,18 @@ class SleepTimerButton extends StatelessWidget {
           label: AppStrings.detailsSleepTimer,
           value: text,
           excludeSemantics: true,
-          child: TextButton(
+          // A tile like the other controls (E72), as tall as the "Als
+          // Nächstes" strip beside it; it widens for the time left.
+          child: FadenTileButton(
             onPressed: onPressed,
-            style: TextButton.styleFrom(
-              foregroundColor: color,
-              minimumSize: const Size.square(fadenMinTapTarget),
-              padding: const EdgeInsets.symmetric(horizontal: 12),
-            ),
+            size: fadenMinTapTarget,
+            radius: FadenRadii.tileLarge,
+            padding: text == null ? 0 : 14,
             child: Row(
               mainAxisSize: MainAxisSize.min,
               children: [
                 // Moon with "zzz" (E69): sleep, not the Hell/Dunkel moon above.
-                Icon(CupertinoIcons.moon_zzz, size: 26, color: color),
+                Icon(CupertinoIcons.moon_zzz, size: 24, color: color),
                 if (text != null) ...[
                   const SizedBox(width: 6),
                   Flexible(
@@ -1067,25 +1143,112 @@ class SleepTimerButton extends StatelessWidget {
   }
 }
 
-/// The details grip across the full width, with the sleep timer's button
-/// at the right end (E61). The button never reaches the centred grip; a
-/// long label ("Kapitelende" at large text) scales down instead.
-class _BottomStrip extends StatelessWidget {
-  final Widget handle;
+/// The bottom of the player: what comes next and the way to the details
+/// (E74), with the sleep timer's tile at the right end (E61). While a next
+/// chapter exists, a strip "Als Nächstes: Kapitel 5 · Titel" peeks up
+/// here; a tap or a swipe up opens the details sheet. On the last chapter,
+/// or when the strip would be too narrow to say anything (a small phone
+/// with large text and a running timer), only the bare grip is left, as
+/// before. It costs no height of its own: the grip's 56 dp row holds it,
+/// so it never pushes a control off a small screen.
+///
+/// Follows the position, but rebuilds only when the chapter changes.
+class _BottomStrip extends StatefulWidget {
+  final Manifest manifest;
+  final FadenAudioHandler handler;
+  final Position initial;
+  final FadenTokens tokens;
+  final VoidCallback onOpenDetails;
   final Widget? sleepTimerButton;
 
-  const _BottomStrip({required this.handle, required this.sleepTimerButton});
+  const _BottomStrip({
+    required this.manifest,
+    required this.handler,
+    required this.initial,
+    required this.tokens,
+    required this.onOpenDetails,
+    required this.sleepTimerButton,
+  });
+
+  /// Narrower than this, the strip gives way to the bare grip.
+  static const double minPeekWidth = 140;
 
   /// Width of the grip bar plus some air on either side.
   static const double _gripClearance = 36 + 16;
 
   @override
+  State<_BottomStrip> createState() => _BottomStripState();
+}
+
+class _BottomStripState extends State<_BottomStrip> {
+  late int _chapter = _indexOf(widget.initial);
+  StreamSubscription<Position>? _sub;
+
+  int _indexOf(Position pos) => widget.manifest.indexOf(pos.fileHash);
+
+  @override
+  void initState() {
+    super.initState();
+    _sub = widget.handler.positionStream.listen((pos) {
+      final idx = _indexOf(pos);
+      if (idx != _chapter && mounted) setState(() => _chapter = idx);
+    });
+  }
+
+  @override
+  void didUpdateWidget(_BottomStrip oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.initial != widget.initial || oldWidget.manifest != widget.manifest) {
+      _chapter = _indexOf(widget.initial);
+    }
+  }
+
+  @override
+  void dispose() {
+    unawaited(_sub?.cancel());
+    super.dispose();
+  }
+
+  /// "Kapitel 5 · Titel", or just the title when it already says "Kapitel
+  /// 5"; null on the last chapter.
+  String? _next() {
+    final files = widget.manifest.files;
+    final idx = _chapter < 0 ? 0 : _chapter;
+    if (idx + 1 >= files.length) return null;
+    final label = AppStrings.chapterLabel(idx + 2);
+    final title = files[idx + 1].displayTitle(label);
+    return title.startsWith(label) ? title : AppStrings.playerNextChapter(label, title);
+  }
+
+  @override
   Widget build(BuildContext context) {
-    final button = sleepTimerButton;
-    if (button == null) return handle;
+    final next = _next();
+    final button = widget.sleepTimerButton;
     return LayoutBuilder(
       builder: (context, constraints) {
-        final slot = math.max(fadenMinTapTarget, (constraints.maxWidth - _gripClearance) / 2);
+        final buttonWidth = button == null ? 0.0 : _sleepButtonWidth(context);
+        final peekWidth = constraints.maxWidth - (button == null ? 0 : buttonWidth + 10);
+        if (next != null && peekWidth >= _BottomStrip.minPeekWidth) {
+          return Row(
+            children: [
+              Expanded(
+                child: _NextUpPeek(tokens: widget.tokens, next: next, onTap: widget.onOpenDetails),
+              ),
+              if (button != null) ...[
+                const SizedBox(width: 10),
+                // Never wider than the room left beside the strip; the
+                // tile scales its label down instead.
+                ConstrainedBox(
+                  constraints: BoxConstraints(maxWidth: constraints.maxWidth - _BottomStrip.minPeekWidth - 10),
+                  child: button,
+                ),
+              ],
+            ],
+          );
+        }
+        final handle = _DetailsHandle(tokens: widget.tokens, onTap: widget.onOpenDetails);
+        if (button == null) return handle;
+        final slot = math.max(fadenMinTapTarget, (constraints.maxWidth - _BottomStrip._gripClearance) / 2);
         return Stack(
           children: [
             handle,
@@ -1099,6 +1262,102 @@ class _BottomStrip extends StatelessWidget {
           ],
         );
       },
+    );
+  }
+
+  /// The sleep timer tile's width: the moon alone, or with a time left (a
+  /// rough measure; the tile itself scales a long label down).
+  double _sleepButtonWidth(BuildContext context) {
+    final state = (widget.sleepTimerButton as SleepTimerButton?)?.controller.state;
+    final text = state == null ? null : sleepTimerButtonText(state);
+    if (text == null) return fadenMinTapTarget;
+    final painter = TextPainter(
+      text: TextSpan(
+        text: text,
+        style: const TextStyle(
+          fontFamily: fadenFontFamily,
+          fontSize: FadenTypeSizes.caption,
+          fontFeatures: [FontFeature.tabularFigures()],
+        ),
+      ),
+      textDirection: TextDirection.ltr,
+      textScaler: MediaQuery.textScalerOf(context),
+      maxLines: 1,
+    )..layout();
+    final width = 14 + 24 + 6 + painter.width + 14;
+    painter.dispose();
+    return width;
+  }
+}
+
+/// "Als Nächstes" over "Kapitel 5 · Titel" on a tile, with an arrow up
+/// (E74): the details sheet peeking up. A tap opens it (a swipe up
+/// anywhere on the player does too). One VoiceOver element: "Details
+/// öffnen" with what comes next as its value. At least the grip's 56 dp
+/// high; only beyond a text size of about 1.4 does it grow.
+class _NextUpPeek extends StatelessWidget {
+  final FadenTokens tokens;
+  final String next;
+  final VoidCallback onTap;
+
+  const _NextUpPeek({required this.tokens, required this.next, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    final lead = AppStrings.playerNextUp;
+    final shape = RoundedRectangleBorder(borderRadius: BorderRadius.circular(FadenRadii.tileLarge));
+    return Semantics(
+      button: true,
+      label: AppStrings.detailsOpen,
+      value: '$lead $next',
+      excludeSemantics: true,
+      child: DecoratedBox(
+        decoration: ShapeDecoration(shape: shape, shadows: tokens.kachelSchatten),
+        child: Material(
+          color: tokens.karte,
+          shape: shape,
+          clipBehavior: Clip.antiAlias,
+          child: InkWell(
+            onTap: onTap,
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(minHeight: fadenMinTapTarget),
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(16, 5, 10, 5),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            lead,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                              fontSize: FadenTypeSizes.caption,
+                              height: 1.15,
+                              color: tokens.leiseAufKarte,
+                            ),
+                          ),
+                          Text(
+                            next,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(fontSize: FadenTypeSizes.caption, height: 1.2, color: tokens.tinte),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(width: 6),
+                    Icon(CupertinoIcons.chevron_up, size: 18, color: tokens.leiseAufKarte),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
     );
   }
 }
