@@ -184,6 +184,9 @@ class _FadenScreenState extends ConsumerState<FadenScreen> with SingleTickerProv
   /// recognised alternatives and "Früher" -- instead of closing at once.
   Future<void> _handleResolved(int globalMs) async {
     await _resumeTo(globalMs);
+    // Playback runs again: headphone buttons, the AirPods' sleep detection
+    // and the sleep timer must work normally while the result is shown.
+    _handler.exitFadenMode();
     _windowClock.stop();
     if (mounted) {
       setState(() {

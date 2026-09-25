@@ -449,6 +449,15 @@ void main() {
       await tearDownFaden(tester);
     });
 
+    testWidgets('the result frees the headphone buttons before "Fertig"', (tester) async {
+      await pumpFaden(tester);
+      expect(handler.fadenModeActive, isTrue);
+      await runToResult(tester, 20 * 60000);
+      expect(find.text(AppStrings.fadenResultFound), findsOneWidget);
+      expect(handler.fadenModeActive, isFalse);
+      await tearDownFaden(tester);
+    });
+
     testWidgets('on the result, a tap on empty space does nothing', (tester) async {
       await pumpFaden(tester);
       await runToResult(tester, 20 * 60000);
