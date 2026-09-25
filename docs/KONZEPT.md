@@ -113,7 +113,7 @@ Tagsüber indigo gefärbtes Garn auf kühlem Weiß. Nachts warmes Bernstein ohne
 | Download läuft | noch 240 MB |
 | Frage vor Mobilfunk | Über Mobilfunk laden? |
 | Datenmenge | 1 Std. ≈ 58 MB · Kapitel 3 ≈ 24 MB |
-| Server-Adresse, Beispiel | http://nas.local:8000 |
+| Server-Adresse, Beispiel | http://nas.local:8787 |
 | Wiedergabefehler | Kann nicht abspielen |
 | Nicht geladen, Server aus | Nicht geladen – der Server ist gerade nicht erreichbar. |
 | Hell/Dunkel im Player | Dunkel einschalten / Hell einschalten |

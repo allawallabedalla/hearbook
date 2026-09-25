@@ -382,7 +382,7 @@
   "libraryOpening": "Öffnet …",
   "@libraryOpening": { "description": "Bedienhilfe des Spinners in einer Buchzeile, solange das Buch noch nicht im Player bereit ist (E65)." },
 
-  "settingsServerUrlHint": "http://nas.local:8000",
+  "settingsServerUrlHint": "http://nas.local:8787",
   "@settingsServerUrlHint": { "description": "Beispieladresse im leeren Adressfeld (E65)." },
 
   "settingsTokenShow": "Token zeigen",

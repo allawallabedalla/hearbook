@@ -162,7 +162,7 @@ class AppStrings {
     'reviewLoadFailed': 'Die Reihenfolgen ließen sich nicht laden. Bitte erneut versuchen.',
     'confirmManifestFailed': 'Die Reihenfolge ließ sich nicht übernehmen. Bitte erneut versuchen.',
     'libraryOpening': 'Öffnet …',
-    'settingsServerUrlHint': 'http://nas.local:8000',
+    'settingsServerUrlHint': 'http://nas.local:8787',
     'settingsTokenShow': 'Token zeigen',
     'settingsTokenHide': 'Token verbergen',
     'settingsCellularChapters': 'Über Mobilfunk kapitelweise laden',
